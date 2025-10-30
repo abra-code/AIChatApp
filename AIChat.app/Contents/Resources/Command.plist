@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>COMMAND_LIST</key>
+	<array>
+		<dict>
+			<key>EXECUTION_MODE</key>
+			<string>exe_script_file</string>
+			<key>NAME</key>
+			<string>AIChat</string>
+			<key>REQUIRED_MAC_OS_MIN_VERSION</key>
+			<string>11.0</string>
+			<key>REQUIRED_OMC_VERSION</key>
+			<string>4.3</string>
+		</dict>
+		<dict>
+			<key>COMMAND_ID</key>
+			<string>aichat.new</string>
+			<key>EXECUTION_MODE</key>
+			<string>exe_popen</string>
+			<key>NAME</key>
+			<string>AIChat</string>
+			<key>NIB_DIALOG</key>
+			<dict>
+				<key>INIT_SUBCOMMAND_ID</key>
+				<string>aichat.init</string>
+				<key>IS_BLOCKING</key>
+				<false/>
+				<key>NIB_NAME</key>
+				<string>AIChat</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>COMMAND_ID</key>
+			<string>aichat.init</string>
+			<key>EXECUTION_MODE</key>
+			<string>exe_script_file</string>
+			<key>NAME</key>
+			<string>AIChat</string>
+			<key>ENVIRONMENT_VARIABLES</key>
+			<dict>
+				<key>OMC_FRONT_PROCESS_ID</key>
+				<string></string>
+			</dict>
+		</dict>
+		<dict>
+			<key>COMMAND</key>
+			<array>
+				<string>#using $OMC_DLG_CHOOSE_FILE_PATH</string>
+			</array>
+			<key>CHOOSE_FILE_DIALOG</key>
+			<dict>
+				<key>MESSAGE</key>
+				<string>Select a GGUF file</string>
+				<key>SHOW_INVISIBLE_ITEMS</key>
+				<true/>
+			</dict>
+			<key>COMMAND_ID</key>
+			<string>aichat.open.from.file.browser</string>
+			<key>EXECUTION_MODE</key>
+			<string>exe_script_file</string>
+			<key>NAME</key>
+			<string>AIChat</string>
+		</dict>
+		<dict>
+			<key>COMMAND_ID</key>
+			<string>app.will.terminate</string>
+			<key>EXECUTION_MODE</key>
+			<string>exe_script_file</string>
+			<key>WAIT_FOR_TASK_COMPLETION</key>
+			<true/>
+			<key>NAME</key>
+			<string>AIChat</string>
+			<key>ENVIRONMENT_VARIABLES</key>
+			<dict>
+				<key>OMC_FRONT_PROCESS_ID</key>
+				<string></string>
+			</dict>
+		</dict>
+	</array>
+	<key>VERSION</key>
+	<integer>2</integer>
+</dict>
+</plist>
