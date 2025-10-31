@@ -113,29 +113,32 @@ wait_for_server_response()
 
 report_server_launch_failure()
 {
-	local alert="$OMC_OMC_SUPPORT_PATH/alert"
 	local message=$(echo "llama-server failed to launch! \n\nVerify if the selected large language model is supported by llama.cpp engine.")
 	echo "$message"
-	"$alert" --level "stop" --title "AIChat" --ok "OK" "$message"
+	"$alert" --level "stop" --title "$APPLET_NAME" --ok "OK" "$message"
 }
 
 echo "OMC_CURRENT_COMMAND_GUID: ${OMC_CURRENT_COMMAND_GUID}"
 echo "OMC_NIB_DLG_GUID: ${OMC_NIB_DLG_GUID}"
 echo "OMC_FRONT_PROCESS_ID: ${OMC_FRONT_PROCESS_ID}"
-echo "prefs: $prefs"
+echo "AICHAT_MODEL_PATH: $AICHAT_MODEL_PATH"
 
 llama_server_pid=""
 
 if [ -z "${AICHAT_MODEL_PATH}" ] && [ -n "${OMC_OBJ_PATH}" ]; then
 	# from objected dropped on app
 	AICHAT_MODEL_PATH="$OMC_OBJ_PATH"
-else
-	# from navigation services open dialog
+	echo "GGUF file dropped on app: AICHAT_MODEL_PATH: $AICHAT_MODEL_PATH"
+elif [ -z "$AICHAT_MODEL_PATH" ]; then
 	AICHAT_MODEL_PATH=$("$pasteboard" "AICHAT_MODEL_PATH" get);
+	echo "GGUF from open dialog: AICHAT_MODEL_PATH: $AICHAT_MODEL_PATH"
 	"$pasteboard" "AICHAT_MODEL_PATH" set ""
 fi
 
 if [ -z "$AICHAT_MODEL_PATH" ]; then
+	alert_message="Model path not specified"
+	echo "$alert_message"
+	"$alert" --level "stop" --title "$APPLET_NAME" --ok "OK" "$alert_message"
 	exit 1
 fi
 
