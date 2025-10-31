@@ -1,0 +1,7 @@
+In order to extract the index.html from the llama-server for modifications, we need to start the server with some model and then run:
+/usr/bin/curl -H "Accept-Encoding: gzip" -X GET http://127.0.0.1:8080 > ~/index.gzip
+Uncompressed gzip is a self-contained HTML which we can modify and place in WebUI resources for custom appearance.
+
+index.gzip extracted from current llama.cpp release:
+https://github.com/ggml-org/llama.cpp/releases/tag/b6895
+is provided here for reference and to diff AIChat modifications.
