@@ -88,6 +88,37 @@ stop_orphaned_servers()
 	done <<< "$host_pids"
 }
 
+wait_for_server_response()
+{
+	local seconds_count=0
+	while true; do
+		# wait until we get a response from server
+		/usr/bin/curl "http://localhost:$port_num/slots" > /dev/null 2>&1
+		local server_response_result=$?
+		if [ "$server_response_result" = 0 ]; then
+			echo "server became responsive after $seconds_count seconds"
+			break
+		fi
+		
+		# or 5 seconds pass
+		seconds_count=$((seconds_count + 1))
+		if [ "$seconds_count" -ge 5 ]; then	
+			echo "warning: timed out after $seconds_count seconds while waiting for server response"
+			break
+		fi
+		
+		sleep 1
+	done
+}
+
+report_server_launch_failure()
+{
+	local alert="$OMC_OMC_SUPPORT_PATH/alert"
+	local message=$(echo "llama-server failed to launch! \n\nVerify if the selected large language model is supported by llama.cpp engine.")
+	echo "$message"
+	"$alert" --level "stop" --title "AIChat" --ok "OK" "$message"
+}
+
 echo "OMC_CURRENT_COMMAND_GUID: ${OMC_CURRENT_COMMAND_GUID}"
 echo "OMC_NIB_DLG_GUID: ${OMC_NIB_DLG_GUID}"
 echo "OMC_FRONT_PROCESS_ID: ${OMC_FRONT_PROCESS_ID}"
@@ -124,12 +155,21 @@ if [ $? != 0 ]; then
 	"$OMC_APP_BUNDLE_PATH/Contents/Support/Llama.cpp/llama-server" --host 127.0.0.1 --port $port_num --path "$webui_dir_path" --model "$AICHAT_MODEL_PATH" &
 	llama_server_pid=$!
 	if [ "$llama_server_pid" != "" ]; then
-		echo "Register server with pid $llama_server_pid"
-		register_started_server "${OMC_FRONT_PROCESS_ID}" "${llama_server_pid}" "$AICHAT_MODEL_PATH"	
 		sleep 1
+		/bin/ps -p "$llama_server_pid"
+		server_process_exists=$?
+		if [ "$server_process_exists" != 0 ]; then
+			# server exited. most likely something wrong with selected gguf model
+			report_server_launch_failure
+		else
+			# server process running, check if it is responsive
+			wait_for_server_response
+			
+			echo "Register server with pid $llama_server_pid"
+			register_started_server "${OMC_FRONT_PROCESS_ID}" "${llama_server_pid}" "$AICHAT_MODEL_PATH"	
+		fi
 	else
-		echo "failed to start llama-server"
-		# TODO: notify user
+		report_server_launch_failure
 	fi
 	
 else

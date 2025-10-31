@@ -18,7 +18,7 @@
 			<key>COMMAND_ID</key>
 			<string>aichat.new</string>
 			<key>EXECUTION_MODE</key>
-			<string>exe_popen</string>
+			<string>exe_shell_script</string>
 			<key>NAME</key>
 			<string>AIChat</string>
 			<key>NIB_DIALOG</key>

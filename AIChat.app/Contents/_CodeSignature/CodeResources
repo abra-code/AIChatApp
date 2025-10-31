@@ -30,15 +30,15 @@
 		</data>
 		<key>Resources/Command.plist</key>
 		<data>
-		Mwdc9vAmFh/KofLMstijj6QQevk=
+		678nv9/TDzuXgE63uwGKwQDpT6Q=
 		</data>
 		<key>Resources/Credits.rtf</key>
 		<data>
-		F2QFOMW0RK12Ajj2zU0ha06Jd2c=
+		KeEX0DoGJ1UOscXZunO33kHNtTI=
 		</data>
 		<key>Resources/Scripts/aichat.init.sh</key>
 		<data>
-		Ho7flElu87OuaxO3TTfU+MNeVwY=
+		11KydEjYUfMYI0c5JCXIZ4e3gok=
 		</data>
 		<key>Resources/Scripts/aichat.library.sh</key>
 		<data>
@@ -66,7 +66,7 @@
 		</data>
 		<key>Resources/WebUI/index.html</key>
 		<data>
-		JhfNCs/7brQcGbYL0oEyvYXixtc=
+		5bS+cFztv8nuq0qJWTgOg/ag4ho=
 		</data>
 		<key>Resources/en.lproj/InfoPlist.strings</key>
 		<dict>
@@ -84,10 +84,10 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			V+Q26iXHtJX2wmI1UrRlVRbUur8=
+			o8IQSXBQK7JuZhIE2w0xyQNC5xI=
 			</data>
 			<key>requirement</key>
-			<string>cdhash H"57e436ea25c7b495f6c2623552b4655516d4babf" or cdhash H"694918dd1f766b79afad8a8a0c15c4c1c8ce6ed6"</string>
+			<string>identifier "com.abracode.AIChat" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = T9NM2ZLDTY</string>
 		</dict>
 		<key>Resources/AIChat.icns</key>
 		<dict>
@@ -135,21 +135,21 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			hhauyglIZ+/qxyUEf0h19tec/ZMnaZnNDBuH8BRrJfw=
+			HtA9SvSlX8cQolZHWa0dIsU2S8LVvCDtmztxT7qz7Hg=
 			</data>
 		</dict>
 		<key>Resources/Credits.rtf</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			o/VYXtT0sdrRw4eLC6OoVNrYO5qhbzmklYXsrHylFA4=
+			hUbSVI70tPPtqJpvKmAUYdzkG0iU/ui81b8cxfcfhf4=
 			</data>
 		</dict>
 		<key>Resources/Scripts/aichat.init.sh</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			rkZPso0v/QatWGND8bpQ7juujzbQI+qu1KnpntRJyQE=
+			b3EVEqIM+Yw9cFHgr/d6KDJYIm9N+KeAV2yOweGY9uU=
 			</data>
 		</dict>
 		<key>Resources/Scripts/aichat.library.sh</key>
@@ -198,7 +198,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			Au8gcwWswvb/eqho48JybOtw23Ur/PhSEj4aDHcW08w=
+			BR5qm+/eczqZyMDcPQoqrPewuhvSIYwgA+yNkDEsD7g=
 			</data>
 		</dict>
 		<key>Resources/en.lproj/InfoPlist.strings</key>
@@ -214,63 +214,63 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			pC9uuvBgMb5cgriWYMAuPNmLX17SJ76OggG3TtTU4Ic=
+			XxcfIP71ng2BCZWs4mHnj7p+RQDawrdINnumT7Sxlz4=
 			</data>
 		</dict>
 		<key>Support/Llama.cpp/libggml-blas.dylib</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			zD2fCSfMw0qqpnsnJGNZ+r9h37pnX6BMb8BxE5aZw7g=
+			K494q+hg3Lydgege88/N5fvUNc6QP5YL/IPedmqBYCo=
 			</data>
 		</dict>
 		<key>Support/Llama.cpp/libggml-cpu.dylib</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			dN0GKzzd46RCf3VpV5Y+2g3B9k+WaUyOe0p+h6vnS/c=
+			KbuLlsBuryPeB1Dp5mZIjFPg7BA2xEuxSOyhc+8a64A=
 			</data>
 		</dict>
 		<key>Support/Llama.cpp/libggml-metal.dylib</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			Tc1CfYDbv+FKhf9hFQt6H+JaTam7twoTIyV3K1r1TKU=
+			U6AB4QSgkRASGiW4J8Y0He/DF+ZFgag4domz9OILBLw=
 			</data>
 		</dict>
 		<key>Support/Llama.cpp/libggml-rpc.dylib</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			5K8cvx6mgyZHt5e41dQJG/5qwX6Zw9/b9+O/reWfoTo=
+			8+5s72EYEAhgh0B/DCVC2/rC/sd4ws17iAaSvEeQAUQ=
 			</data>
 		</dict>
 		<key>Support/Llama.cpp/libggml.dylib</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			kYh51Td2RPHVHoDJPF8OHyAzojwArr1Fn/hu7cd/Rzo=
+			zl665QKA3e7EaX0FR+JI1TFKCxye/4ohhTlrmTnJQeY=
 			</data>
 		</dict>
 		<key>Support/Llama.cpp/libllama.dylib</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			v+6v8dtxt1q4hz+BPsVP/T2uU0nA4pcmedxJGg2aywY=
+			f0fPWlxZuS9QSyAHuvheYYKOpoYpDBdKfQ7L0BnzPdQ=
 			</data>
 		</dict>
 		<key>Support/Llama.cpp/libmtmd.dylib</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			LFjtme3aVkTBKU3CI5MckA8mWY+a5Urg1rOXu23TSaw=
+			bo1sJEDcwjM9O733Z8u81EEFyYvCFp7lPF0So6bpeBk=
 			</data>
 		</dict>
 		<key>Support/Llama.cpp/llama-server</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			ZAmR0KhXuk+e8dwrgP57j9C1Hewvlij9Z1hZtgdGISE=
+			GR54mZPi2spbCIlJUp4kYfLO5b8JNBy6ufGaXzJb7sM=
 			</data>
 		</dict>
 	</dict>
