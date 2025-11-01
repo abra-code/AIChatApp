@@ -4,6 +4,8 @@ source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.library.sh"
 
 echo "[$(/usr/bin/basename "$0")]"
 
+webui_dir_path="$OMC_APP_BUNDLE_PATH/Contents/Resources/WebUI"
+
 register_started_server()
 {
 	local host_pid="$1"
@@ -90,7 +92,9 @@ stop_orphaned_servers()
 
 wait_for_server_response()
 {
+	local result=0
 	local seconds_count=0
+	
 	while true; do
 		# wait until we get a response from server
 		/usr/bin/curl "http://localhost:$port_num/slots" > /dev/null 2>&1
@@ -100,15 +104,23 @@ wait_for_server_response()
 			break
 		fi
 		
-		# or 5 seconds pass
+		# or 20 seconds pass
 		seconds_count=$((seconds_count + 1))
-		if [ "$seconds_count" -ge 5 ]; then	
-			echo "warning: timed out after $seconds_count seconds while waiting for server response"
+		if [ "$seconds_count" -ge 20 ]; then
+			local message=$(echo "Timed out after $seconds_count seconds while waiting for llama-server response.\n\nPlease try again")
+			echo "$message"
+			"$alert" --level "stop" --title "$APPLET_NAME" --ok "OK" "$message"
+			result=13
 			break
+		elif [ "$seconds_count" -eq 5 ]; then
+			echo "$dialog $OMC_NIB_DLG_GUID 2 file://${webui_dir_path}/start_slow.html"
+			"$dialog" "$OMC_NIB_DLG_GUID" 2 "file://${webui_dir_path}/start_slow.html"
 		fi
 		
 		sleep 1
 	done
+	
+	return "$result"
 }
 
 report_server_launch_failure()
@@ -116,7 +128,13 @@ report_server_launch_failure()
 	local message=$(echo "llama-server failed to launch! \n\nVerify if the selected large language model is supported by llama.cpp engine.")
 	echo "$message"
 	"$alert" --level "stop" --title "$APPLET_NAME" --ok "OK" "$message"
+	return 11
 }
+
+
+echo "$dialog $OMC_NIB_DLG_GUID 2 file://${webui_dir_path}/start.html"
+"$dialog" "$OMC_NIB_DLG_GUID" 2 "file://${webui_dir_path}/start.html"
+echo ""
 
 echo "OMC_CURRENT_COMMAND_GUID: ${OMC_CURRENT_COMMAND_GUID}"
 echo "OMC_NIB_DLG_GUID: ${OMC_NIB_DLG_GUID}"
@@ -148,13 +166,14 @@ stop_orphaned_servers
 
 # /usr/bin/curl "http://localhost:$port_num/slots" > /dev/null 2>&1
 
+server_result=0
+
 echo "Check if the required llama-server with selected model is already running"
 running_process=$(/bin/ps -U $USER | /usr/bin/grep -E "$OMC_APP_BUNDLE_PATH/Contents/Support/Llama.cpp/llama-server" | /usr/bin/grep -E "$port_num" | /usr/bin/grep -E "$AICHAT_MODEL_PATH")
 
 if [ $? != 0 ]; then
 	echo "Starting llama-server..."
 	# start the server
-	webui_dir_path="$OMC_APP_BUNDLE_PATH/Contents/Resources/WebUI"
 	"$OMC_APP_BUNDLE_PATH/Contents/Support/Llama.cpp/llama-server" --host 127.0.0.1 --port $port_num --path "$webui_dir_path" --model "$AICHAT_MODEL_PATH" &
 	llama_server_pid=$!
 	if [ "$llama_server_pid" != "" ]; then
@@ -164,23 +183,33 @@ if [ $? != 0 ]; then
 		if [ "$server_process_exists" != 0 ]; then
 			# server exited. most likely something wrong with selected gguf model
 			report_server_launch_failure
+			server_result=$?
 		else
 			# server process running, check if it is responsive
 			wait_for_server_response
+			server_result=$?
 			
 			echo "Register server with pid $llama_server_pid"
 			register_started_server "${OMC_FRONT_PROCESS_ID}" "${llama_server_pid}" "$AICHAT_MODEL_PATH"	
 		fi
 	else
 		report_server_launch_failure
+		server_result=$?
 	fi
 	
 else
 	llama_server_pid=$(echo "$running_process" | /usr/bin/grep -E --only-matching '^ *[[:digit:]]+ ' | /usr/bin/tr -d ' ')
 	echo "llama-server already running with pid: $running_process"
+	server_result=0
 fi
 
-echo ""
-echo "$dialog $OMC_NIB_DLG_GUID 2 http://localhost:$port_num/"
-"$dialog" "$OMC_NIB_DLG_GUID" 2 "http://localhost:$port_num/"
+if [ "$server_result" = 0 ]; then
+	echo ""
+	echo "$dialog $OMC_NIB_DLG_GUID 2 http://localhost:$port_num/"
+	"$dialog" "$OMC_NIB_DLG_GUID" 2 "http://localhost:$port_num/"
+else
+	echo ""
+	echo "$dialog $OMC_NIB_DLG_GUID 2 file://${webui_dir_path}/start_error.html?port=$port_num"
+	"$dialog" "$OMC_NIB_DLG_GUID" 2 "file://${webui_dir_path}/start_error.html?port=$port_num"
+fi
 

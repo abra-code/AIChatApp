@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Local Llama Server Error</title>    
+    <script>
+        window.onload = function () {
+            const currentURL = window.location.href;
+            const url = new URL(currentURL);
+            const params = new URLSearchParams(url.search);
+            port = params.get('port');
+
+            // Check if port exists and construct the URL
+            if (!port) {
+            	port = 8080
+            }
+			const constructedURL = `http://localhost:${port}/`;
+			document.getElementById('server_link').innerHTML = `<a href="${constructedURL}">Try loading anyway</a>`;
+        };
+    </script>
+<body>
+	<div style="display: block; margin-top: 200px; text-align: center; height: 300vh; align-items: center; justify-content: center;">
+        <h3>Local Llama server error</h3>
+        <p>There was a problem starting local Llama server</p>
+    </div>
+    <div id="server_link" style="display: block; margin-top: 200px; text-align: center; height: 300vh; align-items: center; justify-content: center;"></div>
+</body>
+</html>
