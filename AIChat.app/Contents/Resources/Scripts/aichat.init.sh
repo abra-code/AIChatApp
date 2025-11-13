@@ -131,6 +131,99 @@ report_server_launch_failure()
 	return 11
 }
 
+params_from_gguf_filename()
+{
+	local model_path="$1"
+	local filename=$(/usr/bin/basename "${model_path}")
+	
+	# Extract SizeLabel (e.g., 7B, 8x7B, 13B, 3.8B)
+	local size_label=$(echo "$filename" | /usr/bin/grep -oE '([0-9]+x)?[0-9]+\.?[0-9]*[Bb]' | /usr/bin/tail -n -1)
+
+	# Handle MoE: extract second number (e.g., 8x7B → 7B)
+	if [[ "$size_label" == *x*B ]]; then
+	  size_label=$(echo "$size_label" | /usr/bin/grep -oE '[0-9]+\.?[0-9]*[Bb]')
+	fi
+
+	# Extract numeric part and unit
+	local number=$(echo "$size_label" | /usr/bin/grep -oE '[0-9]+\.?[0-9]*')
+	local unit=$(echo "$size_label" | /usr/bin/grep -oE '[Bb]')
+
+	if [ "$unit" = "B" ] || [ "$unit" = "b" ]; then
+		# rounded params count
+	  printf "%.0f\n" "${number}"
+	  return 0
+	fi
+
+	echo "0"
+}
+
+# Apple has shipped 8, 16, 24, 32, 36 & 48 GB of unified RAM in Apple Silicon Macs
+# we aim to have a context size fitting N-4GB, except 8GB where we go more agressively towards 8GB (does it work?)
+calculate_context_optimal_size()
+{
+	local model_path="$1"
+	
+	local file_size=$(/usr/bin/stat -f%z "${model_path}")
+	# Convert file size to GB with bc
+	local file_size_gb=$(echo "scale=2; ${file_size} / (1024 * 1024 * 1024)" | /usr/bin/bc -l)
+
+	# Estimate model memory (1.2x rule)
+	local model_memory_gb=$(echo "scale=2; ${file_size_gb} * 1.2" | /usr/bin/bc -l)
+
+	local ram_bytes=$(/usr/sbin/sysctl -n hw.memsize)
+	local ram_gb=$(echo "scale=0; ${ram_bytes} / (1024 * 1024 * 1024)" | /usr/bin/bc -l)
+	# we need minimum 2GB of extra RAM not to destabilize the system 
+	local model_exceeds_ram=$(echo "scale=2; ${model_memory_gb} > (${ram_gb} - 2)" | /usr/bin/bc -l)
+	
+	# ATTENTION: bc tool returns 1 for true and 0 for false when evaluating comparison expressions 
+	if [ "$model_exceeds_ram" -eq 1 ]; then
+	  # echo "Warning: Model requires ~${model_memory_gb} GB, but only $(($ram_gb - 2)) GB available after system reserve."
+	  # try with tiny context size
+	  context_size=1024
+	  echo "${context_size}"
+	  return 0
+	fi
+	
+	local extra_ram_gb=$(echo "scale=2; ${ram_gb} - ${model_memory_gb}" | /usr/bin/bc -l)
+	# rounded to the nearest integer
+	extra_ram_gb=$(printf "%.0f" "${extra_ram_gb}")
+	
+	# the more we have extra RAM the bigger we can pick the RAM reserve for the system and other processes
+	# 2GB is the smallest default, let's check if we can make it higher
+	local ram_reserve_gb=2
+	
+	if [ "${extra_ram_gb}" -ge "16" ]; then
+		ram_reserve_gb=6
+	elif [ "${extra_ram_gb}" -ge "12" ]; then
+		ram_reserve_gb=5
+	elif [ "${extra_ram_gb}" -ge "8" ]; then
+		ram_reserve_gb=4
+	elif [ "${extra_ram_gb}" -ge "6" ]; then
+		ram_reserve_gb=3
+	fi
+	
+	local available_for_context_gb=$(echo "scale=2; ${ram_gb} - ${model_memory_gb} - ${ram_reserve_gb}" | /usr/bin/bc -l)
+	
+	# Conservative context estimate: ~0.15 GB per 1000 tokens (for 7B–13B models)
+	local gb_per_thousand="0.15"
+	local param_count=$(params_from_gguf_filename "${model_path}")
+	
+	if [ "${param_count}" -ge "30" ]; then
+		gb_per_thousand="0.3"
+	elif [ "${param_count}" -ge "20" ]; then
+		gb_per_thousand="0.25"
+	elif [ "${param_count}" -ge "14" ]; then
+		gb_per_thousand="0.2"
+	fi
+	
+	local context_per_gb=$(echo "scale=2; 1000 / ${gb_per_thousand}" | /usr/bin/bc -l)
+	local context_size=$(echo "scale=2; ${available_for_context_gb} * ${context_per_gb}" | /usr/bin/bc -l)
+	local size_kb=$(echo "scale=0; ${context_size}/1024" | /usr/bin/bc -l)
+
+	echo $(( $size_kb * 1024 )) 
+
+	return 0
+}
 
 echo "$dialog $OMC_NIB_DLG_GUID 2 file://${webui_dir_path}/start.html"
 "$dialog" "$OMC_NIB_DLG_GUID" 2 "file://${webui_dir_path}/start.html"
@@ -173,8 +266,13 @@ running_process=$(/bin/ps -U $USER | /usr/bin/grep -E "$OMC_APP_BUNDLE_PATH/Cont
 
 if [ $? != 0 ]; then
 	echo "Starting llama-server..."
+	
+	context_size=$(calculate_context_optimal_size "${AICHAT_MODEL_PATH}")
+	
 	# start the server
-	"$OMC_APP_BUNDLE_PATH/Contents/Support/Llama.cpp/llama-server" --host 127.0.0.1 --port $port_num --path "$webui_dir_path" --model "$AICHAT_MODEL_PATH" &
+	echo "$OMC_APP_BUNDLE_PATH/Contents/Support/Llama.cpp/llama-server --host 127.0.0.1 --port $port_num --ctx-size ${context_size} --context-shift --path $webui_dir_path --model $AICHAT_MODEL_PATH"
+
+	"$OMC_APP_BUNDLE_PATH/Contents/Support/Llama.cpp/llama-server" --host 127.0.0.1 --port $port_num --ctx-size ${context_size} --context-shift --path "$webui_dir_path" --model "$AICHAT_MODEL_PATH" &
 	llama_server_pid=$!
 	if [ "$llama_server_pid" != "" ]; then
 		sleep 1
