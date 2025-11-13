@@ -14,11 +14,11 @@
 		</data>
 		<key>Resources/Base.lproj/AIChat.nib/designable.nib</key>
 		<data>
-		PgoZSKWRLuPJrkILx+ixE8p+Xps=
+		G80PyG5XaiOQ41CeAvX+MtSUjes=
 		</data>
 		<key>Resources/Base.lproj/AIChat.nib/keyedobjects.nib</key>
 		<data>
-		fxyMkGFgsNeUBVSfpQMygdGkOvk=
+		6AjkS6x0JjYqpQcVMhpQNOx2sVg=
 		</data>
 		<key>Resources/Base.lproj/MainMenu.nib/designable.nib</key>
 		<data>
@@ -38,11 +38,11 @@
 		</data>
 		<key>Resources/Scripts/aichat.init.sh</key>
 		<data>
-		11KydEjYUfMYI0c5JCXIZ4e3gok=
+		cc4PTehZeX4rkuhdkU8pxCRyVis=
 		</data>
 		<key>Resources/Scripts/aichat.library.sh</key>
 		<data>
-		cCPIXTBUoQ5HV45CkDJFuJ1Wm+M=
+		fLYKTHu9+W0wdiX9DHbVgRE2IHA=
 		</data>
 		<key>Resources/Scripts/aichat.open.from.file.browser.sh</key>
 		<data>
@@ -58,21 +58,33 @@
 		</data>
 		<key>Resources/Scripts/webkit.client.js</key>
 		<data>
-		l75mS8Jl8R+e+NJ+xwfu8UdWC/0=
+		xjRaEU+K3PPO/Av1gx5R6s4/Azs=
 		</data>
 		<key>Resources/WebUI/AIChat.png</key>
 		<data>
-		A7UmPm0E4g8oXw0r9qwZN9SkwAo=
+		zJK5yBGdrIXC2j8W5qUhPW53Gno=
 		</data>
 		<key>Resources/WebUI/index.html</key>
 		<data>
-		5bS+cFztv8nuq0qJWTgOg/ag4ho=
+		UknCQ9TLIfvPVhp+5zMJdcg80nk=
+		</data>
+		<key>Resources/WebUI/start.html</key>
+		<data>
+		yc9/Dt7WKkoEhE7AD2b99XMPNGA=
+		</data>
+		<key>Resources/WebUI/start_error.html</key>
+		<data>
+		lMFC5w6EEy61MNQZH3nl5FuEgl8=
+		</data>
+		<key>Resources/WebUI/start_slow.html</key>
+		<data>
+		7DvfvOHO4+IlqUiTqkErKClNx/s=
 		</data>
 		<key>Resources/en.lproj/InfoPlist.strings</key>
 		<dict>
 			<key>hash</key>
 			<data>
-			8iCniweAugb4WC7HUWf/ItkiqyQ=
+			xQ453nC0c8K39iTZb1jNf8Q9tto=
 			</data>
 			<key>optional</key>
 			<true/>
@@ -84,10 +96,10 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			o8IQSXBQK7JuZhIE2w0xyQNC5xI=
+			k9g4Jn9A98NgDSOFYHOXL3cEnWs=
 			</data>
 			<key>requirement</key>
-			<string>identifier "com.abracode.AIChat" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = T9NM2ZLDTY</string>
+			<string>cdhash H"93d838267f40f7c3600d23856073972f77049d6b" or cdhash H"ad38cb7a8745c2993484a82f6ed41bd832954a91"</string>
 		</dict>
 		<key>Resources/AIChat.icns</key>
 		<dict>
@@ -107,14 +119,14 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			WRCIGSDdH//RsZZoUbRyrgFk4aZ1NYGhOpF6kZ0keYI=
+			0G8M/YgCblWriUBHGBg/V6e3sVwT3GAaJNlCOpX3AYE=
 			</data>
 		</dict>
 		<key>Resources/Base.lproj/AIChat.nib/keyedobjects.nib</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			JE5Qb6lsBgxH0djafizS8ZPFG6VhQklwSPW0S1/JFRw=
+			bcivJ42AH4AlLqn9Xpsl15PH/xT9xnq/GmJp5T4qYl0=
 			</data>
 		</dict>
 		<key>Resources/Base.lproj/MainMenu.nib/designable.nib</key>
@@ -149,14 +161,14 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			b3EVEqIM+Yw9cFHgr/d6KDJYIm9N+KeAV2yOweGY9uU=
+			ftTB1sV+iCdaW5pZ5wOJ17Ul80k/RMGNHKIKNOTxnO8=
 			</data>
 		</dict>
 		<key>Resources/Scripts/aichat.library.sh</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			4cDTSntA0rTIVYj9UfnZSKB2QasPI/RJKFNmch/+UVg=
+			+ahuoAFCVDm+vy5Ex5i7Ct8mufSmr5F6lJ9Qj/SwrtU=
 			</data>
 		</dict>
 		<key>Resources/Scripts/aichat.open.from.file.browser.sh</key>
@@ -184,93 +196,149 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			no1Jii4h1xaxL9EjtO0v5ndsXFZfWRrbK7U5zBj0YUc=
+			+D8rY31L7tj2YPnDUOumip0nVs7eV9TwBjbUZRfN6QA=
 			</data>
 		</dict>
 		<key>Resources/WebUI/AIChat.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			aQJ2uFexjft1oUCZ8s27mIb+a6k0kAQvQyhE2cNVEb0=
+			8pPUx7U4fNkkl946L48o31vmnytCuPuz6Ce5GuSqolU=
 			</data>
 		</dict>
 		<key>Resources/WebUI/index.html</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			BR5qm+/eczqZyMDcPQoqrPewuhvSIYwgA+yNkDEsD7g=
+			fbTm4kpv9J69q60EwyhR76lT1wkJP+pO/VLDdqSEb3A=
+			</data>
+		</dict>
+		<key>Resources/WebUI/start.html</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			cL9eQJWDJwum2ekbfgFpG2XXfhtGAeeAbb+aH4eBc9o=
+			</data>
+		</dict>
+		<key>Resources/WebUI/start_error.html</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			JkUrt4y8rz+81R0clmRiOj3Uc6nwoyWB8Yz6qs/El0o=
+			</data>
+		</dict>
+		<key>Resources/WebUI/start_slow.html</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			J0YasU0yx5lkahxGw5jYzrTlFBskCHkvQHUN8YeIY+4=
 			</data>
 		</dict>
 		<key>Resources/en.lproj/InfoPlist.strings</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			xaSwthqEjmAXRGLVGYo35aO8nb0uuADQWEGbzrS2wM0=
+			46VvhBF3jtBQ80ByPMPK2w9ADVtR/i1YysgBG9kWKJM=
 			</data>
 			<key>optional</key>
 			<true/>
+		</dict>
+		<key>Support/Llama.cpp/LICENSE</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			5WKi3fr4KAU3eVrF7NNOMBK2WCoUfvabpqalwIyEdX0=
+			</data>
+		</dict>
+		<key>Support/Llama.cpp/LICENSE-curl</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			VUZ9MjwuPeTrh6s0V5myXm8JZ6jPrgtw82wqQsDPyTE=
+			</data>
+		</dict>
+		<key>Support/Llama.cpp/LICENSE-httplib</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			+MU5UUOFRbjtYRdtkHG9EDnoFQL57JWQuFzNXHGghHM=
+			</data>
+		</dict>
+		<key>Support/Llama.cpp/LICENSE-jsonhpp</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			wNBoOS6mU1i3mLjBZRA1YPBunjs4xKtOLYgQp7kxr4Y=
+			</data>
+		</dict>
+		<key>Support/Llama.cpp/LICENSE-linenoise</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			IRNYpCImLvrL1GGBVNl6suKK6hUmWq6/HVj/s6d1sa8=
+			</data>
 		</dict>
 		<key>Support/Llama.cpp/libggml-base.dylib</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			XxcfIP71ng2BCZWs4mHnj7p+RQDawrdINnumT7Sxlz4=
+			1PO1feYAY7Cpholg1XlYcXRE2Fm9Qrn3qjgcUZc7ZWw=
 			</data>
 		</dict>
 		<key>Support/Llama.cpp/libggml-blas.dylib</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			K494q+hg3Lydgege88/N5fvUNc6QP5YL/IPedmqBYCo=
+			dYfBJ0FOBbuEsOtELQLouOv3lK2F/o6IlZ06g8AxKOM=
 			</data>
 		</dict>
 		<key>Support/Llama.cpp/libggml-cpu.dylib</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			KbuLlsBuryPeB1Dp5mZIjFPg7BA2xEuxSOyhc+8a64A=
+			P0PhU38Uaz96GWFjZD5KE+acXxkINQo/MO704FEKWBY=
 			</data>
 		</dict>
 		<key>Support/Llama.cpp/libggml-metal.dylib</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			U6AB4QSgkRASGiW4J8Y0He/DF+ZFgag4domz9OILBLw=
+			kfXi2iYsqhlrh389MwEAAQSQGwnZTT3UpjAkVNtz+pQ=
 			</data>
 		</dict>
 		<key>Support/Llama.cpp/libggml-rpc.dylib</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			8+5s72EYEAhgh0B/DCVC2/rC/sd4ws17iAaSvEeQAUQ=
+			9YStS162bvOZGWtBmvK6qwe8kDOCI8we6GUnE7uOh9k=
 			</data>
 		</dict>
 		<key>Support/Llama.cpp/libggml.dylib</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			zl665QKA3e7EaX0FR+JI1TFKCxye/4ohhTlrmTnJQeY=
+			uwDops3+KGi+9acQiMyIgEyFMmW8vfdlu0PpMCZW+f0=
 			</data>
 		</dict>
 		<key>Support/Llama.cpp/libllama.dylib</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			f0fPWlxZuS9QSyAHuvheYYKOpoYpDBdKfQ7L0BnzPdQ=
+			e+RisMw8AwYTwwSUHTWCN2CJ0L2l1igZLjTgON6G0H4=
 			</data>
 		</dict>
 		<key>Support/Llama.cpp/libmtmd.dylib</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			bo1sJEDcwjM9O733Z8u81EEFyYvCFp7lPF0So6bpeBk=
+			FIYiLKWwKi07wtx5GM0smZ2mt6G10VVOp5N7Y4dd0Yg=
 			</data>
 		</dict>
 		<key>Support/Llama.cpp/llama-server</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			GR54mZPi2spbCIlJUp4kYfLO5b8JNBy6ufGaXzJb7sM=
+			1eM0JjsXLsbjsuxE8l+w0HUBhjNUB3Xu5n73WcOWnNA=
 			</data>
 		</dict>
 	</dict>
