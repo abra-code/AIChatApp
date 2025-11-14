@@ -23,22 +23,22 @@ if test -z "$identity"; then
     identity="-"
     entitlements=""
     timestamp="--timestamp=none"
-    options=""
+    sign_options=""
 else
-    entitlements="--entitlements \"$entitlements_path\""
+    entitlements="--entitlements $entitlements_path"
     timestamp="--timestamp"
-    options="--options runtime"
+    sign_options="--options runtime"
 fi
 
 if test -d "$app_to_sign/Contents/Support/Llama.cpp"; then
     pushd "$app_to_sign/Contents/Support/Llama.cpp"
-    echo "/usr/bin/codesign --verbose --force $options $timestamp --sign $identity '*'"
-    /usr/bin/codesign --verbose --force $options $timestamp --sign "$identity" *
+    echo "/usr/bin/codesign --verbose --force $sign_options $timestamp --sign $identity '*'"
+    /usr/bin/codesign --verbose --force $sign_options $timestamp --sign "$identity" *
     popd
 fi
 
-echo "/usr/bin/codesign --deep --verbose --force $options $entitlements $timestamp --identifier $app_id --sign $identity $app_to_sign"
-/usr/bin/codesign --deep --verbose --force $options $entitlements $timestamp --identifier "$app_id" --sign "$identity" "$app_to_sign"
+echo "/usr/bin/codesign --deep --verbose --force $sign_options $entitlements $timestamp --identifier $app_id --sign $identity $app_to_sign"
+/usr/bin/codesign --deep --verbose --force $sign_options $entitlements $timestamp --identifier "$app_id" --sign "$identity" "$app_to_sign"
 
 echo ""
 echo "Verifying codesigned app:"
