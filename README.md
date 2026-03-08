@@ -1,4 +1,6 @@
-# AIChatApp
+# AIChat.app
+![AIChat Icon](Icon/AIChat-macOS-256x256@1x.png)
+
 AIChat.app - macOS applet to run large language models locally
 
 AIChat.app allows opening a local GGUF file and start a chat in WebKit view.
