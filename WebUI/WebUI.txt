@@ -32,8 +32,8 @@ WebUI-{VERSION}.zip (e.g. WebUI-b8797.zip) contains the unpatched originals
 whether the patch patterns still apply.
 
 update-llama-cpp.sh creates this zip automatically after downloading the files,
-before applying any patches. Each update produces a new versioned zip; previous
-versions are kept alongside it.
+before applying any patches. Each update removes the previous zip and replaces
+it with one named for the new version.
 
 Patches
 -------

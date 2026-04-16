@@ -1,7 +1,8 @@
 #!/bin/bash
 # update-llama-cpp.sh
-# Downloads and installs the latest (or specified) llama.cpp release into AIChat.app.
+# Downloads and installs the latest (or specified) llama.cpp release into the app bundle.
 # Supports arm64 and x86_64 — matching the separate per-arch app releases.
+# Works for any single-app repo (AIChat, Enoch, etc.): the .app bundle is auto-detected.
 
 set -uo pipefail
 
@@ -23,7 +24,19 @@ EXTRACT_DIR=""
 WEBUI_STATUS=""   # "ok", "patched-with-warnings", "download-failed", "skipped"
 
 SCRIPT_DIR="$(cd "$(/usr/bin/dirname "$0")" >/dev/null 2>&1 && pwd)"
-APP_BUNDLE="$SCRIPT_DIR/AIChat.app"
+
+# Auto-detect the single .app bundle in the repo root
+APP_BUNDLE=""
+for _candidate in "$SCRIPT_DIR"/*.app; do
+    [ -d "$_candidate" ] || continue
+    APP_BUNDLE="$_candidate"
+    break
+done
+if [ -z "$APP_BUNDLE" ]; then
+    echo "No .app bundle found in $SCRIPT_DIR"
+    exit 1
+fi
+
 INSTALL_DIR="$APP_BUNDLE/Contents/Support/Llama.cpp"
 WEBUI_DIR="$APP_BUNDLE/Contents/Resources/WebUI"
 WEBUI_SED_DIR="$SCRIPT_DIR/WebUI"
@@ -33,7 +46,8 @@ show_help() {
 Usage: $0 [OPTIONS]
 
 Downloads the specified (or latest) llama.cpp macOS release and installs it
-into AIChat.app/Contents/Support/Llama.cpp/.
+into <AppName>.app/Contents/Support/Llama.cpp/. The .app bundle is auto-detected
+from the directory containing this script.
 
 Options:
   --version=VERSION   llama.cpp build tag to install (e.g. b8797, default: auto-detect latest)
@@ -343,20 +357,29 @@ verify_install() {
 
 # verify_webui_patches checks that each replacement string from a sed command file
 # is present in the patched output file.  Returns 0 if all found, 1 if any missing.
-# Verification strings are fixed per-file (not parsed from sed) to avoid backslash
-# escaping ambiguity with the bundle.js line-continuation character.
+# Replacement strings are extracted from field 3 of each s|pattern|replacement|flags
+# line in the sed file.  Trailing backslashes are stripped before matching — they
+# appear in JS patterns as line-continuation anchors but are not useful for verification.
 verify_webui_patches() {
-    local label="$1"
-    local file="$2"
+    local sed_file="$1"
+    local patched_file="$2"
     local ok="yes"
 
-    if [ "$label" = "css" ]; then
-        /usr/bin/grep -qF 'oklch(90% 0 0)' "$file" || { echo "    ${RED}MISSING: light background oklch(90% 0 0)${RESET}"; ok="no"; }
-        /usr/bin/grep -qF 'oklch(27% 0 0)' "$file" || { echo "    ${RED}MISSING: dark background oklch(27% 0 0)${RESET}"; ok="no"; }
-    elif [ "$label" = "js" ]; then
-        /usr/bin/grep -qF 'AIChat.png' "$file"   || { echo "    ${RED}MISSING: AIChat.png logo insertion${RESET}"; ok="no"; }
-        /usr/bin/grep -qF 'AIChat<'    "$file"   || { echo "    ${RED}MISSING: AIChat< branding rename${RESET}"; ok="no"; }
-    fi
+    while IFS= read -r line; do
+        [ -z "$line" ] && continue
+        local replacement
+        replacement=$(printf '%s' "$line" | /usr/bin/cut -d'|' -f3)
+        [ -z "$replacement" ] && continue
+        # Strip trailing backslashes
+        while [ "${replacement%\\}" != "$replacement" ]; do
+            replacement="${replacement%\\}"
+        done
+        [ -z "$replacement" ] && continue
+        /usr/bin/grep -qFe "$replacement" "$patched_file" || {
+            echo "    ${RED}MISSING: $replacement${RESET}"
+            ok="no"
+        }
+    done < "$sed_file"
 
     if [ "$ok" = "yes" ]; then
         echo "    ${GREEN}All patches verified${RESET}"
@@ -400,8 +423,12 @@ update_webui() {
         return 1
     fi
 
-    # Save originals as a versioned zip in the WebUI sed directory for future diffing.
-    # Any previous zip for this version is replaced; zips for other versions are kept.
+    # Remove any previous originals zip and save a fresh one for the new version.
+    for old_zip in "${WEBUI_SED_DIR}"/WebUI-*.zip; do
+        [ -f "$old_zip" ] || continue
+        /bin/rm -f "$old_zip"
+        echo "  Removed old originals: $(/usr/bin/basename "$old_zip")"
+    done
     local orig_zip="${WEBUI_SED_DIR}/WebUI-${VERSION}.zip"
     echo "  Saving originals to $(basename "$orig_zip")..."
     /usr/bin/zip -j "$orig_zip" \
@@ -423,7 +450,7 @@ update_webui() {
         echo "  Patching bundle.css..."
         /usr/bin/sed -E -f "$css_sed" "${webui_work}/bundle.css" > "${webui_work}/bundle.css.patched"
         /bin/mv "${webui_work}/bundle.css.patched" "${webui_work}/bundle.css"
-        verify_webui_patches "css" "${webui_work}/bundle.css"
+        verify_webui_patches "$css_sed" "${webui_work}/bundle.css"
         css_ok=$( [ $? = 0 ] && echo "yes" || echo "no" )
     else
         echo "  No CSS sed file at $css_sed — skipping CSS patches"
@@ -436,7 +463,7 @@ update_webui() {
         echo "  Patching bundle.js..."
         /usr/bin/sed -E -f "$js_sed" "${webui_work}/bundle.js" > "${webui_work}/bundle.js.patched"
         /bin/mv "${webui_work}/bundle.js.patched" "${webui_work}/bundle.js"
-        verify_webui_patches "js" "${webui_work}/bundle.js"
+        verify_webui_patches "$js_sed" "${webui_work}/bundle.js"
         js_ok=$( [ $? = 0 ] && echo "yes" || echo "no" )
     else
         echo "  No JS sed file at $js_sed — skipping JS patches"
