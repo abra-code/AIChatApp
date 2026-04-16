@@ -13,6 +13,7 @@ if [ -n "$AICHAT_MODEL_PATH" ] || [ -n "$OMC_OBJ_PATH" ]; then
 	# a file or folder dropped on the app icon
 	"$next_command" "$OMC_CURRENT_COMMAND_GUID" "aichat.new"
 else
-	# launched without a dropped object, present a choose object dialog
-	"$next_command" "$OMC_CURRENT_COMMAND_GUID" "aichat.open.from.file.browser"
+	# Open the model selector (ActionUI dialog that lists local cache models
+	# and also provides a Browse button for models stored elsewhere)
+	"$next_command" "$OMC_CURRENT_COMMAND_GUID" "aichat.select.local.model"
 fi

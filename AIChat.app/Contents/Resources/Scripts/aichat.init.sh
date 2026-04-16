@@ -163,7 +163,7 @@ calculate_context_optimal_size()
 {
 	local model_path="$1"
 	
-	local file_size=$(/usr/bin/stat -f%z "${model_path}")
+	local file_size=$(/usr/bin/stat -f%z -L "${model_path}")
 	# Convert file size to GB with bc
 	local file_size_gb=$(echo "scale=2; ${file_size} / (1024 * 1024 * 1024)" | /usr/bin/bc -l)
 
@@ -254,6 +254,38 @@ if [ -z "$AICHAT_MODEL_PATH" ]; then
 fi
 
 echo "AICHAT_MODEL_PATH = $AICHAT_MODEL_PATH"
+
+# Persist model path as a recent if it lives outside the standard caches.
+# The model selector init script reads this list and deduplicates against cache results.
+case "$AICHAT_MODEL_PATH" in
+	"$HOME/.cache/huggingface/"*|"$HOME/.lmstudio/"*) ;;
+	*)
+		_prefs_domain="com.abracode.AIChat"
+		_prefs_key="recentModelPaths"
+		_existing=$(/usr/bin/defaults read "$_prefs_domain" "$_prefs_key" 2>/dev/null | \
+			/usr/bin/grep -E '^\s+"' | \
+			/usr/bin/sed 's/^[[:space:]]*"\(.*\)",\{0,1\}$/\1/')
+		# Build new list: new path first, existing minus duplicates, max 10
+		_new_list="$AICHAT_MODEL_PATH"
+		while IFS= read -r _p; do
+			[ -n "$_p" ] || continue
+			[ "$_p" = "$AICHAT_MODEL_PATH" ] && continue
+			_new_list="${_new_list}
+${_p}"
+		done <<< "$_existing"
+		# Write back using PlistBuddy so no bash arrays are needed
+		_plist="$HOME/Library/Preferences/${_prefs_domain}.plist"
+		/usr/libexec/PlistBuddy -c "Delete :${_prefs_key}" "$_plist" 2>/dev/null
+		/usr/libexec/PlistBuddy -c "Add :${_prefs_key} array" "$_plist"
+		_i=0
+		while IFS= read -r _p && [ "$_i" -lt 10 ]; do
+			[ -n "$_p" ] || continue
+			/usr/libexec/PlistBuddy -c "Add :${_prefs_key}:${_i} string $_p" "$_plist"
+			_i=$((_i + 1))
+		done <<< "$_new_list"
+		echo "saved recent model (${_i} entries)"
+		;;
+esac
 
 stop_orphaned_servers
 
