@@ -96,8 +96,8 @@ wait_for_server_response()
 	local seconds_count=0
 	
 	while true; do
-		# wait until we get a response from server
-		/usr/bin/curl "http://localhost:$port_num/slots" > /dev/null 2>&1
+		# wait until model is fully loaded — /health returns 200 when ready, 503 while loading
+		/usr/bin/curl --fail --silent "http://localhost:$port_num/health" > /dev/null 2>&1
 		local server_response_result=$?
 		if [ "$server_response_result" = 0 ]; then
 			echo "server became responsive after $seconds_count seconds"
@@ -303,8 +303,21 @@ fi
 
 if [ "$server_result" = 0 ]; then
 	echo ""
-	echo "$dialog $OMC_NIB_DLG_GUID 2 http://localhost:$port_num/"
-	"$dialog" "$OMC_NIB_DLG_GUID" 2 "http://localhost:$port_num/"
+	# Append ?v=VERSION so WKWebView fetches index.html fresh when the WebUI changes.
+	# The version token comes from a file written by update-llama-cpp.sh alongside the
+	# WebUI files. Without it the URL falls back to plain localhost (no cache-busting).
+	webui_version_file="${webui_dir_path}/version"
+	webui_version=""
+	if [ -f "$webui_version_file" ]; then
+		webui_version=$(/bin/cat "$webui_version_file")
+	fi
+	if [ -n "$webui_version" ]; then
+		webui_url="http://localhost:${port_num}/?v=${webui_version}"
+	else
+		webui_url="http://localhost:${port_num}/"
+	fi
+	echo "$dialog $OMC_NIB_DLG_GUID 2 $webui_url"
+	"$dialog" "$OMC_NIB_DLG_GUID" 2 "$webui_url"
 else
 	echo ""
 	echo "$dialog $OMC_NIB_DLG_GUID 2 file://${webui_dir_path}/start_error.html?port=$port_num"

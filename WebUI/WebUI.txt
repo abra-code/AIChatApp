@@ -1,0 +1,76 @@
+WebUI — how it works
+====================
+
+Source
+------
+llama.cpp WebUI is built as three separate files served from disk via the --path flag:
+
+  index.html   ~7 KB   loader/shell; fetches bundle.js and bundle.css
+  bundle.js    ~6 MB   compiled Svelte app (chat, MCP servers, settings, …)
+  bundle.css   ~500 KB styles
+
+The files are committed to the llama.cpp source tree at:
+  tools/server/public/
+
+They are identical to what the release binary would embed; the release CI does not rebuild
+the frontend. This means any tagged release commit is a safe source for the files.
+
+Updating
+--------
+Run update-llama-cpp.sh (in the repo root). It:
+  1. Downloads the llama.cpp release binary + dylibs for the host architecture.
+  2. Downloads index.html, bundle.js, bundle.css at the same tag from GitHub.
+  3. Applies the patches described below.
+  4. Installs everything into AIChat.app/Contents/Support/Llama.cpp/ and
+     AIChat.app/Contents/Resources/WebUI/.
+  5. Writes WebUI/version with the build tag (e.g. "b8797") — used for cache-busting.
+
+Reference originals
+-------------------
+WebUI-{VERSION}.zip (e.g. WebUI-b8797.zip) contains the unpatched originals
+(index.html, bundle.js, bundle.css) for diffing against future releases to check
+whether the patch patterns still apply.
+
+update-llama-cpp.sh creates this zip automatically after downloading the files,
+before applying any patches. Each update produces a new versioned zip; previous
+versions are kept alongside it.
+
+Patches
+-------
+Two sed command files are applied by the update script:
+
+webui-bundle-css.sed  — custom color scheme
+  Adjusts --background values so the WebUI background is not pure white/black:
+    light mode: oklch(100% 0 0) -> oklch(90% 0 0)  (slightly off-white)
+    dark mode:  oklch(16%  0 0) -> oklch(27% 0 0)  (lighter dark background)
+  Note: parentheses in the pattern must be escaped (\( \)) because the script
+  uses sed -E (extended regex mode).
+
+webui-bundle-js.sed  — branding
+  Pattern 1: replaces the welcome-screen heading and inserts the app logo:
+    llama.cpp</h1> followed by the start of the <p> placeholder
+    -> AIChat</h1><center><img src="AIChat.png" …></center><p …
+  The bundle.js heading line ends with a JS string line-continuation backslash (\)
+  before the newline; the sed pattern uses \\ to match that literal backslash.
+  Pattern 2: renames remaining "llama.cpp<" occurrences (nav, title) to "AIChat<".
+
+Cache-busting
+-------------
+WKWebView (used by the OMC engine) aggressively caches HTTP responses from localhost.
+Without intervention it serves old cached bundle.js/bundle.css even after the files
+on disk have been replaced.
+
+Two-level cache-busting is used:
+
+1. index.html — the update script rewrites the bundle references to include ?v=VERSION:
+     ./bundle.css  ->  ./bundle.css?v=b8797
+     ./bundle.js   ->  ./bundle.js?v=b8797   (link preload and dynamic import)
+   When the version changes, the URLs change and WKWebView fetches fresh copies.
+
+2. index.html itself — aichat.init.sh reads WebUI/version and appends ?v=VERSION
+   to the localhost URL it opens in the dialog:
+     http://localhost:8088/?v=b8797
+   WKWebView has never seen this URL, so it fetches index.html fresh from llama-server,
+   which in turn references the versioned bundle URLs from step 1.
+
+After each update both levels flip automatically; no manual cache clearing is needed.

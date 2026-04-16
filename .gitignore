@@ -23,3 +23,5 @@ LLama.cpp/
 *.dSYM.zip
 *.dSYM
 AIChat.app/Contents/_CodeSignature
+AIChat.app/Contents/Resources/WebUI/bundle.css
+AIChat.app/Contents/Resources/WebUI/bundle.js
