@@ -14,10 +14,16 @@ window_uuid="$OMC_ACTIONUI_WINDOW_UUID"
 "$dialog_tool" "$window_uuid" $TABLE_ID omc_table_set_column_widths 390 70
 "$dialog_tool" "$window_uuid" $TABLE_ID omc_table_remove_all_rows
 
-# Discover GGUF files in both local caches (HuggingFace + LM Studio).
+# Discover GGUF files in known local model caches.
 # Build TSV rows: model_name \t size_string \t full_path
 buffer=""
-for cache_dir in "$HOME/.cache/huggingface/hub" "$HOME/.lmstudio/models"; do
+for cache_dir in \
+    "$HOME/.cache/huggingface/hub" \
+    "$HOME/.lmstudio/models" \
+    "$HOME/.ollama/models" \
+    "$HOME/.localai/models" \
+    "$HOME/Library/Application Support/Jan/data/models" \
+    "$HOME/Library/Application Support/nomic.ai/GPT4All"; do
     [ -d "$cache_dir" ] || continue
     found_paths=$(/usr/bin/find "$cache_dir" -name "*.gguf" 2>/dev/null | /usr/bin/sort)
     while IFS= read -r model_path; do

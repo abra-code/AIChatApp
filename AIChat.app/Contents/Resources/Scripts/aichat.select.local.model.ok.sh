@@ -19,20 +19,22 @@ fi
 
 echo "Selected model path: $selected_path"
 
-# Close the selector window before starting the server
-"$dialog_tool" "$window_uuid" omc_window omc_terminate_ok
+# ── Same model already running? ───────────────────────────────────────────────
+activate_if_model_running "$selected_path" "$window_uuid" && exit 0
 
-# Stop any llama-server currently on our port so the new model can bind to it
-existing_pid=$(/usr/sbin/lsof -ti tcp:$port_num 2>/dev/null | head -1)
-if [ -n "$existing_pid" ]; then
-    echo "Stopping existing server (pid=$existing_pid) on port $port_num"
-    kill -TERM "$existing_pid"
-    count=0
-    while kill -0 "$existing_pid" 2>/dev/null && [ "$count" -lt 5 ]; do
-        sleep 1
-        count=$((count + 1))
-    done
+# ── RAM check ────────────────────────────────────────────────────────────────
+# Check before closing the window so the user can pick a different model if they cancel.
+
+model_bytes=$(/usr/bin/stat -f%z -L "$selected_path" 2>/dev/null)
+model_label=$(/usr/bin/basename "$selected_path" .gguf)
+warn_ram_pressure_for_new_model "$model_bytes" "$model_label"
+if [ $? -ne 0 ]; then
+    echo "User cancelled load due to RAM pressure warning"
+    exit 0
 fi
+
+# Close the selector window now that we're committed to loading
+"$dialog_tool" "$window_uuid" omc_window omc_terminate_ok
 
 "$pasteboard" "AICHAT_MODEL_PATH" put "$selected_path"
 "$next_command" "$OMC_CURRENT_COMMAND_GUID" "aichat.new"

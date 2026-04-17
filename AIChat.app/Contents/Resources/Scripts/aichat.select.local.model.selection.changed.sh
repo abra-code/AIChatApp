@@ -28,9 +28,13 @@ if [ -n "$selected_path" ]; then
 
     # Detect cache source
     case "$selected_path" in
-        */.cache/huggingface/*) source_label="HuggingFace cache" ;;
-        */.lmstudio/*)          source_label="LM Studio cache" ;;
-        *)                       source_label="Local file" ;;
+        */.cache/huggingface/*)                         source_label="Hugging Face" ;;
+        */.lmstudio/*)                                  source_label="LM Studio" ;;
+        */.ollama/*)                                    source_label="Ollama" ;;
+        */.localai/*)                                   source_label="LocalAI" ;;
+        */Jan/data/models/*)                            source_label="Jan" ;;
+        */nomic.ai/GPT4All/*)                           source_label="GPT4All" ;;
+        *)                                              source_label="Local file" ;;
     esac
 
     info="File:     ${filename}

@@ -1,0 +1,245 @@
+{
+  "type": "NavigationSplitView",
+  "id": 200,
+  "properties": {
+    "columnVisibility": "all",
+    "style": "balanced",
+    "frame": {
+      "minWidth": 1000,
+      "minHeight": 540
+    },
+    "padding": {
+      "top": 4
+    }
+  },
+  "sidebar": {
+    "type": "VStack",
+    "properties": {
+      "spacing": 0,
+      "navigationSplitViewColumnWidth": {
+        "min": 320,
+        "ideal": 500,
+        "max": 580
+      }
+    },
+    "children": [
+      {
+        "type": "HStack",
+        "properties": {
+          "spacing": 6,
+          "padding": {
+            "top": 8,
+            "leading": 12,
+            "bottom": 8,
+            "trailing": 12
+          }
+        },
+        "children": [
+          {
+            "type": "TextField",
+            "id": 201,
+            "properties": {
+              "prompt": "Search Hugging Face…",
+              "actionID": "aichat.hf.browse.search",
+              "frame": { "maxWidth": "infinity" }
+            }
+          },
+          {
+            "type": "Picker",
+            "id": 204,
+            "properties": {
+              "title": "",
+              "pickerStyle": "menu",
+              "options": [
+                {"title": "Downloads", "tag": "downloads"},
+                {"title": "Trending",  "tag": "trending"},
+                {"title": "Recent",    "tag": "recent"}
+              ],
+              "actionID": "aichat.hf.browse.sort.changed"
+            }
+          }
+        ]
+      },
+      {
+        "type": "Table",
+        "id": 202,
+        "properties": {
+          "columns": ["Model", "Downloads"],
+          "widths": [330, 80],
+          "actionID": "aichat.hf.browse.model.selection.changed",
+          "frame": {
+            "maxWidth": "infinity",
+            "maxHeight": "infinity"
+          }
+        }
+      },
+      {
+        "type": "Text",
+        "id": 203,
+        "properties": {
+          "text": "",
+          "font": "caption",
+          "foregroundStyle": "secondary",
+          "frame": {
+            "maxWidth": "infinity",
+            "alignment": "leading"
+          },
+          "padding": {
+            "top": 6,
+            "leading": 12,
+            "bottom": 6,
+            "trailing": 12
+          }
+        }
+      }
+    ]
+  },
+  "detail": {
+    "type": "VStack",
+    "properties": {
+      "spacing": 12,
+      "padding": "default",
+      "frame": {
+        "minWidth": 400,
+        "idealWidth": 460
+      }
+    },
+    "children": [
+      {
+        "type": "GroupBox",
+        "properties": {
+          "title": "Model Info",
+          "frame": {
+            "maxWidth": "infinity",
+            "maxHeight": "infinity"
+          }
+        },
+        "children": [
+          {
+            "type": "ScrollView",
+            "properties": {
+              "frame": {
+                "maxWidth": "infinity",
+                "maxHeight": "infinity"
+              }
+            },
+            "content": {
+              "type": "Text",
+              "id": 211,
+              "properties": {
+                "text": "Select a model from the list.",
+                "frame": {
+                  "maxWidth": "infinity",
+                  "maxHeight": "infinity",
+                  "alignment": "topLeading"
+                },
+                "foregroundStyle": "secondary"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "type": "Link",
+        "id": 240,
+        "properties": {
+          "title": "View on Hugging Face ↗",
+          "url": "",
+          "hidden": true,
+          "font": "callout",
+          "frame": { "maxWidth": "infinity", "alignment": "trailing" }
+        }
+      },
+      {
+        "type": "VStack",
+        "properties": {
+          "spacing": 4,
+          "frame": { "maxWidth": "infinity" }
+        },
+        "children": [
+          {
+            "type": "Text",
+            "properties": {
+              "text": "Select Quantization",
+              "font": "subheadline",
+              "foregroundStyle": "secondary",
+              "frame": { "maxWidth": "infinity", "alignment": "leading" }
+            }
+          },
+          {
+            "type": "Table",
+            "id": 213,
+            "properties": {
+              "columns": ["File", "Size"],
+              "widths": [270, 70],
+              "actionID": "aichat.hf.browse.quant.selection.changed",
+              "frame": {
+                "maxWidth": "infinity",
+                "minHeight": 80,
+                "maxHeight": 180
+              }
+            }
+          }
+        ]
+      },
+      {
+        "type": "VStack",
+        "properties": {
+          "spacing": 4
+        },
+        "children": [
+          {
+            "type": "ProgressView",
+            "id": 230,
+            "properties": {
+              "hidden": true,
+              "value": 0.0,
+              "total": 1.0,
+              "frame": { "maxWidth": "infinity" }
+            }
+          },
+          {
+            "type": "Text",
+            "id": 231,
+            "properties": {
+              "text": "",
+              "font": "caption",
+              "foregroundStyle": "secondary",
+              "hidden": true,
+              "frame": { "maxWidth": "infinity", "alignment": "leading" }
+            }
+          },
+          {
+            "type": "HStack",
+            "properties": {
+              "spacing": 8
+            },
+            "children": [
+              {
+                "type": "Spacer"
+              },
+              {
+                "type": "Button",
+                "id": 221,
+                "properties": {
+                  "title": "Cancel",
+                  "actionID": "aichat.hf.browse.cancel"
+                }
+              },
+              {
+                "type": "Button",
+                "id": 222,
+                "properties": {
+                  "title": "Download & Load",
+                  "buttonStyle": "borderedProminent",
+                  "disabled": true,
+                  "actionID": "aichat.hf.browse.download"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

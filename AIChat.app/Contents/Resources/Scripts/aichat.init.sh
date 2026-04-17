@@ -11,6 +11,9 @@ register_started_server()
 	local host_pid="$1"
 	local server_pid="$2"
 	local model_path="$3"
+	local dialog_guid="$4"
+	local server_port="$5"
+	local model_size="$6"
 
 	echo "register_started_server"
 
@@ -58,6 +61,28 @@ register_started_server()
 	else
 		echo "error: server_pid $server_pid already registered for newly started server - this is unexpected"
 	fi
+
+	# Store per-server metadata (port, size, dialog guid) keyed by server_pid.
+	# dialog_guid lets cancel.sh close only this window's server.
+	# size lets calculate_total_server_ram() sum running load for RAM warnings.
+	"$plister" get type "$prefs" "/server-info"
+	if [ $? != 0 ]; then
+		"$plister" insert "server-info" dict "$prefs" '/'
+	fi
+	"$plister" get type "$prefs" "/server-info/$server_pid"
+	if [ $? != 0 ]; then
+		"$plister" insert "$server_pid" dict "$prefs" '/server-info'
+	fi
+	if [ -n "$server_port" ]; then
+		"$plister" insert "port" string "$server_port" "$prefs" "/server-info/$server_pid"
+	fi
+	if [ -n "$model_size" ]; then
+		"$plister" insert "size" string "$model_size" "$prefs" "/server-info/$server_pid"
+	fi
+	if [ -n "$dialog_guid" ]; then
+		"$plister" insert "dialog" string "$dialog_guid" "$prefs" "/server-info/$server_pid"
+	fi
+	echo "registered server-info port=$server_port size=$model_size dialog=$dialog_guid"
 }
 
 stop_orphaned_servers()
@@ -78,8 +103,9 @@ stop_orphaned_servers()
 						server_process_exists=$?
 						if [ "$server_process_exists" = 0 ]; then
 							echo "kill -TERM $server_pid"
-							kill -TERM "$server_pid"  					
+							kill -TERM "$server_pid"
 						fi
+						"$plister" delete "$prefs" "/server-info/$server_pid" 2>/dev/null
 					fi
 				done <<< "$server_pids"
 				"$plister" delete "$prefs" "/server-hosts/$host_pid"
@@ -258,7 +284,10 @@ echo "AICHAT_MODEL_PATH = $AICHAT_MODEL_PATH"
 # Persist model path as a recent if it lives outside the standard caches.
 # The model selector init script reads this list and deduplicates against cache results.
 case "$AICHAT_MODEL_PATH" in
-	"$HOME/.cache/huggingface/"*|"$HOME/.lmstudio/"*) ;;
+	"$HOME/.cache/huggingface/"*|"$HOME/.lmstudio/"*|\
+	"$HOME/.ollama/"*|"$HOME/.localai/"*|\
+	"$HOME/Library/Application Support/Jan/"*|\
+	"$HOME/Library/Application Support/nomic.ai/"*) ;;
 	*)
 		_prefs_domain="com.abracode.AIChat"
 		_prefs_key="recentModelPaths"
@@ -289,48 +318,44 @@ esac
 
 stop_orphaned_servers
 
-# /usr/bin/curl "http://localhost:$port_num/slots" > /dev/null 2>&1
-
 server_result=0
 
-echo "Check if the required llama-server with selected model is already running"
-running_process=$(/bin/ps -U $USER | /usr/bin/grep -E "$OMC_APP_BUNDLE_PATH/Contents/Support/Llama.cpp/llama-server" | /usr/bin/grep -E "$port_num" | /usr/bin/grep -E "$AICHAT_MODEL_PATH")
+# Assign a free port for this session
+port_num=$(find_free_port)
+if [ -z "$port_num" ]; then
+	"$alert" --level stop --title "$APPLET_NAME" --ok "OK" "No free ports available (checked 8088–8097). Close a running chat session and try again."
+	exit 1
+fi
+echo "Using port $port_num"
 
-if [ $? != 0 ]; then
-	echo "Starting llama-server..."
-	
-	context_size=$(calculate_context_optimal_size "${AICHAT_MODEL_PATH}")
-	
-	# start the server
-	echo "$OMC_APP_BUNDLE_PATH/Contents/Support/Llama.cpp/llama-server --host 127.0.0.1 --port $port_num --ctx-size ${context_size} --context-shift --path $webui_dir_path --model $AICHAT_MODEL_PATH"
+echo "Starting llama-server..."
 
-	"$OMC_APP_BUNDLE_PATH/Contents/Support/Llama.cpp/llama-server" --host 127.0.0.1 --port $port_num --ctx-size ${context_size} --context-shift --path "$webui_dir_path" --model "$AICHAT_MODEL_PATH" &
-	llama_server_pid=$!
-	if [ "$llama_server_pid" != "" ]; then
-		sleep 1
-		/bin/ps -p "$llama_server_pid"
-		server_process_exists=$?
-		if [ "$server_process_exists" != 0 ]; then
-			# server exited. most likely something wrong with selected gguf model
-			report_server_launch_failure
-			server_result=$?
-		else
-			# server process running, check if it is responsive
-			wait_for_server_response
-			server_result=$?
-			
-			echo "Register server with pid $llama_server_pid"
-			register_started_server "${OMC_FRONT_PROCESS_ID}" "${llama_server_pid}" "$AICHAT_MODEL_PATH"	
-		fi
-	else
+context_size=$(calculate_context_optimal_size "${AICHAT_MODEL_PATH}")
+model_size=$(/usr/bin/stat -f%z -L "${AICHAT_MODEL_PATH}" 2>/dev/null)
+
+echo "$OMC_APP_BUNDLE_PATH/Contents/Support/Llama.cpp/llama-server --host 127.0.0.1 --port $port_num --ctx-size ${context_size} --context-shift --path $webui_dir_path --model $AICHAT_MODEL_PATH"
+
+"$OMC_APP_BUNDLE_PATH/Contents/Support/Llama.cpp/llama-server" --host 127.0.0.1 --port $port_num --ctx-size ${context_size} --context-shift --path "$webui_dir_path" --model "$AICHAT_MODEL_PATH" &
+llama_server_pid=$!
+if [ "$llama_server_pid" != "" ]; then
+	sleep 1
+	/bin/ps -p "$llama_server_pid"
+	server_process_exists=$?
+	if [ "$server_process_exists" != 0 ]; then
+		# server exited. most likely something wrong with selected gguf model
 		report_server_launch_failure
 		server_result=$?
+	else
+		# server process running, check if it is responsive
+		wait_for_server_response
+		server_result=$?
+
+		echo "Register server with pid $llama_server_pid"
+		register_started_server "${OMC_FRONT_PROCESS_ID}" "${llama_server_pid}" "$AICHAT_MODEL_PATH" "$OMC_NIB_DLG_GUID" "$port_num" "$model_size"
 	fi
-	
 else
-	llama_server_pid=$(echo "$running_process" | /usr/bin/grep -E --only-matching '^ *[[:digit:]]+ ' | /usr/bin/tr -d ' ')
-	echo "llama-server already running with pid: $running_process"
-	server_result=0
+	report_server_launch_failure
+	server_result=$?
 fi
 
 if [ "$server_result" = 0 ]; then

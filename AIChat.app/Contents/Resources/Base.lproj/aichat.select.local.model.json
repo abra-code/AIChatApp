@@ -50,6 +50,17 @@
               "frame": { "width": 32, "height": 28 }
             }
           },
+          {
+            "type": "Button",
+            "id": 22,
+            "properties": {
+              "systemImage": "arrow.clockwise",
+              "imageScale": "medium",
+              "buttonStyle": "plain",
+              "actionID": "aichat.select.local.model.reload",
+              "frame": { "width": 32, "height": 28 }
+            }
+          },
           { "type": "Spacer" }
         ]
       }
@@ -112,6 +123,14 @@
             "properties": {
               "title": "Browse for File…",
               "actionID": "aichat.select.local.model.browse"
+            }
+          },
+          {
+            "type": "Button",
+            "id": 21,
+            "properties": {
+              "title": "Browse Hugging Face…",
+              "actionID": "aichat.select.local.model.hf"
             }
           },
           {

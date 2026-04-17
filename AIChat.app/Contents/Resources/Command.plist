@@ -15,25 +15,25 @@
 			<string>5.0</string>
 		</dict>
 		<dict>
+			<key>ACTIONUI_WINDOW</key>
+			<dict>
+				<key>END_CANCEL_SUBCOMMAND_ID</key>
+				<string>aichat.select.local.model.cancel</string>
+				<key>INIT_SUBCOMMAND_ID</key>
+				<string>aichat.select.local.model.init</string>
+				<key>IS_BLOCKING</key>
+				<false/>
+				<key>JSON_NAME</key>
+				<string>aichat.select.local.model</string>
+				<key>WINDOW_TITLE</key>
+				<string>AIChat — Select Model</string>
+			</dict>
 			<key>COMMAND_ID</key>
 			<string>aichat.select.local.model</string>
 			<key>EXECUTION_MODE</key>
 			<string>exe_script_file</string>
 			<key>NAME</key>
 			<string>AIChat</string>
-			<key>ACTIONUI_WINDOW</key>
-			<dict>
-				<key>JSON_NAME</key>
-				<string>aichat.select.local.model</string>
-				<key>IS_BLOCKING</key>
-				<false/>
-				<key>INIT_SUBCOMMAND_ID</key>
-				<string>aichat.select.local.model.init</string>
-				<key>END_CANCEL_SUBCOMMAND_ID</key>
-				<string>aichat.select.local.model.cancel</string>
-				<key>WINDOW_TITLE</key>
-				<string>AIChat — Select Model</string>
-			</dict>
 		</dict>
 		<dict>
 			<key>COMMAND_ID</key>
@@ -70,15 +70,23 @@
 		<dict>
 			<key>COMMAND_ID</key>
 			<string>aichat.select.local.model.reveal</string>
-			<key>EXECUTION_MODE</key>
-			<string>exe_script_file</string>
-			<key>NAME</key>
-			<string>AIChat</string>
 			<key>ENVIRONMENT_VARIABLES</key>
 			<dict>
 				<key>OMC_ACTIONUI_TABLE_10_COLUMN_3_VALUE</key>
 				<string></string>
 			</dict>
+			<key>EXECUTION_MODE</key>
+			<string>exe_script_file</string>
+			<key>NAME</key>
+			<string>AIChat</string>
+		</dict>
+		<dict>
+			<key>COMMAND_ID</key>
+			<string>aichat.select.local.model.reload</string>
+			<key>EXECUTION_MODE</key>
+			<string>exe_script_file</string>
+			<key>NAME</key>
+			<string>AIChat</string>
 		</dict>
 		<dict>
 			<key>COMMAND_ID</key>
@@ -99,6 +107,8 @@
 			<dict>
 				<key>INIT_SUBCOMMAND_ID</key>
 				<string>aichat.init</string>
+				<key>END_CANCEL_SUBCOMMAND_ID</key>
+				<string>aichat.cancel</string>
 				<key>IS_BLOCKING</key>
 				<false/>
 				<key>NIB_NAME</key>
@@ -107,7 +117,7 @@
 		</dict>
 		<dict>
 			<key>COMMAND_ID</key>
-			<string>aichat.init</string>
+			<string>aichat.cancel</string>
 			<key>EXECUTION_MODE</key>
 			<string>exe_script_file</string>
 			<key>NAME</key>
@@ -119,10 +129,19 @@
 			</dict>
 		</dict>
 		<dict>
-			<key>COMMAND</key>
-			<array>
-				<string>#using $OMC_DLG_CHOOSE_FILE_PATH</string>
-			</array>
+			<key>COMMAND_ID</key>
+			<string>aichat.init</string>
+			<key>ENVIRONMENT_VARIABLES</key>
+			<dict>
+				<key>OMC_FRONT_PROCESS_ID</key>
+				<string></string>
+			</dict>
+			<key>EXECUTION_MODE</key>
+			<string>exe_script_file</string>
+			<key>NAME</key>
+			<string>AIChat</string>
+		</dict>
+		<dict>
 			<key>CHOOSE_FILE_DIALOG</key>
 			<dict>
 				<key>MESSAGE</key>
@@ -130,6 +149,10 @@
 				<key>SHOW_INVISIBLE_ITEMS</key>
 				<true/>
 			</dict>
+			<key>COMMAND</key>
+			<array>
+				<string>#using $OMC_DLG_CHOOSE_FILE_PATH</string>
+			</array>
 			<key>COMMAND_ID</key>
 			<string>aichat.open.from.file.browser</string>
 			<key>EXECUTION_MODE</key>
@@ -139,18 +162,136 @@
 		</dict>
 		<dict>
 			<key>COMMAND_ID</key>
-			<string>app.will.terminate</string>
+			<string>aichat.select.local.model.hf</string>
 			<key>EXECUTION_MODE</key>
 			<string>exe_script_file</string>
-			<key>WAIT_FOR_TASK_COMPLETION</key>
-			<true/>
 			<key>NAME</key>
 			<string>AIChat</string>
+		</dict>
+		<dict>
+			<key>ACTIONUI_WINDOW</key>
+			<dict>
+				<key>END_CANCEL_SUBCOMMAND_ID</key>
+				<string>aichat.hf.browse.cancel</string>
+				<key>INIT_SUBCOMMAND_ID</key>
+				<string>aichat.hf.browse.init</string>
+				<key>IS_BLOCKING</key>
+				<false/>
+				<key>JSON_NAME</key>
+				<string>aichat.hf.browse</string>
+				<key>WINDOW_TITLE</key>
+				<string>AIChat — Browse Hugging Face Models</string>
+			</dict>
+			<key>COMMAND_ID</key>
+			<string>aichat.hf.browse</string>
+			<key>EXECUTION_MODE</key>
+			<string>exe_script_file</string>
+			<key>NAME</key>
+			<string>AIChat</string>
+		</dict>
+		<dict>
+			<key>COMMAND_ID</key>
+			<string>aichat.hf.browse.init</string>
+			<key>EXECUTION_MODE</key>
+			<string>exe_script_file</string>
+			<key>NAME</key>
+			<string>AIChat</string>
+		</dict>
+		<dict>
+			<key>COMMAND_ID</key>
+			<string>aichat.hf.browse.search</string>
+			<key>ENVIRONMENT_VARIABLES</key>
+			<dict>
+				<key>OMC_ACTIONUI_VIEW_201_VALUE</key>
+				<string></string>
+				<key>OMC_ACTIONUI_VIEW_204_VALUE</key>
+				<string></string>
+			</dict>
+			<key>EXECUTION_MODE</key>
+			<string>exe_script_file</string>
+			<key>NAME</key>
+			<string>AIChat</string>
+		</dict>
+		<dict>
+			<key>COMMAND_ID</key>
+			<string>aichat.hf.browse.sort.changed</string>
+			<key>ENVIRONMENT_VARIABLES</key>
+			<dict>
+				<key>OMC_ACTIONUI_VIEW_201_VALUE</key>
+				<string></string>
+				<key>OMC_ACTIONUI_VIEW_204_VALUE</key>
+				<string></string>
+			</dict>
+			<key>EXECUTION_MODE</key>
+			<string>exe_script_file</string>
+			<key>NAME</key>
+			<string>AIChat</string>
+		</dict>
+		<dict>
+			<key>COMMAND_ID</key>
+			<string>aichat.hf.browse.model.selection.changed</string>
+			<key>ENVIRONMENT_VARIABLES</key>
+			<dict>
+				<key>OMC_ACTIONUI_TABLE_202_COLUMN_3_VALUE</key>
+				<string></string>
+			</dict>
+			<key>EXECUTION_MODE</key>
+			<string>exe_script_file</string>
+			<key>NAME</key>
+			<string>AIChat</string>
+		</dict>
+		<dict>
+			<key>COMMAND_ID</key>
+			<string>aichat.hf.browse.quant.selection.changed</string>
+			<key>ENVIRONMENT_VARIABLES</key>
+			<dict>
+				<key>OMC_ACTIONUI_TABLE_213_COLUMN_3_VALUE</key>
+				<string></string>
+			</dict>
+			<key>EXECUTION_MODE</key>
+			<string>exe_script_file</string>
+			<key>NAME</key>
+			<string>AIChat</string>
+		</dict>
+		<dict>
+			<key>COMMAND_ID</key>
+			<string>aichat.hf.browse.download</string>
+			<key>ENVIRONMENT_VARIABLES</key>
+			<dict>
+				<key>OMC_ACTIONUI_TABLE_202_COLUMN_3_VALUE</key>
+				<string></string>
+				<key>OMC_ACTIONUI_TABLE_213_COLUMN_3_VALUE</key>
+				<string></string>
+			</dict>
+			<key>EXECUTION_MODE</key>
+			<string>exe_script_file</string>
+			<key>NAME</key>
+			<string>AIChat</string>
+		</dict>
+		<dict>
+			<key>COMMAND_ID</key>
+			<string>aichat.hf.browse.cancel</string>
+			<key>EXECUTION_MODE</key>
+			<string>exe_script_file</string>
+			<key>NAME</key>
+			<string>AIChat</string>
+			<key>WAIT_FOR_TASK_COMPLETION</key>
+			<true/>
+		</dict>
+		<dict>
+			<key>COMMAND_ID</key>
+			<string>app.will.terminate</string>
 			<key>ENVIRONMENT_VARIABLES</key>
 			<dict>
 				<key>OMC_FRONT_PROCESS_ID</key>
 				<string></string>
 			</dict>
+			<key>EXECUTION_MODE</key>
+			<string>exe_script_file</string>
+			<key>NAME</key>
+			<string>AIChat</string>
+			<key>WAIT_FOR_TASK_COMPLETION</key>
+			<true/>
 		</dict>
 	</array>
 	<key>VERSION</key>
