@@ -10,7 +10,7 @@ xcuserdata/
 
 ## OMC
 Frameworks/
-OMCApplet
+MacOS/
 
 ## AIChat.app
 LLama.cpp/
@@ -25,4 +25,4 @@ LLama.cpp/
 AIChat.app/Contents/_CodeSignature
 AIChat.app/Contents/Resources/WebUI/bundle.css
 AIChat.app/Contents/Resources/WebUI/bundle.js
-Private
+Private/

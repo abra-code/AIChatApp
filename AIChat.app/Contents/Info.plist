@@ -20,7 +20,7 @@
 		</dict>
 	</array>
 	<key>CFBundleExecutable</key>
-	<string>OMCApplet</string>
+	<string>AIChat</string>
 	<key>CFBundleIconFile</key>
 	<string>AIChat</string>
 	<key>CFBundleIconName</key>
