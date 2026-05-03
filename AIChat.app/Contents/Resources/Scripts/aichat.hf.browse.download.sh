@@ -144,8 +144,7 @@ fi
 
 if [ -n "$total_bytes" ] && [ "$total_bytes" -gt 0 ] 2>/dev/null; then
     total_fmt=$(format_bytes "$total_bytes")
-    "$dialog_tool" "$window_uuid" $PROGRESS_ID omc_set_property "value" "0"
-    "$dialog_tool" "$window_uuid" $PROGRESS_ID omc_set_property "total" "$total_bytes"
+    "$dialog_tool" "$window_uuid" $PROGRESS_ID omc_set_property "total" "100"
     "$dialog_tool" "$window_uuid" $PROGRESS_LABEL_ID "0 B / ${total_fmt} (0%)"
 else
     total_bytes=""
@@ -170,10 +169,11 @@ if [ -n "$total_bytes" ]; then
         downloaded=$(/usr/bin/stat -f%z "$dest_path" 2>/dev/null)
         [ -z "$downloaded" ] && downloaded=0
 
-        "$dialog_tool" "$window_uuid" $PROGRESS_ID omc_set_property "value" "$downloaded"
+        
 
         done_fmt=$(format_bytes "$downloaded")
         pct=$(echo "scale=0; $downloaded*100/$total_bytes" | /usr/bin/bc -l 2>/dev/null)
+        "$dialog_tool" "$window_uuid" $PROGRESS_ID "${pct}"
         "$dialog_tool" "$window_uuid" $PROGRESS_LABEL_ID "${done_fmt} / ${total_fmt} (${pct}%)"
 
         sleep 0.5

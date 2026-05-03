@@ -132,13 +132,13 @@ wait_for_server_response()
 		
 		# or 20 seconds pass
 		seconds_count=$((seconds_count + 1))
-		if [ "$seconds_count" -ge 20 ]; then
+		if [ "$seconds_count" -ge 30 ]; then
 			local message=$(echo "Timed out after $seconds_count seconds while waiting for llama-server response.\n\nPlease try again")
 			echo "$message"
 			"$alert" --level "stop" --title "$APPLET_NAME" --ok "OK" "$message"
 			result=13
 			break
-		elif [ "$seconds_count" -eq 5 ]; then
+		elif [ "$seconds_count" -eq 10 ]; then
 			echo "$dialog $OMC_NIB_DLG_GUID 2 file://${webui_dir_path}/start_slow.html"
 			"$dialog" "$OMC_NIB_DLG_GUID" 2 "file://${webui_dir_path}/start_slow.html"
 		fi
