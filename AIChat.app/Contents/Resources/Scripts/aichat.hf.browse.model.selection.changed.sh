@@ -58,12 +58,12 @@ else
 fi
 
 # Build info text
-info_text="Model:      ${model_id:-${repo_id}}"
+info_text="**Model:**      ${model_id:-${repo_id}}  "
 [ -n "$pipeline_tag" ] && info_text="${info_text}
-Task:       ${pipeline_tag}"
+**Task:**       ${pipeline_tag}  "
 info_text="${info_text}
-Downloads:  ${dl_fmt}
-Likes:      ${likes:-—}"
+**Downloads:**  ${dl_fmt}  
+**Likes:**      ${likes:-—}  "
 
 # Try to get description from cardData
 "$plister" get type "$tmp_json" /cardData > /dev/null 2>&1
@@ -79,7 +79,7 @@ ${description}"
     fi
 fi
 
-"$dialog_tool" "$window_uuid" $INFO_TEXT_ID "$info_text"
+"$dialog_tool" "$window_uuid" $INFO_TEXT_ID markdown "$info_text"
 "$dialog_tool" "$window_uuid" $HF_LINK_ID omc_set_property "url" "https://huggingface.co/${repo_id}"
 "$dialog_tool" "$window_uuid" $HF_LINK_ID omc_show
 

@@ -61,6 +61,24 @@
               "frame": { "width": 32, "height": 28 }
             }
           },
+          {
+            "type": "Divider",
+            "properties": {
+              "frame": { "height": 16 }
+            }
+          },
+          {
+            "type": "Button",
+            "id": 24,
+            "properties": {
+              "systemImage": "trash",
+              "imageScale": "medium",
+              "buttonStyle": "plain",
+              "actionID": "aichat.select.local.model.delete",
+              "disabled": true,
+              "frame": { "width": 32, "height": 28 }
+            }
+          },
           { "type": "Spacer" }
         ]
       }
@@ -105,6 +123,7 @@
                   "maxHeight": "infinity",
                   "alignment": "topLeading"
                 },
+                "textSelection": "enabled",
                 "foregroundStyle": "secondary"
               }
             }

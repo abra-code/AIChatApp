@@ -133,6 +133,7 @@
                   "maxHeight": "infinity",
                   "alignment": "topLeading"
                 },
+                "textSelection": "enabled",
                 "foregroundStyle": "secondary"
               }
             }
