@@ -183,18 +183,47 @@ params_from_gguf_filename()
 	echo "0"
 }
 
-# Apple has shipped 8, 16, 24, 32, 36 & 48 GB of unified RAM in Apple Silicon Macs
-# we aim to have a context size fitting N-4GB, except 8GB where we go more agressively towards 8GB (does it work?)
+# Returns the bytes-per-element scale factor for a KV cache quantization type,
+# relative to f16 (1.00). Used by calculate_context_optimal_size.
+# Values are derived from llama.cpp block sizes:
+#   q8_0  → 34 B / 32 el = 1.0625 B/el  →  1.0625/2 = 0.53
+#   q5_0  → 22 B / 32 el = 0.6875 B/el  →  0.6875/2 = 0.34
+#   q5_1  → 24 B / 32 el = 0.75   B/el  →  0.75/2   = 0.38
+#   q4_0  → 18 B / 32 el = 0.5625 B/el  →  0.5625/2 = 0.28
+#   q4_1  → 20 B / 32 el = 0.625  B/el  →  0.625/2  = 0.31
+#   iq4_nl→ 18 B / 32 el = 0.5625 B/el  →  same as q4_0
+kv_cache_scale()
+{
+	case "$1" in
+		q4_0|iq4_nl) echo "0.28" ;;
+		q4_1)        echo "0.31" ;;
+		q5_0)        echo "0.34" ;;
+		q5_1)        echo "0.38" ;;
+		q8_0)        echo "0.53" ;;
+		f32)         echo "2.00" ;;
+		f16|bf16|*)  echo "1.00" ;;
+	esac
+}
+
+# calculate_context_optimal_size <model_path> [cache_type_k] [cache_type_v]
+# Estimates the largest context window that fits comfortably in unified memory.
+# KV cache type parameters (default: f16) scale the per-token KV cost so the
+# result automatically reflects the chosen quantization.
 calculate_context_optimal_size()
 {
 	local model_path="$1"
+	local cache_type_k="${2:-f16}"
+	local cache_type_v="${3:-f16}"
 	
 	local file_size=$(/usr/bin/stat -f%z -L "${model_path}")
 	# Convert file size to GB with bc
 	local file_size_gb=$(echo "scale=2; ${file_size} / (1024 * 1024 * 1024)" | /usr/bin/bc -l)
 
-	# Estimate model memory (1.2x rule)
-	local model_memory_gb=$(echo "scale=2; ${file_size_gb} * 1.2" | /usr/bin/bc -l)
+	# Model runtime memory: weights are mmap'd so the on-disk file size is the
+	# in-memory footprint, plus a fixed ~512 MB compute-buffer overhead.
+	# The old 1.2× rule over-penalised large models (e.g. 40 GB → 48 GB claimed,
+	# reality is ~40.5 GB), leaving far less room for context than available.
+	local model_memory_gb=$(echo "scale=2; ${file_size_gb} + 0.5" | /usr/bin/bc -l)
 
 	local ram_bytes=$(/usr/sbin/sysctl -n hw.memsize)
 	local ram_gb=$(echo "scale=0; ${ram_bytes} / (1024 * 1024 * 1024)" | /usr/bin/bc -l)
@@ -203,9 +232,7 @@ calculate_context_optimal_size()
 	
 	# ATTENTION: bc tool returns 1 for true and 0 for false when evaluating comparison expressions 
 	if [ "$model_exceeds_ram" -eq 1 ]; then
-	  # echo "Warning: Model requires ~${model_memory_gb} GB, but only $(($ram_gb - 2)) GB available after system reserve."
-	  # try with tiny context size
-	  context_size=1024
+	  context_size=4096
 	  echo "${context_size}"
 	  return 0
 	fi
@@ -230,24 +257,43 @@ calculate_context_optimal_size()
 	
 	local available_for_context_gb=$(echo "scale=2; ${ram_gb} - ${model_memory_gb} - ${ram_reserve_gb}" | /usr/bin/bc -l)
 	
-	# Conservative context estimate: ~0.15 GB per 1000 tokens (for 7B–13B models)
-	local gb_per_thousand="0.15"
+	# f16 KV cache cost per 1K tokens (K + V, both heads).
+	# Modern models use GQA so the real driver is n_layers × n_kv_heads, not
+	# total param count. Empirical values (2 × n_layers × n_kv_heads × head_dim × 2 B):
+	#   ≤12B  GQA  e.g. Llama 3.1 8B  (32L × 8kv × 128d) → 0.131 GB/1K  → use 0.13
+	#   ~14B  GQA  e.g. Qwen 2.5 14B  (48L × 8kv × 128d) → 0.197 GB/1K  → use 0.19
+	#   ~32B  GQA  e.g. Qwen 2.5 32B  (64L × 8kv × 128d) → 0.262 GB/1K  → use 0.25
+	#   ~70B  GQA  e.g. Llama 3.3 70B (80L × 8kv × 128d) → 0.328 GB/1K  → use 0.31
+	# Param count from the filename is used as a proxy for model class.
 	local param_count=$(params_from_gguf_filename "${model_path}")
-	
-	if [ "${param_count}" -ge "30" ]; then
-		gb_per_thousand="0.3"
-	elif [ "${param_count}" -ge "20" ]; then
+	local gb_per_thousand="0.13"
+
+	if [ "${param_count}" -ge "60" ]; then
+		gb_per_thousand="0.31"
+	elif [ "${param_count}" -ge "25" ]; then
 		gb_per_thousand="0.25"
-	elif [ "${param_count}" -ge "14" ]; then
-		gb_per_thousand="0.2"
+	elif [ "${param_count}" -ge "12" ]; then
+		gb_per_thousand="0.19"
 	fi
-	
-	local context_per_gb=$(echo "scale=2; 1000 / ${gb_per_thousand}" | /usr/bin/bc -l)
+
+	# Apply KV cache quantization scale. gb_per_thousand covers K + V equally
+	# (each half), so the effective cost is (scale_k + scale_v) / 2 × base cost.
+	local scale_k=$(kv_cache_scale "$cache_type_k")
+	local scale_v=$(kv_cache_scale "$cache_type_v")
+	local gb_per_thousand_effective=$(echo "scale=4; ${gb_per_thousand} * (${scale_k} + ${scale_v}) / 2" | /usr/bin/bc -l)
+
+	local context_per_gb=$(echo "scale=2; 1000 / ${gb_per_thousand_effective}" | /usr/bin/bc -l)
 	local context_size=$(echo "scale=2; ${available_for_context_gb} * ${context_per_gb}" | /usr/bin/bc -l)
 	local size_kb=$(echo "scale=0; ${context_size}/1024" | /usr/bin/bc -l)
+	local ctx=$(( size_kb * 1024 ))
 
-	echo $(( $size_kb * 1024 )) 
+	# Clamp: at least 4096 (minimum useful chat context); at most 131072 (128K) —
+	# the widest context most current models are trained for and a practical ceiling
+	# on KV cache size regardless of how much headroom a high-RAM machine reports.
+	[ "${ctx}" -lt 4096   ] && ctx=4096
+	[ "${ctx}" -gt 131072 ] && ctx=131072
 
+	echo "${ctx}"
 	return 0
 }
 
@@ -330,12 +376,14 @@ echo "Using port $port_num"
 
 echo "Starting llama-server..."
 
-context_size=$(calculate_context_optimal_size "${AICHAT_MODEL_PATH}")
+KV_CACHE_TYPE_K="q8_0"
+KV_CACHE_TYPE_V="q8_0"
+context_size=$(calculate_context_optimal_size "${AICHAT_MODEL_PATH}" "${KV_CACHE_TYPE_K}" "${KV_CACHE_TYPE_V}")
 model_size=$(/usr/bin/stat -f%z -L "${AICHAT_MODEL_PATH}" 2>/dev/null)
 
-echo "$OMC_APP_BUNDLE_PATH/Contents/Support/Llama.cpp/llama-server --host 127.0.0.1 --port $port_num --ctx-size ${context_size} --context-shift --path $webui_dir_path --model $AICHAT_MODEL_PATH"
+echo "$OMC_APP_BUNDLE_PATH/Contents/Support/Llama.cpp/llama-server --host 127.0.0.1 --port $port_num --ctx-size ${context_size} --cache-type-k ${KV_CACHE_TYPE_K} --cache-type-v ${KV_CACHE_TYPE_V} --context-shift --sleep-idle-seconds 600 --path $webui_dir_path --model $AICHAT_MODEL_PATH"
 
-"$OMC_APP_BUNDLE_PATH/Contents/Support/Llama.cpp/llama-server" --host 127.0.0.1 --port $port_num --ctx-size ${context_size} --context-shift --path "$webui_dir_path" --model "$AICHAT_MODEL_PATH" &
+"$OMC_APP_BUNDLE_PATH/Contents/Support/Llama.cpp/llama-server" --host 127.0.0.1 --port $port_num --ctx-size ${context_size} --cache-type-k "${KV_CACHE_TYPE_K}" --cache-type-v "${KV_CACHE_TYPE_V}" --context-shift --sleep-idle-seconds 600 --path "$webui_dir_path" --model "$AICHAT_MODEL_PATH" &
 llama_server_pid=$!
 if [ "$llama_server_pid" != "" ]; then
 	sleep 1
