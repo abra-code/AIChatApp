@@ -41,18 +41,91 @@ Two sed command files are applied by the update script:
 
 webui-bundle-css.sed  — custom color scheme
   Adjusts --background values so the WebUI background is not pure white/black:
-    light mode: oklch(100% 0 0) -> oklch(90% 0 0)  (slightly off-white)
-    dark mode:  oklch(16%  0 0) -> oklch(27% 0 0)  (lighter dark background)
+    light mode: oklch(100% 0 0)  -> oklch(98% 0.01 240)  (warm blue-tinted off-white)
+    dark mode:  oklch(16%  0 0)  -> oklch(27%  0   0)    (lighter dark background)
   Note: parentheses in the pattern must be escaped (\( \)) because the script
   uses sed -E (extended regex mode).
 
-webui-bundle-js.sed  — branding
-  Pattern 1: replaces the welcome-screen heading and inserts the app logo:
-    llama.cpp</h1> followed by the start of the <p> placeholder
-    -> AIChat</h1><center><img src="AIChat.png" …></center><p …
-  The bundle.js heading line ends with a JS string line-continuation backslash (\)
-  before the newline; the sed pattern uses \\ to match that literal backslash.
-  Pattern 2: renames remaining "llama.cpp<" occurrences (nav, title) to "AIChat<".
+webui-bundle-js.sed  — brand the app (4 substitutions, applied in order):
+  1. s|Hello there</h1>|AIChat</h1>|
+     Renames the welcome-screen heading from the llama.cpp default to AIChat.
+  2. s|("System message",)([A-Za-z]{1,3})="llama-ui"|\1\2="AIChat"|
+     Renames the UI display name (sidebar label, window title) from "llama-ui"
+     to "AIChat".  The Svelte/Vite minifier assigns a short generated variable
+     name to this string (e.g. Nx, cX) that changes between builds.  Anchoring
+     on the adjacent stable literal "System message", makes the pattern robust.
+     Note: a different variable holds the same "llama-ui" value as a SvelteKit
+     cache key — the anchor ensures only the display-name variable is rewritten.
+  3. s|mb-8 px-4 text-center"><h1|…flex-direction:column…><h1|
+     Adds display:flex / flex-direction:column / align-items:center to the
+     welcome-screen container so CSS order: can reorder children visually.
+  4. s|md:text-3xl">AIChat</h1> <p class="text-muted-foreground md:text-lg">|…|
+     Inserts the AIChat.png logo and assigns CSS order: values so it renders
+     above the heading.  See "Logo injection" below for the exact constraints.
+
+Logo injection — Svelte 5 DOM traversal constraint
+---------------------------------------------------
+The welcome screen is a Svelte 5 component.  The compiled JS stores its template as
+an HTML string and uses from_html() to create it:
+
+  root_5$i = from_html('<div class="mb-8 px-4 text-center">
+                          <h1 ...>Hello there</h1>
+                          [space " " → becomes a DOM text-node]
+                          <p class="text-muted-foreground ..."> </p>
+                        </div>')
+
+Svelte 5 compiles the component's dynamic bindings against the ORIGINAL template
+structure using hardcoded sibling offsets:
+
+  var div_3 = root_5$i()               // root <div>
+  var p2    = sibling(child(div_3), 2) // child(div_3) → nextSibling → nextSibling
+  var text2 = child(p2)                // text-node inside <p>
+  template_effect(() => set_text(text2, "Type a message…"))
+
+sibling(node, n) calls node.nextSibling n times — it counts ALL nodes including
+whitespace text-nodes.  With the original template the path is:
+
+  child(div_3)       = <h1>           (offset 0)
+  sibling(<h1>, 1)   = text " "       (the space between </h1> and <p>)
+  sibling(<h1>, 2)   = <p>            (p2 — correct)
+
+Inserting <img> as the FIRST child shifts child(div_3) from <h1> to <img>, making
+sibling(…, 2) land on a text-node.  child(text-node) → null → JS crash → blank screen.
+
+Required DOM structure
+~~~~~~~~~~~~~~~~~~~~~~
+The three direct children of the container div must be, in DOM order:
+
+  [0] <h1>   ← child(div_3)  (Svelte's anchor; must remain first)
+  [1] <img>  ← sibling 1     (no text-node before it)
+  [2] <p>    ← sibling 2 = p2 (must be exactly 2 steps from <h1>)
+
+Rule: NO whitespace characters between </h1> and <img>, and between <img/> and <p>
+in the from_html() string.  Any space or newline creates an extra text-node that
+shifts p2 to offset 3, causing a null-dereference and blank screen.
+
+Substitution 3 adds flex layout to the container so CSS order: values control the
+visual order independently of DOM order:
+
+  <div … style="display:flex;flex-direction:column;align-items:center">
+    <h1 … style="order:2">AIChat</h1>          ← DOM child 0, visual position 2
+    <img … style="order:1"/>                    ← DOM child 1, visual position 1 (logo first)
+    <p  … style="order:3">                      ← DOM child 2, visual position 3
+
+Verification
+~~~~~~~~~~~~
+After patching, update-llama-cpp.sh calls verify_welcome_dom() which greps for:
+  'AIChat</h1><img src="./AIChat.png"'   — no text-node after </h1>
+  'height:128px;order:1"/><p '           — no text-node after <img/>
+If either is missing the build is flagged as broken before any files are installed.
+
+Pattern uniqueness (checked in b9173)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Sub 2 match  '"System message",'  followed by  '="llama-ui"'      — 1 occurrence
+Sub 3 match  "mb-8 px-4 text-center\"><h1"                        — 1 occurrence
+Sub 4 match  "md:text-3xl\">AIChat</h1> <p class=\"text-muted…"   — 1 occurrence
+Recheck after each llama.cpp upgrade by extracting bundle.js from
+WebUI-{VERSION}.zip and grepping for all three strings.
 
 Cache-busting
 -------------
