@@ -9,6 +9,7 @@ INFO_TEXT_ID=12
 LOAD_BUTTON_ID=3
 REVEAL_BUTTON_ID=20
 DELETE_BUTTON_ID=24
+USE_TOOLS_TOGGLE_ID=30
 
 dialog_tool="$OMC_OMC_SUPPORT_PATH/omc_dialog_control"
 window_uuid="$OMC_ACTIONUI_WINDOW_UUID"
@@ -39,8 +40,20 @@ if [ -n "$selected_path" ]; then
         *)                                              source_label="Local file" ;;
     esac
 
+    python3="$OMC_APP_BUNDLE_PATH/Contents/Library/Python/bin/python3"
+    check_script="$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/gguf_check_tools.py"
+    supports_tools=$("$python3" "$check_script" "$selected_path" 2>/dev/null)
+    if [ "$supports_tools" = "true" ]; then
+        tools_label="Supported"
+        "$dialog_tool" "$window_uuid" $USE_TOOLS_TOGGLE_ID true
+    else
+        tools_label="Not detected"
+        "$dialog_tool" "$window_uuid" $USE_TOOLS_TOGGLE_ID false
+    fi
+
     info="**File:**     ${filename}  
 **Size:**     ${size_gb} GB  
+**Tools:**    ${tools_label}  
 **Source:**   ${source_label}  
 **Modified:** ${modified}  
 **Path:**     ${selected_path}  "

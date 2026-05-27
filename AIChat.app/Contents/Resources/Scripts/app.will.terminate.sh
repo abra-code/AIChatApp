@@ -52,6 +52,9 @@ while read -r host_pid; do
 					echo "kill -TERM $server_pid"
 					kill -TERM "$server_pid"
 				fi
+				# Kill associated mcp-proxy if it was registered for this server
+				mcp_pid=$("$plister" get string "$prefs" "/server-info/$server_pid/mcp-proxy-pid" 2>/dev/null)
+				kill_mcp_proxy "$mcp_pid"
 				"$plister" delete "$prefs" "/server-info/$server_pid" 2>/dev/null
     		fi
 		done <<< "$server_pids"
@@ -72,6 +75,11 @@ while read -r host_pid; do
     				if [ "$server_process_exists" = 0 ]; then
 						echo "kill -TERM $server_pid"
 						kill -TERM "$server_pid"
+    				fi
+    				mcp_pid=$("$plister" get string "$prefs" "/server-info/$server_pid/mcp-proxy-pid" 2>/dev/null)
+    				if [ -n "$mcp_pid" ]; then
+    					echo "kill -TERM mcp-proxy pid=$mcp_pid"
+    					kill -TERM "$mcp_pid" 2>/dev/null
     				fi
     				"$plister" delete "$prefs" "/server-info/$server_pid" 2>/dev/null
     			fi

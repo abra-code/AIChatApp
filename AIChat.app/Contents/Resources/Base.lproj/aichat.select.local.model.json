@@ -156,6 +156,15 @@
             "type": "Spacer"
           },
           {
+            "type": "Toggle",
+            "id": 30,
+            "properties": {
+              "title": "Use Tools in Agentic Session",
+              "isOn": true,
+              "style": "checkbox"
+            }
+          },
+          {
             "type": "Button",
             "id": 2,
             "properties": {

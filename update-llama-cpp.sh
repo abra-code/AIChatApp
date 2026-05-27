@@ -546,10 +546,11 @@ update_webui() {
     # Inject ?v=VERSION into bundle.css and bundle.js references in index.html.
     # WKWebView caches by URL; changing the query string forces it to fetch the
     # updated files instead of serving stale cached content from a prior version.
-    echo "  Injecting cache-busting version tag into index.html (?v=$VERSION)..."
+    echo "  Patching index.html (cache-busting + mcp-seed.js injection)..."
     /usr/bin/sed -E \
         -e "s|\./bundle\.css\"|\./bundle.css?v=${VERSION}\"|g" \
         -e "s|\./bundle\.js\"|\./bundle.js?v=${VERSION}\"|g" \
+        -e "s|<div style=\"display: contents\">|<script src=\"./mcp-seed.js\"></script>\n\t\t<div style=\"display: contents\">|" \
         "${webui_work}/index.html" > "${webui_work}/index.html.versioned"
     /bin/mv "${webui_work}/index.html.versioned" "${webui_work}/index.html"
 

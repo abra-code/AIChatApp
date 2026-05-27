@@ -37,4 +37,5 @@ fi
 "$dialog_tool" "$window_uuid" omc_window omc_terminate_ok
 
 "$pasteboard" "AICHAT_MODEL_PATH" put "$selected_path"
+"$pasteboard" "AICHAT_USE_TOOLS" put "${OMC_ACTIONUI_TOGGLE_30_VALUE:-false}"
 "$next_command" "$OMC_CURRENT_COMMAND_GUID" "aichat.new"

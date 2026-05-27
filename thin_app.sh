@@ -36,6 +36,37 @@ thin_binary()
 	return 0
 }
 
+thin_executables_in_dir()
+{
+	local dir="$1"
+
+	if test ! -d "$dir"; then
+		return
+	fi
+
+	echo ""
+	echo "Searching for executables in: $dir"
+	echo "-----------------------------------"
+
+	local exec_files=$(/usr/bin/find "$dir" -type f -perm +111 -print | /usr/bin/sort)
+
+	if test -z "$exec_files"; then
+		echo "No executables found"
+		echo "-----------------------------------"
+		return
+	fi
+
+	echo "$exec_files" | while IFS= read -r exec_file; do
+		file_type=$(/usr/bin/file -b "$exec_file")
+		echo "$file_type" | /usr/bin/grep -qE "Mach-O"
+		if test "$?" = "0"; then
+			thin_binary "$exec_file"
+		fi
+	done
+
+	echo "-----------------------------------"
+}
+
 self_dir=$(/usr/bin/dirname "$0")
 
 one_arch="$1"
@@ -53,19 +84,38 @@ fi
 # full path
 app_to_thin=$(/bin/realpath "$app_to_thin")
 
-thin_binary "$app_to_thin/Contents/MacOS/OMCApplet"
-thin_binary "$app_to_thin/Contents/Frameworks/Abracode.framework/Versions/A/Abracode"
+thin_executables_in_dir "$app_to_thin/Contents/MacOS"
 
-abracode_support_dir="$app_to_thin/Contents/Frameworks/Abracode.framework/Versions/A/Support"
-if test -d "$abracode_support_dir"; then
-	pushd "$abracode_support_dir"
-	all_tools=$(/bin/ls)
-	popd
-	
-	while read -r one_tool; do
-		thin_binary "$abracode_support_dir/$one_tool"
-	done <<< "$all_tools"
-else
-	echo "error: Abracode.framework Support directory not found"
+if test -d "$app_to_thin/Contents/Helpers"; then
+	thin_executables_in_dir "$app_to_thin/Contents/Helpers"
+fi
+
+if test -d "$app_to_thin/Contents/Library"; then
+	thin_executables_in_dir "$app_to_thin/Contents/Library"
+fi
+
+if test -d "$app_to_thin/Contents/Support"; then
+	thin_executables_in_dir "$app_to_thin/Contents/Support"
+fi
+
+if test -d "$app_to_thin/Contents/Frameworks"; then
+	for fw in "$app_to_thin/Contents/Frameworks"/*.framework; do
+		test -d "$fw" || continue
+		thin_executables_in_dir "$fw/Versions/Current/Support"
+	done
+
+	echo ""
+	echo "Thinning framework binaries in: $app_to_thin/Contents/Frameworks"
+	echo "-----------------------------------"
+	for fw in "$app_to_thin/Contents/Frameworks"/*.framework; do
+		test -d "$fw" || continue
+		fw_name=$(/usr/bin/basename "$fw" .framework)
+		fw_binary="$fw/Versions/Current/$fw_name"
+		if test -f "$fw_binary"; then
+			echo "Thinning framework binary: $fw_name"
+			thin_binary "$fw_binary"
+		fi
+	done
+	echo "-----------------------------------"
 fi
 

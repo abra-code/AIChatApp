@@ -26,3 +26,6 @@ AIChat.app/Contents/_CodeSignature
 AIChat.app/Contents/Resources/WebUI/bundle.css
 AIChat.app/Contents/Resources/WebUI/bundle.js
 Private/
+AIChat.app/Contents/Library/Python
+AIChat.app/Contents/Support/replay
+AIChat.app/Contents/Library/Packages

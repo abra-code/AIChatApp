@@ -49,6 +49,107 @@ find_free_port() {
     return 1
 }
 
+# find_free_port_in <start> <end>
+# Returns the first unused port in [start, end], or empty string if all taken.
+find_free_port_in() {
+    local port="$1"
+    local end="$2"
+    while [ "$port" -le "$end" ]; do
+        if ! /usr/sbin/lsof -ti tcp:"$port" > /dev/null 2>&1; then
+            echo "$port"
+            return 0
+        fi
+        port=$((port + 1))
+    done
+    echo ""
+    return 1
+}
+
+# generate_mcp_configs <app_bundle> <proxy_port> <out_proxy_json> <out_webui_json>
+# Writes mcp-proxy.json and llama-ui-mcp.json using the bundled Python3.
+# Phase 1: all four bundled servers hardcoded as enabled.
+# Discovers tool directories at runtime to build replay's sandbox allowed-read list.
+generate_mcp_configs() {
+    local app_bundle="$1"
+    local proxy_port="$2"
+    local out_proxy_json="$3"
+    local out_webui_json="$4"
+
+    local python3="$app_bundle/Contents/Library/Python/bin/python3"
+    if [ ! -f "$python3" ]; then
+        echo "generate_mcp_configs: bundled Python not found: $python3"
+        return 1
+    fi
+
+    local tz
+    tz=$(/usr/bin/readlink /etc/localtime 2>/dev/null | /usr/bin/sed 's|.*/zoneinfo/||')
+    [ -z "$tz" ] && tz="UTC"
+
+    local script="$app_bundle/Contents/Resources/Scripts/generate_mcp_configs.py"
+    "$python3" "$script" "$app_bundle" "$proxy_port" "$out_proxy_json" "$out_webui_json" "$tz"
+}
+
+# launch_mcp_proxy <app_bundle> <proxy_port> <config_json> <log_path>
+# Starts Python mcp-proxy as a background process.
+# config_json is the --named-server-config file (mcpServers format).
+# Sets the global mcp_proxy_pid variable (empty string if not launched).
+mcp_proxy_pid=""
+launch_mcp_proxy() {
+    local app_bundle="$1"
+    local proxy_port="$2"
+    local config_json="$3"
+    local log_path="$4"
+
+    mcp_proxy_pid=""
+    local python3="$app_bundle/Contents/Library/Python/bin/python3"
+    local packages_dir="$app_bundle/Contents/Library/Packages"
+
+    if [ ! -f "$python3" ]; then
+        echo "launch_mcp_proxy: Python not found — skipping MCP"
+        return 0
+    fi
+    if ! PYTHONPATH="$packages_dir" "$python3" -c "import mcp_proxy" 2>/dev/null; then
+        echo "launch_mcp_proxy: mcp-proxy not installed — run update-mcp-servers.sh to enable MCP"
+        return 0
+    fi
+    if [ ! -f "$config_json" ]; then
+        echo "launch_mcp_proxy: config not found ($config_json) — skipping MCP"
+        return 0
+    fi
+
+    echo "Starting mcp-proxy (Python, port $proxy_port)..."
+    PYTHONPATH="$packages_dir" "$python3" -m mcp_proxy \
+        --host 127.0.0.1 \
+        --port "$proxy_port" \
+        --allow-origin '*' \
+        --pass-environment \
+        --named-server-config "$config_json" \
+        > "$log_path" 2>&1 &
+    mcp_proxy_pid=$!
+
+    sleep 1
+    if /bin/ps -p "$mcp_proxy_pid" > /dev/null 2>&1; then
+        echo "mcp-proxy started (pid $mcp_proxy_pid)"
+    else
+        echo "mcp-proxy exited immediately — check $log_path"
+        mcp_proxy_pid=""
+    fi
+}
+
+# kill_mcp_proxy <mcp_pid>
+# Terminates mcp-proxy and all child processes it spawned (tool instances, etc.).
+kill_mcp_proxy() {
+    local mcp_pid="$1"
+    [ -z "$mcp_pid" ] && return
+    kill -0 "$mcp_pid" 2>/dev/null || return
+    echo "kill mcp-proxy children of pid=$mcp_pid"
+    /usr/bin/pkill -TERM -P "$mcp_pid" 2>/dev/null
+    sleep 0.3
+    /usr/bin/pkill -KILL -P "$mcp_pid" 2>/dev/null
+    echo "kill mcp-proxy pid=$mcp_pid"
+    kill -TERM "$mcp_pid" 2>/dev/null
+}
+
 # calculate_total_server_ram()
 # Sums model sizes (from /server-info) for all currently live registered servers.
 # Prints the total in bytes.

@@ -20,9 +20,11 @@ while IFS= read -r host_pid; do
         stored_dialog=$("$plister" get string "$prefs" "/server-info/$server_pid/dialog" 2>/dev/null)
         if [ "$stored_dialog" = "$OMC_NIB_DLG_GUID" ]; then
             echo "Stopping server pid=$server_pid for window $OMC_NIB_DLG_GUID"
+            mcp_pid=$("$plister" get string "$prefs" "/server-info/$server_pid/mcp-proxy-pid" 2>/dev/null)
             if kill -0 "$server_pid" 2>/dev/null; then
                 kill -TERM "$server_pid"
             fi
+            kill_mcp_proxy "$mcp_pid"
             "$plister" delete "$prefs" "/server-hosts/$host_pid/$server_pid" 2>/dev/null
             "$plister" delete "$prefs" "/server-info/$server_pid" 2>/dev/null
             exit 0

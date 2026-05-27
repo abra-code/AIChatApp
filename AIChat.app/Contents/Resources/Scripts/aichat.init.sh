@@ -381,9 +381,57 @@ KV_CACHE_TYPE_V="q8_0"
 context_size=$(calculate_context_optimal_size "${AICHAT_MODEL_PATH}" "${KV_CACHE_TYPE_K}" "${KV_CACHE_TYPE_V}")
 model_size=$(/usr/bin/stat -f%z -L "${AICHAT_MODEL_PATH}" 2>/dev/null)
 
-echo "$OMC_APP_BUNDLE_PATH/Contents/Support/Llama.cpp/llama-server --host 127.0.0.1 --port $port_num --ctx-size ${context_size} --cache-type-k ${KV_CACHE_TYPE_K} --cache-type-v ${KV_CACHE_TYPE_V} --context-shift --sleep-idle-seconds 600 --path $webui_dir_path --model $AICHAT_MODEL_PATH"
+# ── MCP proxy setup ───────────────────────────────────────────────────────────
+use_tools=$("$pasteboard" "AICHAT_USE_TOOLS" get)
+"$pasteboard" "AICHAT_USE_TOOLS" set ""
+echo "AICHAT_USE_TOOLS = $use_tools"
 
-"$OMC_APP_BUNDLE_PATH/Contents/Support/Llama.cpp/llama-server" --host 127.0.0.1 --port $port_num --ctx-size ${context_size} --cache-type-k "${KV_CACHE_TYPE_K}" --cache-type-v "${KV_CACHE_TYPE_V}" --context-shift --sleep-idle-seconds 600 --path "$webui_dir_path" --model "$AICHAT_MODEL_PATH" &
+mcp_app_support="$HOME/Library/Application Support/AIChat"
+mcp_proxy_json="$mcp_app_support/mcp-proxy.json"
+llama_ui_mcp_json="$mcp_app_support/llama-ui-mcp.json"
+mcp_proxy_log="$mcp_app_support/logs/mcp-proxy.log"
+
+if [ "$use_tools" = "true" ]; then
+    /bin/mkdir -p "$mcp_app_support/logs"
+
+    mcp_proxy_port=$(find_free_port_in 8101 8110)
+    if [ -z "$mcp_proxy_port" ]; then
+        echo "No free port for mcp-proxy (checked 8101–8110) — skipping MCP"
+    fi
+
+    if [ -n "$mcp_proxy_port" ]; then
+        echo "Generating MCP configs (proxy port $mcp_proxy_port)..."
+        generate_mcp_configs "$OMC_APP_BUNDLE_PATH" "$mcp_proxy_port" "$mcp_proxy_json" "$llama_ui_mcp_json"
+        launch_mcp_proxy "$OMC_APP_BUNDLE_PATH" "$mcp_proxy_port" "$mcp_proxy_json" "$mcp_proxy_log"
+    fi
+else
+    echo "Tools disabled — skipping MCP proxy"
+fi
+
+# ── Launch llama-server ───────────────────────────────────────────────────────
+llama_server_bin="$OMC_APP_BUNDLE_PATH/Contents/Support/Llama.cpp/llama-server"
+
+# Base args — always present
+llama_args=(
+    --host 127.0.0.1 --port "$port_num"
+    --ctx-size "${context_size}"
+    --cache-type-k "${KV_CACHE_TYPE_K}"
+    --cache-type-v "${KV_CACHE_TYPE_V}"
+    --context-shift
+    --sleep-idle-seconds 600
+    --path "$webui_dir_path"
+    --model "$AICHAT_MODEL_PATH"
+    --jinja
+)
+
+# Agentic / MCP flags — only when mcp-proxy is running
+if [ -n "$mcp_proxy_pid" ] && [ -f "$llama_ui_mcp_json" ]; then
+    llama_args+=(--webui-mcp-proxy --webui-config-file "$llama_ui_mcp_json")
+    echo "MCP proxy active — enabling --webui-mcp-proxy and --webui-config-file"
+fi
+
+echo "${llama_server_bin} ${llama_args[*]}"
+"${llama_server_bin}" "${llama_args[@]}" &
 llama_server_pid=$!
 if [ "$llama_server_pid" != "" ]; then
 	sleep 1
@@ -400,6 +448,12 @@ if [ "$llama_server_pid" != "" ]; then
 
 		echo "Register server with pid $llama_server_pid"
 		register_started_server "${OMC_FRONT_PROCESS_ID}" "${llama_server_pid}" "$AICHAT_MODEL_PATH" "$OMC_NIB_DLG_GUID" "$port_num" "$model_size"
+
+		# Store mcp-proxy pid so terminate.sh can kill it alongside llama-server
+		if [ -n "$mcp_proxy_pid" ]; then
+			"$plister" insert "mcp-proxy-pid" string "$mcp_proxy_pid" "$prefs" "/server-info/$llama_server_pid"
+			echo "registered mcp-proxy-pid=$mcp_proxy_pid under server-info/$llama_server_pid"
+		fi
 	fi
 else
 	report_server_launch_failure
