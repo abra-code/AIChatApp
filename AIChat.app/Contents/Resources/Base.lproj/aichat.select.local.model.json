@@ -160,7 +160,7 @@
             "id": 30,
             "properties": {
               "title": "Use Tools in Agentic Session",
-              "isOn": true,
+              "isOn": false,
               "style": "checkbox"
             }
           },
