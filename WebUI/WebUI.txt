@@ -39,12 +39,15 @@ Patches
 -------
 Two sed command files are applied by the update script:
 
-webui-bundle-css.sed  — custom color scheme
+webui-bundle-css.sed  — custom color scheme + welcome-screen flex rule
   Adjusts --background values so the WebUI background is not pure white/black:
     light mode: oklch(100% 0 0)  -> oklch(98% 0.01 240)  (warm blue-tinted off-white)
     dark mode:  oklch(16%  0 0)  -> oklch(27%  0   0)    (lighter dark background)
   Note: parentheses in the pattern must be escaped (\( \)) because the script
   uses sed -E (extended regex mode).
+  Also appends an .aichat-flex{display:flex!important;flex-direction:column;
+  align-items:center} rule after .block\! so the welcome screen can adopt flex
+  column layout when JS substitution 3 swaps "block!" → "aichat-flex".
 
 webui-bundle-js.sed  — brand the app (4 substitutions, applied in order):
   1. s|Hello there</h1>|AIChat</h1>|
@@ -56,9 +59,16 @@ webui-bundle-js.sed  — brand the app (4 substitutions, applied in order):
      on the adjacent stable literal "System message", makes the pattern robust.
      Note: a different variable holds the same "llama-ui" value as a SvelteKit
      cache key — the anchor ensures only the display-name variable is rewritten.
-  3. s|mb-8 px-4 text-center"><h1|…flex-direction:column…><h1|
-     Adds display:flex / flex-direction:column / align-items:center to the
-     welcome-screen container so CSS order: can reorder children visually.
+  3. s|"pointer-events-auto block!"|"pointer-events-auto aichat-flex"|
+     Replaces the Tailwind "block!" class (display:block!important applied when
+     the chat is empty) with our custom "aichat-flex" class.  The companion CSS
+     rule (see webui-bundle-css.sed) defines aichat-flex as flex column with
+     items-center, so CSS order: can reorder children visually.
+     Background: prior to b9370 the welcome-screen container had a static
+     class="mb-8 px-4 text-center" we could amend with an inline style.  From
+     b9370 onward the classes are applied dynamically via Svelte's kr([…]),
+     and only an !important rule can override the always-applied "hidden"
+     class — hence the swap + custom CSS approach.
   4. s|md:text-3xl">AIChat</h1> <p class="text-muted-foreground md:text-lg">|…|
      Inserts the AIChat.png logo and assigns CSS order: values so it renders
      above the heading.  See "Logo injection" below for the exact constraints.
@@ -119,13 +129,14 @@ After patching, update-llama-cpp.sh calls verify_welcome_dom() which greps for:
   'height:128px;order:1"/><p '           — no text-node after <img/>
 If either is missing the build is flagged as broken before any files are installed.
 
-Pattern uniqueness (checked in b9173)
+Pattern uniqueness (checked in b9370)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Sub 2 match  '"System message",'  followed by  '="llama-ui"'      — 1 occurrence
-Sub 3 match  "mb-8 px-4 text-center\"><h1"                        — 1 occurrence
+Sub 3 match  '"pointer-events-auto block!"'                       — 1 occurrence
 Sub 4 match  "md:text-3xl\">AIChat</h1> <p class=\"text-muted…"   — 1 occurrence
-Recheck after each llama.cpp upgrade by extracting bundle.js from
-WebUI-{VERSION}.zip and grepping for all three strings.
+CSS rule    ".block\\!{display:block!important}"                  — 1 occurrence
+Recheck after each llama.cpp upgrade by extracting bundle.js/bundle.css
+from WebUI-{VERSION}.zip and grepping for all four strings.
 
 Cache-busting
 -------------

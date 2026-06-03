@@ -362,7 +362,17 @@ ${_p}"
 		;;
 esac
 
+# Remove stale keys left by older schema versions (no-op when already absent).
+[ -f "$prefs" ] && "$plister" delete "$prefs" "/server-windows" 2>/dev/null
+
 stop_orphaned_servers
+
+# Safety net: kill any of this bundle's llama-server / mcp-proxy / replay processes
+# that a previous session orphaned onto launchd (a dead proxy's stranded children, a
+# session quit before its server/proxies were registered, or a force-quit that skipped
+# app.will.terminate). Pairs with the registry-based stop_orphaned_servers above, and
+# runs before this session launches any new servers below, for a clean slate.
+reap_orphaned_bundle_processes
 
 server_result=0
 
@@ -386,24 +396,33 @@ use_tools=$("$pasteboard" "AICHAT_USE_TOOLS" get)
 "$pasteboard" "AICHAT_USE_TOOLS" set ""
 echo "AICHAT_USE_TOOLS = $use_tools"
 
-mcp_app_support="$HOME/Library/Application Support/AIChat"
 mcp_proxy_json="$mcp_app_support/mcp-proxy.json"
 llama_ui_mcp_json="$mcp_app_support/llama-ui-mcp.json"
 mcp_proxy_log="$mcp_app_support/logs/mcp-proxy.log"
 
-if [ "$use_tools" = "true" ]; then
+if [ "$use_tools" = "true" ] && any_mcp_server_enabled; then
     /bin/mkdir -p "$mcp_app_support/logs"
 
-    mcp_proxy_port=$(find_free_port_in 8101 8110)
+    # Reap any mcp-proxy whose llama-server already died (frees its port and stops
+    # a stale, frozen-env proxy from serving tool calls into the new session).
+    reap_dead_server_mcp_proxies
+
+    # Base port for the per-server mcp-proxy instances. generate_mcp_configs.py
+    # probes upward from here and assigns each enabled server its own port (one
+    # mcp-proxy per server — see launch_mcp_proxy). Range widened from the old
+    # single-port days since a session now binds ~one port per enabled server.
+    mcp_proxy_port=$(find_free_port_in 8101 8140)
     if [ -z "$mcp_proxy_port" ]; then
-        echo "No free port for mcp-proxy (checked 8101–8110) — skipping MCP"
+        echo "No free port for mcp-proxy (checked 8101–8140) — skipping MCP"
     fi
 
     if [ -n "$mcp_proxy_port" ]; then
-        echo "Generating MCP configs (proxy port $mcp_proxy_port)..."
+        echo "Generating MCP configs (base proxy port $mcp_proxy_port)..."
         generate_mcp_configs "$OMC_APP_BUNDLE_PATH" "$mcp_proxy_port" "$mcp_proxy_json" "$llama_ui_mcp_json"
         launch_mcp_proxy "$OMC_APP_BUNDLE_PATH" "$mcp_proxy_port" "$mcp_proxy_json" "$mcp_proxy_log"
     fi
+elif [ "$use_tools" = "true" ]; then
+    echo "Tools enabled but no MCP servers selected — skipping MCP proxy"
 else
     echo "Tools disabled — skipping MCP proxy"
 fi
@@ -426,8 +445,8 @@ llama_args=(
 
 # Agentic / MCP flags — only when mcp-proxy is running
 if [ -n "$mcp_proxy_pid" ] && [ -f "$llama_ui_mcp_json" ]; then
-    llama_args+=(--webui-mcp-proxy --webui-config-file "$llama_ui_mcp_json")
-    echo "MCP proxy active — enabling --webui-mcp-proxy and --webui-config-file"
+    llama_args+=(--ui-mcp-proxy --ui-config-file "$llama_ui_mcp_json")
+    echo "MCP proxy active — enabling --ui-mcp-proxy and --ui-config-file"
 fi
 
 echo "${llama_server_bin} ${llama_args[*]}"

@@ -77,10 +77,7 @@ while read -r host_pid; do
 						kill -TERM "$server_pid"
     				fi
     				mcp_pid=$("$plister" get string "$prefs" "/server-info/$server_pid/mcp-proxy-pid" 2>/dev/null)
-    				if [ -n "$mcp_pid" ]; then
-    					echo "kill -TERM mcp-proxy pid=$mcp_pid"
-    					kill -TERM "$mcp_pid" 2>/dev/null
-    				fi
+    				kill_mcp_proxy "$mcp_pid"
     				"$plister" delete "$prefs" "/server-info/$server_pid" 2>/dev/null
     			fi
 			done <<< "$server_pids"
@@ -90,3 +87,10 @@ while read -r host_pid; do
     	fi
     fi
 done <<< "$host_pids"
+
+# Safety net: after the registry teardown above, sweep any of this bundle's llama-server
+# / mcp-proxy / replay processes still orphaned on launchd — children stranded when a
+# proxy had already died (kill_mcp_proxy can't pgrep -P a dead proxy) and any leftovers
+# from a crashed session. A still-running app instance's server and proxies stay
+# registered under a live host, so they are protected and left running.
+reap_orphaned_bundle_processes

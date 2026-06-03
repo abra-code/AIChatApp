@@ -105,10 +105,10 @@
 			<string>AIChat</string>
 			<key>NIB_DIALOG</key>
 			<dict>
-				<key>INIT_SUBCOMMAND_ID</key>
-				<string>aichat.init</string>
 				<key>END_CANCEL_SUBCOMMAND_ID</key>
 				<string>aichat.cancel</string>
+				<key>INIT_SUBCOMMAND_ID</key>
+				<string>aichat.init</string>
 				<key>IS_BLOCKING</key>
 				<false/>
 				<key>NIB_NAME</key>
@@ -118,15 +118,15 @@
 		<dict>
 			<key>COMMAND_ID</key>
 			<string>aichat.cancel</string>
-			<key>EXECUTION_MODE</key>
-			<string>exe_script_file</string>
-			<key>NAME</key>
-			<string>AIChat</string>
 			<key>ENVIRONMENT_VARIABLES</key>
 			<dict>
 				<key>OMC_FRONT_PROCESS_ID</key>
 				<string></string>
 			</dict>
+			<key>EXECUTION_MODE</key>
+			<string>exe_script_file</string>
+			<key>NAME</key>
+			<string>AIChat</string>
 		</dict>
 		<dict>
 			<key>COMMAND_ID</key>
@@ -185,7 +185,7 @@
 			<key>COMMAND_ID</key>
 			<string>aichat.hf.browse</string>
 			<key>EXECUTION_MODE</key>
-			<string>exe_script_file</string>
+			<string>exe_shell_script</string>
 			<key>NAME</key>
 			<string>AIChat</string>
 		</dict>
@@ -277,6 +277,144 @@
 			<string>AIChat</string>
 			<key>WAIT_FOR_TASK_COMPLETION</key>
 			<true/>
+		</dict>
+		<dict>
+			<key>ACTIONUI_WINDOW</key>
+			<dict>
+				<key>END_CANCEL_SUBCOMMAND_ID</key>
+				<string>aichat.mcp.servers.cancel</string>
+				<key>INIT_SUBCOMMAND_ID</key>
+				<string>aichat.mcp.servers.init</string>
+				<key>IS_BLOCKING</key>
+				<false/>
+				<key>JSON_NAME</key>
+				<string>aichat.mcp.servers</string>
+				<key>WINDOW_TITLE</key>
+				<string>AIChat — Agentic Session Tools</string>
+			</dict>
+			<key>COMMAND_ID</key>
+			<string>aichat.mcp.servers</string>
+			<key>EXECUTION_MODE</key>
+			<string>exe_script_file</string>
+			<key>NAME</key>
+			<string>AIChat</string>
+		</dict>
+		<dict>
+			<key>COMMAND_ID</key>
+			<string>aichat.mcp.servers.init</string>
+			<key>EXECUTION_MODE</key>
+			<string>exe_script_file</string>
+			<key>NAME</key>
+			<string>AIChat</string>
+		</dict>
+		<dict>
+			<key>COMMAND_ID</key>
+			<string>aichat.mcp.servers.start</string>
+			<key>EXECUTION_MODE</key>
+			<string>exe_script_file</string>
+			<key>NAME</key>
+			<string>AIChat</string>
+		</dict>
+		<dict>
+			<key>COMMAND_ID</key>
+			<string>aichat.mcp.servers.cancel</string>
+			<key>EXECUTION_MODE</key>
+			<string>exe_script_file</string>
+			<key>NAME</key>
+			<string>AIChat</string>
+		</dict>
+		<dict>
+			<key>CHOOSE_FOLDER_DIALOG</key>
+			<dict>
+				<key>MESSAGE</key>
+				<string>Choose the project workspace folder</string>
+				<key>SHOW_INVISIBLE_ITEMS</key>
+				<true/>
+			</dict>
+			<key>COMMAND_ID</key>
+			<string>aichat.mcp.servers.project.browse</string>
+			<key>EXECUTION_MODE</key>
+			<string>exe_script_file</string>
+			<key>NAME</key>
+			<string>AIChat</string>
+		</dict>
+		<dict>
+			<key>CHOOSE_OBJECT_DIALOG</key>
+			<dict>
+				<key>MESSAGE</key>
+				<string>Choose a read-write folder</string>
+				<key>SHOW_INVISIBLE_ITEMS</key>
+				<true/>
+			</dict>
+			<key>COMMAND_ID</key>
+			<string>aichat.mcp.servers.rw.add</string>
+			<key>EXECUTION_MODE</key>
+			<string>exe_script_file</string>
+			<key>NAME</key>
+			<string>AIChat</string>
+		</dict>
+		<dict>
+			<key>COMMAND_ID</key>
+			<string>aichat.mcp.servers.rw.remove</string>
+			<key>EXECUTION_MODE</key>
+			<string>exe_script_file</string>
+			<key>NAME</key>
+			<string>AIChat</string>
+		</dict>
+		<dict>
+			<key>COMMAND_ID</key>
+			<string>aichat.mcp.servers.rw.selection.changed</string>
+			<key>EXECUTION_MODE</key>
+			<string>exe_script_file</string>
+			<key>NAME</key>
+			<string>AIChat</string>
+		</dict>
+		<dict>
+			<key>CHOOSE_OBJECT_DIALOG</key>
+			<dict>
+				<key>MESSAGE</key>
+				<string>Choose a read-only folder</string>
+				<key>SHOW_INVISIBLE_ITEMS</key>
+				<true/>
+			</dict>
+			<key>COMMAND_ID</key>
+			<string>aichat.mcp.servers.ro.add</string>
+			<key>EXECUTION_MODE</key>
+			<string>exe_script_file</string>
+			<key>NAME</key>
+			<string>AIChat</string>
+		</dict>
+		<dict>
+			<key>COMMAND_ID</key>
+			<string>aichat.mcp.servers.ro.remove</string>
+			<key>EXECUTION_MODE</key>
+			<string>exe_script_file</string>
+			<key>NAME</key>
+			<string>AIChat</string>
+		</dict>
+		<dict>
+			<key>COMMAND_ID</key>
+			<string>aichat.mcp.servers.ro.selection.changed</string>
+			<key>EXECUTION_MODE</key>
+			<string>exe_script_file</string>
+			<key>NAME</key>
+			<string>AIChat</string>
+		</dict>
+		<dict>
+			<key>COMMAND_ID</key>
+			<string>aichat.mcp.servers.reset</string>
+			<key>EXECUTION_MODE</key>
+			<string>exe_script_file</string>
+			<key>NAME</key>
+			<string>AIChat</string>
+		</dict>
+		<dict>
+			<key>COMMAND_ID</key>
+			<string>aichat.mcp.servers.toggle.network</string>
+			<key>EXECUTION_MODE</key>
+			<string>exe_script_file</string>
+			<key>NAME</key>
+			<string>AIChat</string>
 		</dict>
 		<dict>
 			<key>COMMAND_ID</key>

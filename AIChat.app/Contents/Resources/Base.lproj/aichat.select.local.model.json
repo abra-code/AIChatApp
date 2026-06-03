@@ -5,7 +5,7 @@
     "columnVisibility": "all",
     "style": "balanced",
     "frame": {
-      "minWidth": 940,
+      "minWidth": 1050,
       "minHeight": 480
     },
     "padding": {
@@ -18,7 +18,7 @@
       "spacing": 0,
       "navigationSplitViewColumnWidth": {
         "min": 300,
-        "ideal": 500,
+        "ideal": 400,
         "max": 620
       }
     },
@@ -166,17 +166,9 @@
           },
           {
             "type": "Button",
-            "id": 2,
-            "properties": {
-              "title": "Cancel",
-              "actionID": "aichat.select.local.model.cancel"
-            }
-          },
-          {
-            "type": "Button",
             "id": 3,
             "properties": {
-              "title": "Load Model",
+              "title": "Continue",
               "buttonStyle": "borderedProminent",
               "disabled": true,
               "actionID": "aichat.select.local.model.ok"

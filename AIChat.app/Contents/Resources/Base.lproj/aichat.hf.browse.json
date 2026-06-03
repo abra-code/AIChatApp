@@ -221,17 +221,9 @@
               },
               {
                 "type": "Button",
-                "id": 221,
-                "properties": {
-                  "title": "Cancel",
-                  "actionID": "aichat.hf.browse.cancel"
-                }
-              },
-              {
-                "type": "Button",
                 "id": 222,
                 "properties": {
-                  "title": "Download & Load",
+                  "title": "Download & Start",
                   "buttonStyle": "borderedProminent",
                   "disabled": true,
                   "actionID": "aichat.hf.browse.download"

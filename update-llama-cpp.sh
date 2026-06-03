@@ -409,7 +409,16 @@ verify_webui_patches() {
     local ok="yes"
 
     while IFS= read -r line; do
-        [ -z "$line" ] && continue
+        # Strip sed comments and blank lines before extracting the replacement.
+        # A comment (first non-blank char '#') or blank line carries no '|', and
+        # `cut -d'|' -f3` echoes a delimiter-less line back unchanged — which
+        # would make the whole comment look like a replacement and report a bogus
+        # MISSING. Skipping comments (rather than allowlisting an `s|` prefix)
+        # leaves every real substitution line verifiable, including future ones.
+        local stripped="${line#"${line%%[![:space:]]*}"}"   # drop leading blanks
+        case "$stripped" in
+            ''|'#'*) continue ;;
+        esac
         local replacement
         replacement=$(printf '%s' "$line" | /usr/bin/cut -d'|' -f3)
         [ -z "$replacement" ] && continue
@@ -550,7 +559,7 @@ update_webui() {
     /usr/bin/sed -E \
         -e "s|\./bundle\.css\"|\./bundle.css?v=${VERSION}\"|g" \
         -e "s|\./bundle\.js\"|\./bundle.js?v=${VERSION}\"|g" \
-        -e "s|<div style=\"display: contents\">|<script src=\"./mcp-seed.js\"></script>\n\t\t<div style=\"display: contents\">|" \
+        -e "s|<div style=\"display: contents\">|<script src=\"./mcp-seed.js?v=${VERSION}\"></script>\n\t\t<div style=\"display: contents\">|" \
         "${webui_work}/index.html" > "${webui_work}/index.html.versioned"
     /bin/mv "${webui_work}/index.html.versioned" "${webui_work}/index.html"
 

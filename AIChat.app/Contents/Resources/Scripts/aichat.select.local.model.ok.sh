@@ -36,6 +36,15 @@ fi
 # Close the selector window now that we're committed to loading
 "$dialog_tool" "$window_uuid" omc_window omc_terminate_ok
 
+use_tools="${OMC_ACTIONUI_VIEW_30_VALUE:-false}"
 "$pasteboard" "AICHAT_MODEL_PATH" put "$selected_path"
-"$pasteboard" "AICHAT_USE_TOOLS" put "${OMC_ACTIONUI_TOGGLE_30_VALUE:-false}"
-"$next_command" "$OMC_CURRENT_COMMAND_GUID" "aichat.new"
+"$pasteboard" "AICHAT_USE_TOOLS" put "$use_tools"
+
+# When tools are enabled, route through the MCP servers dialog so the user can
+# review which servers + sandbox paths apply before the session launches.
+# The dialog's Start handler chains to aichat.new once preferences are saved.
+if [ "$use_tools" = "true" ]; then
+    "$next_command" "$OMC_CURRENT_COMMAND_GUID" "aichat.mcp.servers"
+else
+    "$next_command" "$OMC_CURRENT_COMMAND_GUID" "aichat.new"
+fi
