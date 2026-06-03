@@ -5,7 +5,7 @@
 # Search & Fetch) so it is visually clear they won't start when network is off.
 # The actual gating + replay's --deny-network are applied in generate_mcp_configs.py.
 
-source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.library.sh"
+source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.server.library.sh"
 
 echo "[$(/usr/bin/basename "$0")]"
 

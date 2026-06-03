@@ -9,12 +9,14 @@
 # each tool's JSON input schema. The control IDs below match aichat.mcp.inspect.json.
 #
 # Sourced ONLY by the aichat.mcp.inspect.* handler scripts (not by every applet
-# script), which keeps this inspector-specific code out of aichat.library.sh.
-# It sources aichat.library.sh itself for the shared primitives it relies on:
-#   $dialog $plister $prefs  mcp_app_support  pb_set/pb_get
-#   build_agent_path  kill_mcp_proxy
+# script), which keeps this inspector-specific code out of the base library.
+# It sources aichat.server.library.sh for the shared primitives it relies on:
+#   build_agent_path / kill_mcp_proxy (server lib) and, transitively from the base
+#   library, $dialog / $plister / $prefs / mcp_app_support / pb_set / pb_get.
+[ -n "${__AICHAT_MCP_INSPECT_LIB:-}" ] && return 0
+__AICHAT_MCP_INSPECT_LIB=1
 
-source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.library.sh"
+source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.server.library.sh"
 
 # Scratch dir for cached per-server tools/list results and the current schema.
 mcp_inspect_dir="$mcp_app_support/inspect"

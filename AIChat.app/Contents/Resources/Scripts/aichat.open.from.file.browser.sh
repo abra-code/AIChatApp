@@ -1,6 +1,6 @@
 #!/bin/sh
 
-source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.library.sh"
+source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.model.library.sh"
 
 echo "[$(/usr/bin/basename "$0")]"
 

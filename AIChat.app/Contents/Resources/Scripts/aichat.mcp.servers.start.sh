@@ -4,7 +4,7 @@
 # are already persisted incrementally by the add/remove handlers), closes the
 # window, and — if a model is queued on the pasteboard — chains to aichat.new.
 
-source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.library.sh"
+source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.mcp.servers.library.sh"
 
 echo "[$(/usr/bin/basename "$0")]"
 

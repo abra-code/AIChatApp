@@ -2,7 +2,7 @@
 # aichat.mcp.servers.rw.remove.sh
 # Removes the selected row from the additional read-write list.
 
-source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.library.sh"
+source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.mcp.servers.library.sh"
 
 echo "[$(/usr/bin/basename "$0")]"
 

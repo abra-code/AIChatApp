@@ -3,7 +3,7 @@
 # Downloads the selected GGUF file from Hugging Face into the local HF cache,
 # then loads it with llama-server via aichat.new.
 
-source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.library.sh"
+source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.model.library.sh"
 
 echo "[$(/usr/bin/basename "$0")]"
 

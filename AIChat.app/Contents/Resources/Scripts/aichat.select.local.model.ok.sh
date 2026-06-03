@@ -2,7 +2,7 @@
 # aichat.select.local.model.ok.sh
 # Loads the selected model: stops any running server, then chains to aichat.new.
 
-source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.library.sh"
+source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.model.library.sh"
 
 echo "[$(/usr/bin/basename "$0")]"
 

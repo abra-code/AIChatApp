@@ -2,7 +2,7 @@
 # aichat.mcp.servers.ro.add.sh
 # Adds a folder to the local server's additional read-only paths.
 
-source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.library.sh"
+source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.mcp.servers.library.sh"
 
 echo "[$(/usr/bin/basename "$0")]"
 

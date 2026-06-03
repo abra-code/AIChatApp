@@ -1,6 +1,6 @@
 #!/bin/sh
 
-source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.library.sh"
+source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.server.library.sh"
 
 echo "[$(/usr/bin/basename "$0")]"
 echo "OMC_FRONT_PROCESS_ID: ${OMC_FRONT_PROCESS_ID}"
