@@ -253,17 +253,17 @@
                         </items>
                     </menu>
                 </menuItem>
-                <menuItem title="Commands" id="452">
+                <menuItem title="Tools" id="452">
                     <modifierMask key="keyEquivalentModifierMask"/>
-                    <menu key="submenu" title="Commands" id="453" customClass="OMCCommandMenu">
+                    <menu key="submenu" title="Tools" id="453">
                         <items>
-                            <menuItem title="&lt;placeholder item&gt;" id="454">
-                                <modifierMask key="keyEquivalentModifierMask"/>
+                            <menuItem title="MCP Servers" id="5tc-r5-HrT" customClass="OMCMenuItem">
+                                <modifierMask key="keyEquivalentModifierMask" shift="YES"/>
+                                <userDefinedRuntimeAttributes>
+                                    <userDefinedRuntimeAttribute type="string" keyPath="commandID" value="aichat.mcp.inspect"/>
+                                </userDefinedRuntimeAttributes>
                             </menuItem>
                         </items>
-                        <userDefinedRuntimeAttributes>
-                            <userDefinedRuntimeAttribute type="string" keyPath="commandFilePath" value="Command.plist"/>
-                        </userDefinedRuntimeAttributes>
                     </menu>
                 </menuItem>
                 <menuItem title="Format" id="375">
