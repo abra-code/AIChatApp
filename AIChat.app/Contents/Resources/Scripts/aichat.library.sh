@@ -7,6 +7,7 @@
 #   aichat.mcp.servers.library.sh  — MCP server preferences (mcp_prefs_*)
 #   aichat.server.library.sh       — server/proxy launch, teardown, orphan reaping
 #   aichat.model.library.sh        — model RAM checks & existing-session activation
+#   aichat.model.glossary.library.sh — decodes model-name acronyms for the info panes
 #   aichat.mcp.inspect.library.sh  — MCP Servers inspector window
 [ -n "${__AICHAT_BASE_LIB:-}" ] && return 0
 __AICHAT_BASE_LIB=1

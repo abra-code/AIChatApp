@@ -116,6 +116,23 @@
         },
         "children": [
           {
+            "type": "HStack",
+            "properties": { "spacing": 0 },
+            "children": [
+              { "type": "Spacer" },
+              {
+                "type": "Button",
+                "id": 216,
+                "properties": {
+                  "systemImage": "questionmark.circle",
+                  "imageScale": "medium",
+                  "buttonStyle": "plain",
+                  "actionID": "aichat.model.help"
+                }
+              }
+            ]
+          },
+          {
             "type": "ScrollView",
             "properties": {
               "frame": {
@@ -178,6 +195,20 @@
                 "maxWidth": "infinity",
                 "minHeight": 80,
                 "maxHeight": 180
+              }
+            }
+          },
+          {
+            "type": "Text",
+            "id": 214,
+            "properties": {
+              "text": "Select quantization for model information",
+              "font": "callout",
+              "foregroundStyle": "secondary",
+              "textSelection": "enabled",
+              "frame": {
+                "maxWidth": "infinity",
+                "alignment": "leading"
               }
             }
           }

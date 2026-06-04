@@ -3,12 +3,14 @@
 # Fetches model detail from Hugging Face and populates the quant table and info pane.
 
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.library.sh"
+source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.model.glossary.library.sh"
 
 echo "[$(/usr/bin/basename "$0")]"
 
 MODEL_TABLE_ID=202
 QUANT_TABLE_ID=213
 INFO_TEXT_ID=211
+QUANT_INFO_ID=214
 DOWNLOAD_BTN_ID=222
 HF_LINK_ID=240
 dialog_tool="$OMC_OMC_SUPPORT_PATH/omc_dialog_control"
@@ -21,13 +23,15 @@ if [ -z "$repo_id" ]; then
     "$dialog_tool" "$window_uuid" $DOWNLOAD_BTN_ID omc_disable
     "$dialog_tool" "$window_uuid" $INFO_TEXT_ID "Select a model from the list."
     "$dialog_tool" "$window_uuid" $QUANT_TABLE_ID omc_table_remove_all_rows
+    "$dialog_tool" "$window_uuid" $QUANT_INFO_ID ""
     "$dialog_tool" "$window_uuid" $HF_LINK_ID omc_hide
     exit 0
 fi
 
-# Reset quant table and disable download while loading
+# Reset quant table + its info and disable download while loading
 "$dialog_tool" "$window_uuid" $DOWNLOAD_BTN_ID omc_disable
 "$dialog_tool" "$window_uuid" $QUANT_TABLE_ID omc_table_remove_all_rows
+"$dialog_tool" "$window_uuid" $QUANT_INFO_ID ""
 "$dialog_tool" "$window_uuid" $INFO_TEXT_ID "Loading model info…"
 
 tmp_json="/tmp/aichat_hf_model_$$.json"
@@ -77,6 +81,21 @@ if [ $? -eq 0 ]; then
 
 ${description}"
     fi
+fi
+
+# Decode the acronyms in the model name (size, Instruct, MoE, reasoning, …).
+# Separate with a blank-looking gap line. A real blank line can't be used: this
+# SwiftUI markdown renderer (.full mode) treats it as a paragraph break, drops the
+# trailing hard break and glues the decoder onto the text above. A U+2800 (Braille
+# blank) keeps the line non-empty so it stays in the same paragraph and renders as
+# a visible gap, while the two-space hard breaks give the line breaks.
+br="  "
+glossary=$(decode_model_acronyms "${model_id##*/}")
+if [ -n "$glossary" ]; then
+    gap=$(printf '\342\240\200')
+    info_text="${info_text}${br}
+${gap}${br}
+${glossary}"
 fi
 
 "$dialog_tool" "$window_uuid" $INFO_TEXT_ID markdown "$info_text"

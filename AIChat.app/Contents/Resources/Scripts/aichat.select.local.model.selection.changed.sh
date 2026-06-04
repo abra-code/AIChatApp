@@ -3,6 +3,7 @@
 # Updates the info pane and enables/disables Load Model when table selection changes.
 
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.library.sh"
+source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.model.glossary.library.sh"
 
 TABLE_ID=10
 INFO_TEXT_ID=12
@@ -51,12 +52,27 @@ if [ -n "$selected_path" ]; then
         "$dialog_tool" "$window_uuid" $USE_TOOLS_TOGGLE_ID false
     fi
 
-    info="**File:**     ${filename}  
-**Size:**     ${size_gb} GB  
-**Tools:**    ${tools_label}  
-**Source:**   ${source_label}  
-**Modified:** ${modified}  
-**Path:**     ${selected_path}  "
+    br="  "
+    info="**File:**     ${filename}${br}
+**Size:**     ${size_gb} GB${br}
+**Tools:**    ${tools_label}${br}
+**Source:**   ${source_label}${br}
+**Modified:** ${modified}${br}
+**Path:**     ${selected_path}${br}"
+
+    # Decode the acronyms in the filename (size, quant, Instruct, context, …).
+    # Separate with a blank-looking gap line. A real blank line can't be used: this
+    # SwiftUI markdown renderer (.full mode) treats it as a paragraph break, drops
+    # the trailing hard break and glues the decoder onto the path. A U+2800 (Braille
+    # blank) keeps the line non-empty so it stays in the same paragraph and renders
+    # as a visible gap, while the two-space hard breaks give the line breaks.
+    glossary=$(decode_model_acronyms "$filename")
+    if [ -n "$glossary" ]; then
+        gap=$(printf '\342\240\200')
+        info="${info}${br}
+${gap}${br}
+${glossary}"
+    fi
 
     "$dialog_tool" "$window_uuid" $INFO_TEXT_ID markdown "$info"
 else

@@ -507,6 +507,39 @@
 		</dict>
 		<dict>
 			<key>COMMAND_ID</key>
+			<string>aichat.model.help</string>
+			<key>EXECUTION_MODE</key>
+			<string>exe_script_file</string>
+			<key>NAME</key>
+			<string>AIChat</string>
+		</dict>
+		<dict>
+			<key>COMMAND_ID</key>
+			<string>aichat.model.help.dialog</string>
+			<key>EXECUTION_MODE</key>
+			<string>exe_script_file</string>
+			<key>NAME</key>
+			<string>AIChat</string>
+			<key>NIB_DIALOG</key>
+			<dict>
+				<key>INIT_SUBCOMMAND_ID</key>
+				<string>aichat.model.help.init</string>
+				<key>IS_BLOCKING</key>
+				<false/>
+				<key>NIB_NAME</key>
+				<string>AIChatHelp</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>COMMAND_ID</key>
+			<string>aichat.model.help.init</string>
+			<key>EXECUTION_MODE</key>
+			<string>exe_script_file</string>
+			<key>NAME</key>
+			<string>AIChat</string>
+		</dict>
+		<dict>
+			<key>COMMAND_ID</key>
 			<string>app.will.terminate</string>
 			<key>ENVIRONMENT_VARIABLES</key>
 			<dict>
