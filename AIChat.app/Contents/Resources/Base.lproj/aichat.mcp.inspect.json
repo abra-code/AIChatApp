@@ -33,6 +33,7 @@
 			"columns": ["Server", "i"],
 			"columnHeadersVisibility": "hidden",
 			"widths": [200, 20],
+            "minWidths": [150, 20],
 			"actionID": "aichat.mcp.inspect.server.selection.changed",
 			"frame": { "minWidth": 260, "maxWidth": "infinity", "maxHeight": "infinity" }
 		  }
@@ -46,6 +47,7 @@
 			  "id": 220,
 			  "properties": {
 				"systemImage": "play.fill",
+				"help": "Start server",
 				"controlSize": "small",
 				"disabled": true,
 				"actionID": "aichat.mcp.inspect.server.start"
@@ -56,6 +58,7 @@
 			  "id": 221,
 			  "properties": {
 				"systemImage": "stop.fill",
+				"help": "Stop server",
 				"controlSize": "small",
 				"disabled": true,
 				"actionID": "aichat.mcp.inspect.server.stop"
@@ -66,6 +69,7 @@
 			  "id": 222,
 			  "properties": {
 				"systemImage": "restart.circle",
+				"help": "Restart server",
 				"controlSize": "small",
 				"disabled": true,
 				"actionID": "aichat.mcp.inspect.server.restart"
@@ -77,6 +81,7 @@
 			  "id": 120,
 			  "properties": {
 				"systemImage": "arrow.clockwise",
+                "help": "Refresh server list",
 				"controlSize": "small",
 				"padding": { "top": 0, "leading": 0, "bottom": 0, "trailing": 10 },
 				"actionID": "aichat.mcp.inspect.refresh"

@@ -29,6 +29,7 @@
         "properties": {
           "columns": ["Model", "Size"],
           "widths": [220, 70],
+          "minWidths": [150, 50],
           "actionID": "aichat.select.local.model.selection.changed"
         }
       },

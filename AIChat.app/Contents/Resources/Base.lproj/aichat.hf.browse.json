@@ -66,6 +66,7 @@
         "properties": {
           "columns": ["Model", "Downloads"],
           "widths": [330, 80],
+          "minWidths": [200, 50],
           "actionID": "aichat.hf.browse.model.selection.changed",
           "frame": {
             "maxWidth": "infinity",
