@@ -54,8 +54,6 @@
 	<string>1.2</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.6</string>
-	<key>NSMainNibFile</key>
-	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 </dict>
