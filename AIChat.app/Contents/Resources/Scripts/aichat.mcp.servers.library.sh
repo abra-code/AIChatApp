@@ -22,6 +22,7 @@ source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.library.sh"
 #   /servers/local/project        : string  (primary read-write workspace)
 #   /servers/local/allowed-write  : array<string>  (additional RW paths)
 #   /servers/local/allowed-read   : array<string>  (additional RO paths)
+#   /servers/local/include-session-tmpdir : bool  (grant the login session $TMPDIR RW)
 #
 # allow-network is a master switch surfaced as the "Allow Network" checkbox. When
 # false, the Time and Web Search & Fetch servers are not started and the local
@@ -58,11 +59,23 @@ mcp_prefs_write_defaults() {
     # Additional read-write paths (editable). Temp dir only — tools that create
     # scratch files need somewhere to write. /tmp is a symlink to /private/tmp and
     # the sandbox canonicalizes via realpath, so we seed the real path only. No
-    # private user dirs by default.
+    # private user dirs by default. The per-login-session $TMPDIR (a random
+    # /var/folders path) is intentionally NOT seeded into this array: it changes per
+    # user login session, so generate_mcp_configs.py grants it read-write fresh from
+    # the environment on each launch instead of persisting a value that would go
+    # stale. Only the user's decision to include it is stored, in
+    # include-session-tmpdir below; the dialog shows it as a removable row
+    # (mcp_refresh_rw_table) so the temp grant can be revoked without saving its path.
     "$plister" insert "allowed-write" array "$mcp_prefs" /servers/local
     for d in /private/tmp; do
         [ -d "$d" ] && "$plister" append string "$d" "$mcp_prefs" /servers/local/allowed-write
     done
+
+    # Grant the login session $TMPDIR read-write by default. This stores only the
+    # on/off decision, never the (per-session) path; generate_mcp_configs.py and the
+    # dialog recompute the path from the environment. Removing the temp row in the
+    # dialog clears this flag.
+    "$plister" insert "include-session-tmpdir" bool true "$mcp_prefs" /servers/local
 
     # Additional read-only paths (editable). These are paths the replay sandbox does
     # NOT grant on its own: Homebrew, nvm, third-party tool dirs, data dirs, and temp
@@ -151,5 +164,32 @@ mcp_refresh_path_table() {
     local buffer=$(mcp_prefs_array_list "$key")
     if [ -n "$buffer" ]; then
         printf "%s\n" "$buffer" | "$dialog" "$window_uuid" "$table_id" omc_table_set_rows_from_stdin
+    fi
+}
+
+# mcp_session_tmpdir  ->  canonical realpath of $TMPDIR, or empty
+# The per-login-session scratch dir offered as a removable read-write grant. Its
+# value (a random /var/folders path) changes per login session, so it is NEVER stored
+# in the prefs plist — only the include-session-tmpdir decision is. `cd && pwd -P`
+# resolves the /var -> /private/var symlink to the same path os.path.realpath($TMPDIR)
+# yields in generate_mcp_configs.py, so the row shown matches what is granted.
+mcp_session_tmpdir() {
+    [ -n "${TMPDIR:-}" ] || return 0
+    ( cd "$TMPDIR" 2>/dev/null && pwd -P )
+}
+
+# mcp_refresh_rw_table <window_uuid> <table_id>
+# Repopulates the read-write table from the persisted allowed-write array, then
+# appends the session $TMPDIR as a synthetic (non-persisted) row when
+# include-session-tmpdir is on. The row is shown so the user can see the temp grant
+# and, by removing it, deny it — only that decision is stored, never the volatile path.
+mcp_refresh_rw_table() {
+    local window_uuid="$1"
+    local table_id="$2"
+    mcp_refresh_path_table "$window_uuid" "$table_id" servers/local/allowed-write
+    if [ "$(mcp_prefs_get_bool servers/local/include-session-tmpdir)" = "true" ]; then
+        local td=$(mcp_session_tmpdir)
+        [ -n "$td" ] && printf "%s\n" "$td" \
+            | "$dialog" "$window_uuid" "$table_id" omc_table_add_rows_from_stdin
     fi
 }

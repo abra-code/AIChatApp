@@ -340,6 +340,14 @@
                 {
                   "type": "Text",
                   "properties": {
+                    "markdown": "The session temporary folder ($TMPDIR) is listed as read-write and recomputed each launch (its value changes per login session, so it is not saved). Remove it to deny temp access.",
+                    "foregroundStyle": "secondary",
+                    "font": "caption"
+                  }
+                },
+                {
+                  "type": "Text",
+                  "properties": {
                     "markdown": "Always allowed (read-only): system executables in `/bin`, `/usr/bin`, `/sbin`, `/usr/sbin` and system libraries in `/usr/lib`, `/System/Library` are granted automatically by 'replay' server sandbox.",
                     "foregroundStyle": "secondary",
                     "font": "caption"

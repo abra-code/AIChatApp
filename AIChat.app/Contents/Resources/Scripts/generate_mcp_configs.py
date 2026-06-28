@@ -6,16 +6,23 @@
 # Usage: python3 generate_mcp_configs.py \
 #            <app_bundle> <proxy_port> <out_proxy_json> <out_llama_ui_json> <tz> [<mcp_prefs_plist>]
 #
-# All sandbox paths come from <mcp_prefs_plist>: the allow-network master gate,
-# per-server enabled flags, the prominent project workspace, and the allowed-read /
-# allowed-write lists shown and edited in the MCP servers dialog. When allow-network
-# is false, the time and search servers are omitted and replay gets --deny-network. That plist is seeded with Homebrew, nvm,
-# temp, third-party tool/data dirs, and the app bundle by mcp_prefs_write_defaults()
-# in aichat.library.sh, so nothing is granted to the sandbox invisibly here. (The
-# system executable dirs and macOS system libraries are granted by replay's sandbox
-# baseline and are deliberately absent, as is the app bundle — replay self-sandboxes
-# at startup and the local server has no playlist to re-read, so nothing under the
-# bundle is read once the sandbox is live.)
+# Almost all sandbox paths come from <mcp_prefs_plist>: the allow-network master
+# gate, per-server enabled flags, the prominent project workspace, and the
+# allowed-read / allowed-write lists shown and edited in the MCP servers dialog. When
+# allow-network is false, the time and search servers are omitted and replay gets
+# --deny-network. That plist is seeded with Homebrew, nvm, temp, third-party tool/data
+# dirs, and the app bundle by mcp_prefs_write_defaults() in aichat.library.sh, so
+# nothing is granted to the sandbox invisibly here. (The system executable dirs and
+# macOS system libraries are granted by replay's sandbox baseline and are deliberately
+# absent, as is the app bundle — replay self-sandboxes at startup and the local server
+# has no playlist to re-read, so nothing under the bundle is read once the sandbox is
+# live.)
+#
+# The one sandbox path NOT taken from the plist is the per-login-session temp dir
+# ($TMPDIR): it is granted read-write fresh from the environment on every launch (see
+# the local block). Its random /var/folders value differs per user login session and
+# would go stale if stored, so only the on/off decision lives in the plist
+# (servers/local/include-session-tmpdir, default on); the path itself is recomputed.
 
 import json
 import os
@@ -59,10 +66,12 @@ if srv_enabled("local"):
     local_prefs = prefs.get("servers", {}).get("local", {})
     # ── replay sandbox paths ──────────────────────────────────────────────────
     # Every extra sandbox path is taken from the user-managed prefs (shown and
-    # editable in the MCP servers dialog). The prefs plist is seeded with
-    # Homebrew, nvm, temp, and third-party tool/data dirs by
-    # mcp_prefs_write_defaults() in aichat.library.sh — nothing is added to the
-    # sandbox invisibly here. (replay's sandbox baseline separately grants exec
+    # editable in the MCP servers dialog), except the per-login-session $TMPDIR
+    # added read-write below, which is computed fresh each launch rather than
+    # persisted. The prefs plist is seeded with Homebrew, nvm, temp, and
+    # third-party tool/data dirs by mcp_prefs_write_defaults() in
+    # aichat.library.sh — nothing else is added to the sandbox here. (replay's
+    # sandbox baseline separately grants exec
     # of /bin, /usr/bin, /sbin, /usr/sbin and loading of system libraries under
     # /usr/lib and /System/Library; the app bundle is not needed because replay
     # self-sandboxes at startup and the local server has no playlist to re-read.)
@@ -85,6 +94,24 @@ if srv_enabled("local"):
     for directory in (local_prefs.get("allowed-write") or []):
         if directory and directory != user_project and directory not in profile_read_write:
             profile_read_write.append(directory)
+    # Per-login-session temp dir ($TMPDIR, e.g. /var/folders/xx/.../T): granted
+    # read-write so sandboxed shell tools can use the login session's own scratch
+    # dir. The path itself is recomputed from the environment on every launch and
+    # deliberately NOT read from / written to the prefs plist — its random
+    # /var/folders value differs per user login session, so a persisted copy would go
+    # stale. Only the user's decision is stored, in include-session-tmpdir (default
+    # on, absent == on); the dialog shows the temp dir as a removable row that toggles
+    # that flag. realpath() resolves the /var -> /private/var symlink to the canonical
+    # path the kernel sandbox and the MCP soft path checks compare against (the same
+    # reason the seeded write path is /private/tmp, not /tmp).
+    include_session_tmpdir = local_prefs.get("include-session-tmpdir", True)
+    session_tmpdir = os.environ.get("TMPDIR", "").strip()
+    if include_session_tmpdir and session_tmpdir:
+        session_tmpdir = os.path.realpath(session_tmpdir)
+        if (os.path.isdir(session_tmpdir)
+                and session_tmpdir != user_project
+                and session_tmpdir not in profile_read_write):
+            profile_read_write.append(session_tmpdir)
     # read-only dirs all live in the profile (drop any also granted read-write):
     profile_read_only = [directory for directory in allowed_read if directory not in profile_read_write]
 

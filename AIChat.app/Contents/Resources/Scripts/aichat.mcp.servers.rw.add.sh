@@ -17,8 +17,16 @@ chosen="$OMC_DLG_CHOOSE_OBJECT_PATH"
 [ -z "$chosen" ] && exit 0
 chosen="${chosen%/}"
 
-if mcp_prefs_array_append servers/local/allowed-write "$chosen"; then
-    mcp_refresh_path_table "$window_uuid" $RW_TABLE_ID servers/local/allowed-write
+# If the user re-adds the session $TMPDIR (matched by canonical realpath, so either
+# the /var or /private/var form resolves), restore the include-session-tmpdir decision
+# instead of persisting its per-session path into the array (which would go stale).
+chosen_real=$(cd "$chosen" 2>/dev/null && pwd -P)
+session_tmpdir=$(mcp_session_tmpdir)
+if [ -n "$session_tmpdir" ] && [ "$chosen_real" = "$session_tmpdir" ]; then
+    mcp_prefs_set_bool servers/local/include-session-tmpdir true
+    mcp_refresh_rw_table "$window_uuid" $RW_TABLE_ID
+elif mcp_prefs_array_append servers/local/allowed-write "$chosen"; then
+    mcp_refresh_rw_table "$window_uuid" $RW_TABLE_ID
 else
     echo "already present: $chosen"
 fi
