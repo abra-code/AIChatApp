@@ -1,0 +1,410 @@
+{
+  "COMMAND_LIST" : [
+    {
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat",
+      "REQUIRED_MAC_OS_MIN_VERSION" : "14.6",
+      "REQUIRED_OMC_VERSION" : "5.1"
+    },
+    {
+      "ACTIONUI_WINDOW" : {
+        "END_CANCEL_SUBCOMMAND_ID" : "aichat.select.local.model.cancel",
+        "INIT_SUBCOMMAND_ID" : "aichat.select.local.model.init",
+        "IS_BLOCKING" : false,
+        "JSON_NAME" : "aichat.select.local.model",
+        "WINDOW_TITLE" : "AIChat — Select Model"
+      },
+      "COMMAND_ID" : "aichat.select.local.model",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.select.local.model.init",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.select.local.model.selection.changed",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.select.local.model.ok",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.select.local.model.cancel",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.select.local.model.reveal",
+      "ENVIRONMENT_VARIABLES" : {
+        "OMC_ACTIONUI_TABLE_10_COLUMN_3_VALUE" : ""
+      },
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.select.local.model.reload",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.select.local.model.browse",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "ACTIONUI_WINDOW" : {
+        "END_CANCEL_SUBCOMMAND_ID" : "aichat.chat.cancel",
+        "INIT_SUBCOMMAND_ID" : "aichat.chat.init",
+        "IS_BLOCKING" : false,
+        "JSON_NAME" : "aichat.chat",
+        "WINDOW_TITLE" : "AIChat V2"
+      },
+      "COMMAND_ID" : "aichat.chat",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.chat.cancel",
+      "ENVIRONMENT_VARIABLES" : {
+        "OMC_FRONT_PROCESS_ID" : ""
+      },
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.chat.init",
+      "ENVIRONMENT_VARIABLES" : {
+        "OMC_FRONT_PROCESS_ID" : ""
+      },
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.chat.entry",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.chat.error",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "CHOOSE_FILE_DIALOG" : {
+        "MESSAGE" : "Select a GGUF file",
+        "SHOW_INVISIBLE_ITEMS" : true
+      },
+      "COMMAND" : [
+        "#using $OMC_DLG_CHOOSE_FILE_PATH"
+      ],
+      "COMMAND_ID" : "aichat.open.from.file.browser",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.select.local.model.hf",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "ACTIONUI_WINDOW" : {
+        "END_CANCEL_SUBCOMMAND_ID" : "aichat.hf.browse.cancel",
+        "INIT_SUBCOMMAND_ID" : "aichat.hf.browse.init",
+        "IS_BLOCKING" : false,
+        "JSON_NAME" : "aichat.hf.browse",
+        "WINDOW_TITLE" : "AIChat — Browse Hugging Face Models"
+      },
+      "COMMAND_ID" : "aichat.hf.browse",
+      "EXECUTION_MODE" : "exe_shell_script",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.hf.browse.init",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.hf.browse.search",
+      "ENVIRONMENT_VARIABLES" : {
+        "OMC_ACTIONUI_VIEW_201_VALUE" : "",
+        "OMC_ACTIONUI_VIEW_204_VALUE" : ""
+      },
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.hf.browse.sort.changed",
+      "ENVIRONMENT_VARIABLES" : {
+        "OMC_ACTIONUI_VIEW_201_VALUE" : "",
+        "OMC_ACTIONUI_VIEW_204_VALUE" : ""
+      },
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.hf.browse.model.selection.changed",
+      "ENVIRONMENT_VARIABLES" : {
+        "OMC_ACTIONUI_TABLE_202_COLUMN_3_VALUE" : ""
+      },
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.hf.browse.quant.selection.changed",
+      "ENVIRONMENT_VARIABLES" : {
+        "OMC_ACTIONUI_TABLE_213_COLUMN_3_VALUE" : ""
+      },
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.hf.browse.download",
+      "ENVIRONMENT_VARIABLES" : {
+        "OMC_ACTIONUI_TABLE_202_COLUMN_3_VALUE" : "",
+        "OMC_ACTIONUI_TABLE_213_COLUMN_3_VALUE" : ""
+      },
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.hf.browse.cancel",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat",
+      "WAIT_FOR_TASK_COMPLETION" : true
+    },
+    {
+      "ACTIONUI_WINDOW" : {
+        "END_CANCEL_SUBCOMMAND_ID" : "aichat.mcp.servers.cancel",
+        "INIT_SUBCOMMAND_ID" : "aichat.mcp.servers.init",
+        "IS_BLOCKING" : false,
+        "JSON_NAME" : "aichat.mcp.servers",
+        "WINDOW_TITLE" : "AIChat — Agentic Session Tools"
+      },
+      "COMMAND_ID" : "aichat.mcp.servers",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.mcp.servers.init",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.mcp.servers.start",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.mcp.servers.cancel",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "CHOOSE_FOLDER_DIALOG" : {
+        "MESSAGE" : "Choose the project workspace folder",
+        "SHOW_INVISIBLE_ITEMS" : true
+      },
+      "COMMAND_ID" : "aichat.mcp.servers.project.browse",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "CHOOSE_OBJECT_DIALOG" : {
+        "MESSAGE" : "Choose a read-write folder",
+        "SHOW_INVISIBLE_ITEMS" : true
+      },
+      "COMMAND_ID" : "aichat.mcp.servers.rw.add",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.mcp.servers.rw.remove",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.mcp.servers.rw.selection.changed",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "CHOOSE_OBJECT_DIALOG" : {
+        "MESSAGE" : "Choose a read-only folder",
+        "SHOW_INVISIBLE_ITEMS" : true
+      },
+      "COMMAND_ID" : "aichat.mcp.servers.ro.add",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.mcp.servers.ro.remove",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.mcp.servers.ro.selection.changed",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.mcp.servers.reset",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.mcp.servers.toggle.network",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "ACTIONUI_WINDOW" : {
+        "INIT_SUBCOMMAND_ID" : "aichat.mcp.inspect.init",
+        "IS_BLOCKING" : false,
+        "JSON_NAME" : "aichat.mcp.inspect",
+        "WINDOW_TITLE" : "AIChat — MCP Servers"
+      },
+      "COMMAND_ID" : "aichat.mcp.inspect",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.mcp.inspect.init",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.mcp.inspect.refresh",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.mcp.inspect.server.selection.changed",
+      "ENVIRONMENT_VARIABLES" : {
+        "OMC_ACTIONUI_TABLE_200_COLUMN_1_VALUE" : "",
+        "OMC_ACTIONUI_TABLE_200_COLUMN_3_VALUE" : ""
+      },
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.mcp.inspect.tool.selection.changed",
+      "ENVIRONMENT_VARIABLES" : {
+        "OMC_ACTIONUI_TABLE_300_COLUMN_1_VALUE" : "",
+        "OMC_ACTIONUI_TABLE_300_COLUMN_2_VALUE" : ""
+      },
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.mcp.inspect.server.start",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.mcp.inspect.server.stop",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.mcp.inspect.server.restart",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.model.help",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "ACTIONUI_WINDOW" : {
+        "INIT_SUBCOMMAND_ID" : "aichat.model.help.init",
+        "IS_BLOCKING" : false,
+        "JSON_NAME" : "aichat.model.help",
+        "WINDOW_TITLE" : "AIChat Help"
+      },
+      "COMMAND_ID" : "aichat.model.help.dialog",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.model.help.init",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.history.selection.changed",
+      "ENVIRONMENT_VARIABLES" : {
+        "OMC_ACTIONUI_TABLE_510_COLUMN_2_VALUE" : ""
+      },
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.history.rename",
+      "ENVIRONMENT_VARIABLES" : {
+        "OMC_ACTIONUI_TABLE_510_COLUMN_2_VALUE" : ""
+      },
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.history.delete",
+      "ENVIRONMENT_VARIABLES" : {
+        "OMC_ACTIONUI_TABLE_510_COLUMN_2_VALUE" : ""
+      },
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.history.reveal",
+      "ENVIRONMENT_VARIABLES" : {
+        "OMC_ACTIONUI_TABLE_510_COLUMN_2_VALUE" : ""
+      },
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.history.refresh",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.chat.new",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.chat.info.toggle",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.model.switch",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.chat.switch.model",
+      "ENVIRONMENT_VARIABLES" : {
+        "OMC_FRONT_PROCESS_ID" : ""
+      },
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "app.will.terminate",
+      "ENVIRONMENT_VARIABLES" : {
+        "OMC_FRONT_PROCESS_ID" : ""
+      },
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat",
+      "WAIT_FOR_TASK_COMPLETION" : true
+    }
+  ],
+  "VERSION" : 2
+}

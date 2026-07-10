@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AIChat — Choosing a Local Model</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #1d1d1f;
+    --muted: #6e6e73;
+    --accent: #0a6cff;
+    --card: #f5f5f7;
+    --border: #e2e2e6;
+    --code-bg: #f0f0f3;
+    --good: #1a8a3c;
+    --warn: #b06a00;
+    --bad: #c4341c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1e1e1f;
+      --fg: #f2f2f4;
+      --muted: #9a9aa0;
+      --accent: #4d9bff;
+      --card: #2a2a2c;
+      --border: #3a3a3d;
+      --code-bg: #2c2c2e;
+      --good: #4cd07a;
+      --warn: #e0a13a;
+      --bad: #ff6f5e;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 32px 28px 80px; }
+  h1 { font-size: 28px; line-height: 1.2; margin: 0 0 6px; letter-spacing: -0.02em; }
+  h2 {
+    font-size: 20px; margin: 38px 0 10px; padding-top: 14px;
+    border-top: 1px solid var(--border); letter-spacing: -0.01em;
+  }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  p { margin: 8px 0; }
+  .lede { color: var(--muted); font-size: 16px; margin-bottom: 8px; }
+  code, .mono {
+    font-family: "SF Mono", ui-monospace, Menlo, monospace;
+    font-size: 0.88em;
+    background: var(--code-bg);
+    padding: 1px 5px; border-radius: 5px;
+  }
+  .anno {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px 18px; margin: 14px 0; font-family: "SF Mono", ui-monospace, Menlo, monospace;
+    font-size: 14px; overflow-x: auto;
+  }
+  .anno .tok { padding: 2px 6px; border-radius: 6px; white-space: nowrap; }
+  .t-size { background: rgba(10,108,255,.16); color: var(--accent); }
+  .t-tune { background: rgba(26,138,60,.16); color: var(--good); }
+  .t-quant{ background: rgba(176,106,0,.18); color: var(--warn); }
+  .anno .leg { font-family: -apple-system, sans-serif; font-size: 12.5px; color: var(--muted); margin-top: 10px; display: block; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 14px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { font-weight: 600; color: var(--muted); font-size: 12.5px; text-transform: uppercase; letter-spacing: .03em; }
+  td code { white-space: nowrap; }
+  .good { color: var(--good); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .bad  { color: var(--bad);  font-weight: 600; }
+  .callout {
+    background: var(--card); border-left: 3px solid var(--accent);
+    border-radius: 8px; padding: 12px 16px; margin: 16px 0;
+  }
+  .callout.tools { border-left-color: var(--good); }
+  ul { margin: 8px 0; padding-left: 22px; }
+  li { margin: 4px 0; }
+  .pill { display:inline-block; font-size:12px; padding:1px 8px; border-radius:20px; background:var(--card); border:1px solid var(--border); color:var(--muted); }
+  .footer { margin-top: 40px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--border); padding-top: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Choosing a Local Model</h1>
+  <p class="lede">Open-source models pack a lot of meaning into a hyphenated file name. This guide explains every part — and what each choice means for quality, speed, memory, and tool-using <em>agentic</em> sessions.</p>
+
+  <h2>Reading a model name</h2>
+  <p>A model file name is a stack of tags. For example:</p>
+  <div class="anno">
+    <span class="tok t-size">Qwen2.5</span>-<span class="tok t-size">7B</span>-<span class="tok t-tune">Instruct</span>-<span class="tok t-quant">Q4_K_M</span>.gguf
+    <span class="leg">
+      <b>Qwen2.5</b> family &amp; version · <b>7B</b> = size (7&nbsp;billion parameters) · <b>Instruct</b> = tuned to follow instructions &amp; use tools · <b>Q4_K_M</b> = 4-bit quantization (how much it's compressed) · <b>.gguf</b> = the llama.cpp file format
+    </span>
+  </div>
+  <p>The three things that matter most are <b>size</b>, <b>tuning</b> (Instruct vs base), and <b>quantization</b>. The rest are modifiers. Each is covered below.</p>
+
+  <h2>Parameters — model size (<code>7B</code>, <code>70B</code>, <code>135M</code>)</h2>
+  <p>The <code>B</code> number is how many <b>billion</b> parameters (learned weights) the model has; <code>M</code> means millions. It is the single biggest predictor of how capable — and how heavy — a model is.</p>
+  <ul>
+    <li><b>Bigger</b> → broader knowledge, stronger reasoning, better at long multi-step tasks. Also slower to generate and needs more memory.</li>
+    <li><b>Smaller</b> → fast and light, runs on modest hardware, but weaker reasoning and less reliable at complex instructions and tools.</li>
+  </ul>
+  <p><b>Effective parameters — <code>E2B</code>, <code>E4B</code>.</b> A few models (notably Google's <b>Gemma 3n</b>) quote an <em>effective</em> size: the footprint they actually run at, which is smaller than their raw parameter count thanks to tricks like Per-Layer Embeddings and the MatFormer architecture. An <code>E4B</code> model uses memory roughly like a 4B while drawing on more underlying capacity. (Not to be confused with <code>A4B</code> — see MoE below, where <b>A</b> = <em>active</em> parameters.)</p>
+  <p>Memory needed depends on size <em>and</em> quantization. Rough guide for a 4-bit (Q4) model plus working memory:</p>
+  <table>
+    <thead><tr><th>Size</th><th>≈ RAM at Q4</th><th>Good for</th></tr></thead>
+    <tbody>
+      <tr><td><code>1–3B</code></td><td>1–3 GB</td><td>Quick chat, autocomplete, very light tools on any Mac.</td></tr>
+      <tr><td><code>7–9B</code></td><td>5–7 GB</td><td>Everyday assistant; solid tool use. The popular sweet spot.</td></tr>
+      <tr><td><code>13–14B</code></td><td>8–11 GB</td><td>Noticeably smarter; good agentic work on 16&nbsp;GB+ Macs.</td></tr>
+      <tr><td><code>30–34B</code></td><td>18–22 GB</td><td>Strong reasoning; wants 32&nbsp;GB+ unified memory.</td></tr>
+      <tr><td><code>70B+</code></td><td>40 GB+</td><td>Top quality; needs a high-memory Mac (64&nbsp;GB+).</td></tr>
+    </tbody>
+  </table>
+  <p class="callout">Rule of thumb: keep the model under ~<b>75% of your Mac's unified memory</b>, leaving room for the OS, the app, and the context window. AIChat warns you before loading something likely to overflow.</p>
+
+  <h2>Quantization — how compressed it is (<code>Q4_K_M</code>, <code>IQ4_XS</code>, <code>BF16</code>)</h2>
+  <p>Models are trained at 16-bit precision, but each weight can be <b>quantized</b> to fewer bits to shrink the download and memory footprint and run faster. The trade-off is a small loss of accuracy. The leading number is the bits per weight: fewer bits = smaller &amp; faster, more bits = higher fidelity.</p>
+  <table>
+    <thead><tr><th>Quant</th><th>Bits</th><th>Quality</th><th>Use when…</th></tr></thead>
+    <tbody>
+      <tr><td><code>Q8_0</code></td><td>8</td><td class="good">Near-lossless</td><td>You have memory to spare and want maximum fidelity.</td></tr>
+      <tr><td><code>Q6_K</code></td><td>6</td><td class="good">Near-full</td><td>High quality with a useful size saving.</td></tr>
+      <tr><td><code>Q5_K_M</code></td><td>5</td><td class="good">High</td><td>A step up from Q4 when you can afford it.</td></tr>
+      <tr><td><code>Q4_K_M</code></td><td>4</td><td class="good">Recommended</td><td><b>The default choice</b> — small, fast, little visible loss.</td></tr>
+      <tr><td><code>Q3_K_M</code></td><td>3</td><td class="warn">Lower</td><td>Memory is tight; quality &amp; tool reliability start to slip.</td></tr>
+      <tr><td><code>Q2_K</code> / <code>IQ2</code></td><td>2</td><td class="bad">Low</td><td>Last resort to fit a big model in little RAM.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>The letters after the number</h3>
+  <ul>
+    <li><b><code>_K</code> — k-quant.</b> A smarter scheme that spends bits where they matter most. Better quality than the old <code>Q4_0</code>-style "legacy" quants of the same size. Prefer k-quants.</li>
+    <li><b><code>_S</code> / <code>_M</code> / <code>_L</code> / <code>_XL</code> — size variant.</b> Within one bit level, Small → Medium → Large → eXtra-Large trade a little more memory for a little more quality. <code>_M</code> is the usual balanced pick.</li>
+    <li><b><code>IQ…</code> — i-quant (importance quant).</b> Uses a calibration dataset to preserve the most important weights, fitting more quality into very low bit-widths (great for squeezing big models in). Occasionally a touch slower on some hardware. <code>XS</code>/<code>XXS</code> are the extra-small variants.</li>
+    <li><b><code>UD…</code> — Unsloth Dynamic.</b> Unsloth's dynamic quantization keeps important layers at higher precision and compresses the rest harder, so it beats a standard quant of the same size — most noticeably at low bit-widths (e.g. <code>UD-Q4_K_XL</code>, <code>UD-IQ2_M</code>). A great way to run a larger model in less memory.</li>
+  </ul>
+
+  <h3>Full precision (<code>F16</code>, <code>BF16</code>, <code>F32</code>)</h3>
+  <p><code>F16</code> and <code>BF16</code> are the original 16-bit weights: top quality, but roughly <b>2× the memory and slower</b> than 8-bit and ~4× the memory of a 4-bit quant. <code>F32</code> is full 32-bit — maximum quality, very large, almost never needed for chat. For everyday local use a Q-quant is far lighter for nearly the same quality.</p>
+
+  <h3>Newer float formats (<code>MXFP4</code>)</h3>
+  <p><code>MXFP4</code> is a 4-bit <em>floating-point</em> "microscaling" format — a shared scale per small block of weights. It's as compact as a 4-bit integer quant but often preserves quality better, and it's increasingly used on large MoE models: <code>MXFP4_MOE</code> means the expert layers are stored this way. Treat it as a strong 4-bit option. (<code>NVFP4</code> is a similar NVIDIA variant.)</p>
+
+  <h2>Instruct vs. base (<code>Instruct</code>, <code>Chat</code>, <code>-it</code>, <code>base</code>)</h2>
+  <p>This is easy to overlook but critical.</p>
+  <ul>
+    <li><b>Instruct / Chat / <code>-it</code>:</b> fine-tuned to follow instructions, hold a conversation, and call tools. <b>This is what you want</b> for chat and agentic use.</li>
+    <li><b>base / <code>pt</code> (pre-trained):</b> only continues text. It won't reliably follow prompts or use tools. Use only for fine-tuning or text completion.</li>
+  </ul>
+
+  <h2>Context window (<code>4k</code>, <code>32k</code>, <code>128k</code>)</h2>
+  <p>The context window is the maximum prompt + conversation history (in tokens) the model can consider at once. A larger window handles long documents and long agentic tool transcripts — but the key/value cache grows with context length, using <b>more memory</b> and slowing very long sessions. Pick more context only if you need it.</p>
+
+  <h2>Dense vs. Mixture-of-Experts (<code>A3B</code>, <code>A4B</code>, <code>8x7B</code>)</h2>
+  <p>There are two ways to build a model of a given size, and the name tells you which:</p>
+  <ul>
+    <li><b>Dense</b> (no <code>A…</code> suffix): every parameter runs for every token. Smartest <em>per parameter</em> — best for deep reasoning and the most reliable on complex, nested tool calls — but slower and heavier.</li>
+    <li><b>Mixture-of-Experts (MoE)</b> (<code>A4B</code>, <code>8x7B</code>): split into many "expert" sub-networks; a router picks just a few to run per token. The <code>A4B</code> suffix is the <b>active</b> billions — e.g. <code>26B-A4B</code> means 26B total but only 4B active per token. So it generates several times faster while keeping the broad knowledge of the full model.</li>
+  </ul>
+  <p>The catch: <b>all</b> experts must be loaded, so an MoE uses memory like its <em>total</em> size, not its active size. Many MoEs also keep one small <em>shared expert</em> always active for general knowledge, while the routed experts specialise.</p>
+  <table>
+    <thead><tr><th></th><th>Dense (e.g. 27B)</th><th>MoE (e.g. 30B-A3B)</th></tr></thead>
+    <tbody>
+      <tr><td>Speed</td><td>Slower</td><td class="good">Much faster</td></tr>
+      <tr><td>Reasoning per token</td><td class="good">Higher</td><td>Slightly lower</td></tr>
+      <tr><td>Memory</td><td>≈ its size</td><td>≈ total size (holds all experts)</td></tr>
+      <tr><td>Best for</td><td>Deep coding &amp; analysis</td><td>Fast interactive tool loops</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Reasoning models (<code>R1</code>, <code>QwQ</code>, <code>Thinking</code>)</h2>
+  <p>These generate an explicit chain-of-thought before the final answer. They're markedly better at maths, coding, and multi-step planning — but slower and more verbose because they "think" in tokens first. Budget more time and context for them.</p>
+
+  <h2>Other modifiers</h2>
+  <ul>
+    <li><b><code>Distill</code>:</b> a smaller model trained to imitate a larger "teacher" — much of the quality at a fraction of the size and speed cost.</li>
+    <li><b><code>VL</code> / <code>Vision</code>:</b> multimodal — also accepts images. Needs a companion projector (<code>mmproj</code>) file and extra memory; unnecessary for text-only chat.</li>
+    <li><b><code>Coder</code> / <code>Math</code>:</b> specialised for code or mathematics — great in that domain (and for coding agents), sometimes weaker at open-ended chat.</li>
+    <li><b><code>mini</code> / <code>small</code> / <code>medium</code> / <code>large</code>:</b> a vendor's relative size tier, <em>not</em> an exact parameter count. Check the explicit <code>nB</code> number for true size.</li>
+    <li><b><code>Uncensored</code> / <code>Abliterated</code>:</b> safety alignment reduced or removed, so it refuses far less. Behaviour can be less predictable; use responsibly.</li>
+    <li><b><code>v0.2</code>, <code>v1.6</code>:</b> the release/version — higher is usually newer and improved.</li>
+  </ul>
+
+  <h2>What matters for agentic sessions (models using tools)</h2>
+  <p>When a model drives tools — reading files, running MCP servers, calling functions — it must repeatedly produce well-formed tool calls and reason over the results. That puts weight on different features:</p>
+  <p>A tool call is structured output (usually JSON). One missing comma or hallucinated path and the agent loop breaks — so <b>reliability and formatting matter as much as raw intelligence</b>.</p>
+  <div class="callout tools">
+    <ul>
+      <li><b>Instruct-tuned is mandatory.</b> Base models can't reliably emit tool calls. Look for <code>Instruct</code>/<code>Chat</code>. In AIChat the model list shows <span class="pill">Tools: Supported</span> when a model advertises a tool-calling chat template.</li>
+      <li><b>Size and reasoning help most.</b> Multi-step plans, recovering from tool errors, and deciding <em>when</em> to call a tool improve sharply from ~7–8B upward, and again with reasoning models. Tiny models often loop or mis-call tools.</li>
+      <li><b>Dense vs. MoE.</b> Dense models tend to be the most consistent on complex, deeply-nested tool calls. MoEs are much faster through long tool loops and keep broad knowledge — a well-trained agent/coder MoE is excellent, though a very low active-parameter count can occasionally make the hardest calls less reliable. Either works; favour a dense model for the trickiest tool schemas, an MoE for speed.</li>
+      <li><b>Don't over-compress.</b> Very low bit-widths (Q2–Q3) degrade the structured-output reliability tool calls depend on. <b>Q4_K_M or higher</b> is a good floor for agentic work; an Unsloth <code>UD</code> quant is a strong choice when memory is tight.</li>
+      <li><b>Prefer recent generations.</b> Newer model families are increasingly tuned <em>for</em> agentic use — stricter tool-call formatting and better cross-file/repository reasoning — so a newer version often "breaks the loop" far less than an older one of the same size.</li>
+      <li><b>Give it enough context, but mind memory.</b> Tool transcripts (file contents, command output) fill the window fast, so prefer a larger context window — but the KV-cache grows with it. If the model + context overflows unified memory, macOS swaps to disk and speed collapses to a crawl. Keep the total under ~75% of RAM.</li>
+    </ul>
+  </div>
+  <p class="callout">On Apple Silicon, AIChat runs GGUF models on Metal. Some models also ship <b>MLX</b> builds tuned for Apple's unified memory that can be faster — but those are a different format that this app doesn't load.</p>
+
+  <h2>Quick recipes</h2>
+  <table>
+    <thead><tr><th>You want…</th><th>Try</th></tr></thead>
+    <tbody>
+      <tr><td>A reliable everyday assistant</td><td>A <code>7–14B</code> <code>Instruct</code> model at <code>Q4_K_M</code>.</td></tr>
+      <tr><td>The best you can run with tools</td><td>The largest <code>Instruct</code> model that fits at <code>Q4_K_M</code>+ (or an <code>MoE</code>); favour reasoning variants for hard tasks.</td></tr>
+      <tr><td>Agentic coding on a 32&nbsp;GB Mac</td><td>A dense <code>~27B</code> at <code>Q4_K_M</code>/<code>UD-Q5</code> for peak reasoning, or a coder <code>MoE</code> (<code>~30B-A3B</code>) at <code>Q4_K_M</code> for fast tool loops. Keep model + context under ~24&nbsp;GB.</td></tr>
+      <tr><td>To fit a bigger model in little RAM</td><td>An <code>IQ4_XS</code> or Unsloth <code>UD-Q4_K_XL</code> / <code>UD-IQ3</code> quant.</td></tr>
+      <tr><td>Maximum fidelity, memory no object</td><td><code>Q6_K</code> or <code>Q8_0</code> of your chosen size.</td></tr>
+      <tr><td>Speed on a small Mac</td><td>A <code>1–3B</code> <code>Instruct</code> model at <code>Q4_K_M</code>.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="footer">
+    When you select a model in AIChat, the <b>Name decoder</b> in the Model Info panel breaks down that exact file's tags. This guide is the long-form reference behind it.
+  </div>
+
+</div>
+</body>
+</html>

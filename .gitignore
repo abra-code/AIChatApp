@@ -29,3 +29,10 @@ Private/
 AIChat.app/Contents/Library/Python
 AIChat.app/Contents/Support/replay
 AIChat.app/Contents/Library/Packages
+
+## V2/AIChat.app (native-chat build, coexists with root AIChat.app 1.x) — track only source under Contents/Resources + Info.plist/PkgInfo
+V2/AIChat.app/Contents/_CodeSignature
+V2/AIChat.app/Contents/Frameworks
+V2/AIChat.app/Contents/MacOS
+V2/AIChat.app/Contents/Library
+V2/AIChat.app/Contents/Support

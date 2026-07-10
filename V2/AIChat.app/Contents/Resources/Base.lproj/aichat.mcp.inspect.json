@@ -1,0 +1,218 @@
+{
+  "type": "HSplitView",
+  "properties": {
+	"frame": {
+	  "minWidth": 1200,
+	  "idealWidth": 1400,
+	  "minHeight": 500,
+	  "idealHeight": 600
+	},
+	"padding": "default"
+  },
+  "children": [
+	{
+	  "type": "VStack",
+	  "properties": {
+		"spacing": 6,
+		"alignment": "leading",
+		"frame": { "minWidth": 300, "idealWidth": 320, "maxHeight": "infinity", "alignment": "topLeading" }
+	  },
+	  "children": [
+		{
+		  "type": "Text",
+		  "properties": {
+			"text": "Servers",
+			"font": "subheadline",
+			"padding": { "top": 0, "leading": 6, "bottom": 0, "trailing": 0 }
+		  }
+		},
+		{
+		  "type": "Table",
+		  "id": 200,
+		  "properties": {
+			"columns": ["Server", "i"],
+			"columnHeadersVisibility": "hidden",
+			"widths": [200, 20],
+            "minWidths": [150, 20],
+			"actionID": "aichat.mcp.inspect.server.selection.changed",
+			"frame": { "minWidth": 260, "maxWidth": "infinity", "maxHeight": "infinity" }
+		  }
+		},
+		{
+		  "type": "HStack",
+		  "properties": { "spacing": 8, "alignment": "center", "frame": { "maxWidth": "infinity" } },
+		  "children": [
+			{
+			  "type": "Button",
+			  "id": 220,
+			  "properties": {
+				"systemImage": "play.fill",
+				"help": "Start server",
+				"controlSize": "small",
+				"disabled": true,
+				"actionID": "aichat.mcp.inspect.server.start"
+			  }
+			},
+			{
+			  "type": "Button",
+			  "id": 221,
+			  "properties": {
+				"systemImage": "stop.fill",
+				"help": "Stop server",
+				"controlSize": "small",
+				"disabled": true,
+				"actionID": "aichat.mcp.inspect.server.stop"
+			  }
+			},
+			{
+			  "type": "Button",
+			  "id": 222,
+			  "properties": {
+				"systemImage": "restart.circle",
+				"help": "Restart server",
+				"controlSize": "small",
+				"disabled": true,
+				"actionID": "aichat.mcp.inspect.server.restart"
+			  }
+			},
+			{ "type": "Spacer" },
+			{
+			  "type": "Button",
+			  "id": 120,
+			  "properties": {
+				"systemImage": "arrow.clockwise",
+                "help": "Refresh server list",
+				"controlSize": "small",
+				"padding": { "top": 0, "leading": 0, "bottom": 0, "trailing": 10 },
+				"actionID": "aichat.mcp.inspect.refresh"
+			  }
+			}
+		  ]
+		}
+	  ]
+	},
+	{
+	  "type": "VStack",
+	  "properties": {
+		"spacing": 8,
+		"alignment": "leading",
+		"frame": { "minWidth": 300, "idealWidth": 380, "maxHeight": "infinity", "alignment": "topLeading" }
+	  },
+	  "children": [
+		{
+		  "type": "Text",
+		  "properties": {
+			"text": "Endpoint",
+			"font": "subheadline",
+			"padding": { "top": 0, "leading": 8, "bottom": 0, "trailing": 0 }
+		  }
+		},
+		{
+		  "type": "GroupBox",
+		  "properties": {
+			"frame": { "maxWidth": "infinity" },
+           "padding": { "top": 0, "leading": 8, "bottom": 0, "trailing": 8 }
+		  },
+		  "children": [
+			{
+			  "type": "VStack",
+			  "properties": {
+				"spacing": 6,
+				"alignment": "leading",
+				"frame": { "maxWidth": "infinity", "alignment": "topLeading" }
+			  },
+			  "children": [
+				{
+				  "type": "TextField",
+				  "id": 210,
+				  "properties": {
+					"text": "",
+					"prompt": "Select a server",
+					"font": { "size": 11, "design": "monospaced" },
+					"frame": { "maxWidth": "infinity" }
+				  }
+				},
+				{
+				  "type": "Text",
+				  "id": 212,
+				  "properties": {
+					"text": "Select a server to view its endpoint and tools.",
+					"foregroundStyle": "secondary",
+					"font": "caption"
+				  }
+				}
+			  ]
+			}
+		  ]
+		},
+		{
+		  "type": "Text",
+		  "properties": {
+			"text": "Tools",
+			"font": "subheadline",
+			"padding": { "top": 0, "leading": 8, "bottom": 0, "trailing": 0 }
+		  }
+		},
+		{
+		  "type": "Table",
+		  "id": 300,
+		  "properties": {
+			"columns": ["Tool"],
+			"widths": [240],
+			"columnHeadersVisibility": "hidden",
+			"actionID": "aichat.mcp.inspect.tool.selection.changed",
+			"frame": { "maxWidth": "infinity", "maxHeight": "infinity" }
+		  }
+		}
+	  ]
+	},
+	{
+	  "type": "VStack",
+	  "properties": {
+		"spacing": 6,
+		"alignment": "leading",
+		"frame": { "minWidth": 380, "idealWidth": 480, "maxWidth": "infinity", "maxHeight": "infinity", "alignment": "topLeading" }
+	  },
+	  "children": [
+		{
+		  "type": "Text",
+		  "properties": {
+			"text": "Description",
+			"font": "subheadline",
+			"padding": { "top": 0, "leading": 8, "bottom": 0, "trailing": 0 }
+		  }
+		},
+		{
+		  "type": "TextEditor",
+		  "id": 402,
+		  "properties": {
+			"text": "Select a tool to inspect its JSON schema.",
+			"foregroundStyle": "secondary",
+			"font": "subheadline",
+			"readOnly": true,
+            "frame": { "height": 100, "alignment": "topLeading" }
+		  }
+		},
+		{
+		  "type": "Text",
+		  "properties": {
+			"text": "Input Schema",
+			"font": "subheadline",
+			"padding": { "top": 0, "leading": 8, "bottom": 0, "trailing": 0 }
+		  }
+		},
+		{
+		  "type": "TextEditor",
+		  "id": 403,
+		  "properties": {
+			"text": "",
+			"readOnly": true,
+			"font": { "size": 11, "design": "monospaced" },
+			"frame": { "maxWidth": "infinity", "maxHeight": "infinity" }
+		  }
+		}
+	  ]
+	}
+  ]
+}
+    

@@ -1,0 +1,49 @@
+[
+  {
+    "type": "CommandGroup",
+    "properties": { "placement": "replacing", "placementTarget": "new" },
+    "children": [
+      { "type": "Button", "properties": {
+          "title": "Select Model",
+          "actionID": "aichat.select.local.model",
+          "keyboardShortcut": { "key": "n" }
+      } },
+      { "type": "Button", "properties": {
+          "title": "Browse Hugging Face",
+          "actionID": "aichat.hf.browse"
+      } }
+    ]
+  },
+  {
+    "type": "CommandGroup",
+    "properties": { "placement": "replacing", "placementTarget": "open" },
+    "children": [
+      { "type": "Button", "properties": {
+          "title": "Open…",
+          "actionID": "aichat.open.from.file.browser",
+          "keyboardShortcut": { "key": "o" }
+      } }
+    ]
+  },
+  {
+    "type": "CommandMenu",
+    "properties": { "name": "Tools" },
+    "children": [
+      { "type": "Button", "properties": {
+          "title": "MCP Servers",
+          "actionID": "aichat.mcp.inspect"
+      } }
+    ]
+  },
+  {
+    "type": "CommandGroup",
+    "properties": { "placement": "replacing", "placementTarget": "help" },
+    "children": [
+      { "type": "Button", "properties": {
+          "title": "AIChat Help",
+          "actionID": "aichat.model.help",
+          "keyboardShortcut": { "key": "?" }
+      } }
+    ]
+  }
+]

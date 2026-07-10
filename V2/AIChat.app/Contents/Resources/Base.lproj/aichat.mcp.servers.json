@@ -1,0 +1,388 @@
+{
+  "type": "VStack",
+  "id": 100,
+  "properties": {
+    "spacing": 12,
+    "padding": "default",
+    "alignment": "leading",
+    "frame": {
+      "minWidth": 820,
+      "idealWidth": 900,
+      "minHeight": 520,
+      "idealHeight": 560
+    }
+  },
+  "children": [
+    {
+      "type": "GroupBox",
+      "id": 300,
+      "properties": {
+        "title": "Project Workspace",
+        "frame": { "maxWidth": "infinity" }
+      },
+      "children": [
+        {
+          "type": "VStack",
+          "properties": {
+            "spacing": 6,
+            "alignment": "leading",
+            "frame": { "maxWidth": "infinity", "alignment": "topLeading" }
+          },
+          "children": [
+            {
+              "type": "HStack",
+              "properties": { "spacing": 6 },
+              "children": [
+                {
+                  "type": "TextField",
+                  "id": 310,
+                  "properties": {
+                    "prompt": "Select a folder",
+                    "frame": { "maxWidth": "infinity" }
+                  }
+                },
+                {
+                  "type": "Button",
+                  "id": 311,
+                  "properties": {
+                    "title": "Choose…",
+                    "actionID": "aichat.mcp.servers.project.browse"
+                  }
+                }
+              ]
+            },
+            {
+              "type": "Text",
+              "properties": {
+                "text": "Primary read-write directory for this session. The assistant treats this as its working folder.",
+                "foregroundStyle": "secondary",
+                "font": "caption"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "HStack",
+      "properties": {
+        "spacing": 12,
+        "alignment": "top",
+        "frame": { "maxWidth": "infinity", "maxHeight": "infinity" }
+      },
+      "children": [
+        {
+          "type": "ScrollView",
+          "properties": {
+            "frame": { "minWidth": 320, "maxWidth": "infinity", "maxHeight": "infinity" }
+          },
+          "content": {
+            "type": "VStack",
+            "properties": {
+              "spacing": 12,
+              "alignment": "leading",
+              "frame": { "maxWidth": "infinity", "alignment": "topLeading" }
+            },
+            "children": [
+              {
+                "type": "GroupBox",
+                "id": 200,
+                "properties": {
+                  "title": "Available MCP Servers",
+                  "frame": { "maxWidth": "infinity" }
+                },
+                "children": [
+                  {
+                    "type": "VStack",
+                    "properties": {
+                      "spacing": 10,
+                      "alignment": "leading",
+                      "frame": { "maxWidth": "infinity", "alignment": "topLeading" }
+                    },
+                    "children": [
+                      {
+                        "type": "VStack",
+                        "properties": { "spacing": 2, "alignment": "leading" },
+                        "children": [
+                          {
+                            "type": "Toggle",
+                            "id": 230,
+                            "properties": {
+                              "title": "Local - file operations & shell execution",
+                              "isOn": true,
+                              "style": "checkbox"
+                            }
+                          },
+                          {
+                            "type": "Text",
+                            "properties": {
+                              "text": "All file operations & executed tools or scripts are restricted to sandbox",
+                              "foregroundStyle": "secondary",
+                              "font": "caption",
+                              "padding": { "leading": 22 }
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "type": "VStack",
+                        "properties": { "spacing": 2, "alignment": "leading" },
+                        "children": [
+                          {
+                            "type": "Toggle",
+                            "id": 220,
+                            "properties": {
+                              "title": "Internet - search & fetch",
+                              "isOn": true,
+                              "style": "checkbox"
+                            }
+                          },
+                          {
+                            "type": "Text",
+                            "properties": {
+                              "text": "Search & full-page content fetch provided by DuckDuckGo server",
+                              "foregroundStyle": "secondary",
+                              "font": "caption",
+                              "padding": { "leading": 22 }
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "type": "VStack",
+                        "properties": { "spacing": 2, "alignment": "leading" },
+                        "children": [
+                          {
+                            "type": "Toggle",
+                            "id": 210,
+                            "properties": {
+                              "title": "Date & Time",
+                              "isOn": true,
+                              "style": "checkbox"
+                            }
+                          },
+                          {
+                            "type": "Text",
+                            "properties": {
+                              "text": "Current date & time - retrieved from Internet",
+                              "foregroundStyle": "secondary",
+                              "font": "caption",
+                              "padding": { "leading": 22 }
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "GroupBox",
+                "id": 250,
+                "properties": {
+                  "title": "Network",
+                  "frame": { "maxWidth": "infinity" }
+                },
+                "children": [
+                  {
+                    "type": "VStack",
+                    "properties": {
+                      "spacing": 2,
+                      "alignment": "leading",
+                      "frame": { "maxWidth": "infinity", "alignment": "topLeading" }
+                    },
+                    "children": [
+                      {
+                        "type": "Toggle",
+                        "id": 240,
+                        "properties": {
+                          "title": "Allow Network",
+                          "isOn": true,
+                          "style": "checkbox",
+                          "actionID": "aichat.mcp.servers.toggle.network"
+                        }
+                      },
+                      {
+                        "type": "Text",
+                        "properties": {
+                          "text": "Master switch. When off, Internet access is disabled and the sandbox denies network access to local tools & scripts.",
+                          "foregroundStyle": "secondary",
+                          "font": "caption",
+                          "padding": { "leading": 22 }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              { "type": "Spacer" }
+            ]
+          }
+        },
+        {
+          "type": "GroupBox",
+          "id": 400,
+          "properties": {
+            "title": "Additional Local Sandbox Paths",
+            "frame": { "minWidth": 380, "maxWidth": "infinity", "maxHeight": "infinity" }
+          },
+          "children": [
+            {
+              "type": "VStack",
+              "properties": {
+                "spacing": 10,
+                "alignment": "leading",
+                "frame": { "maxWidth": "infinity", "maxHeight": "infinity", "alignment": "topLeading" }
+              },
+              "children": [
+                {
+                  "type": "VStack",
+                  "properties": {
+                    "spacing": 4,
+                    "alignment": "leading",
+                    "frame": { "maxWidth": "infinity", "maxHeight": "infinity", "alignment": "topLeading" }
+                  },
+                  "children": [
+                    {
+                      "type": "Text",
+                      "properties": { "text": "Read-write", "font": "subheadline" }
+                    },
+                    {
+                      "type": "Table",
+                      "id": 320,
+                      "properties": {
+                        "columns": ["Path"],
+                        "actionID": "aichat.mcp.servers.rw.selection.changed",
+                        "frame": { "minHeight": 80, "maxWidth": "infinity", "maxHeight": "infinity" }
+                      }
+                    },
+                    {
+                      "type": "HStack",
+                      "properties": { "spacing": 4 },
+                      "children": [
+                        {
+                          "type": "Button",
+                          "id": 321,
+                          "properties": {
+                            "systemImage": "plus",
+                            "buttonStyle": "borderless",
+                            "actionID": "aichat.mcp.servers.rw.add",
+                            "frame": { "width": 24, "height": 22 }
+                          }
+                        },
+                        {
+                          "type": "Button",
+                          "id": 322,
+                          "properties": {
+                            "systemImage": "minus",
+                            "buttonStyle": "borderless",
+                            "actionID": "aichat.mcp.servers.rw.remove",
+                            "disabled": true,
+                            "frame": { "width": 24, "height": 22 }
+                          }
+                        },
+                        { "type": "Spacer" }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "VStack",
+                  "properties": {
+                    "spacing": 4,
+                    "alignment": "leading",
+                    "frame": { "maxWidth": "infinity", "maxHeight": "infinity", "alignment": "topLeading" }
+                  },
+                  "children": [
+                    {
+                      "type": "Text",
+                      "properties": { "text": "Read-only", "font": "subheadline" }
+                    },
+                    {
+                      "type": "Table",
+                      "id": 330,
+                      "properties": {
+                        "columns": ["Path"],
+                        "actionID": "aichat.mcp.servers.ro.selection.changed",
+                        "frame": { "minHeight": 80, "maxWidth": "infinity", "maxHeight": "infinity" }
+                      }
+                    },
+                    {
+                      "type": "HStack",
+                      "properties": { "spacing": 4 },
+                      "children": [
+                        {
+                          "type": "Button",
+                          "id": 331,
+                          "properties": {
+                            "systemImage": "plus",
+                            "buttonStyle": "borderless",
+                            "actionID": "aichat.mcp.servers.ro.add",
+                            "frame": { "width": 24, "height": 22 }
+                          }
+                        },
+                        {
+                          "type": "Button",
+                          "id": 332,
+                          "properties": {
+                            "systemImage": "minus",
+                            "buttonStyle": "borderless",
+                            "actionID": "aichat.mcp.servers.ro.remove",
+                            "disabled": true,
+                            "frame": { "width": 24, "height": 22 }
+                          }
+                        },
+                        { "type": "Spacer" }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "Text",
+                  "properties": {
+                    "markdown": "The session temporary folder ($TMPDIR) is listed as read-write and recomputed each launch (its value changes per login session, so it is not saved). Remove it to deny temp access.",
+                    "foregroundStyle": "secondary",
+                    "font": "caption"
+                  }
+                },
+                {
+                  "type": "Text",
+                  "properties": {
+                    "markdown": "Always allowed (read-only): system executables in `/bin`, `/usr/bin`, `/sbin`, `/usr/sbin` and system libraries in `/usr/lib`, `/System/Library` are granted automatically by 'replay' server sandbox.",
+                    "foregroundStyle": "secondary",
+                    "font": "caption"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "HStack",
+      "properties": { "spacing": 8 },
+      "children": [
+        {
+          "type": "Button",
+          "id": 391,
+          "properties": {
+            "title": "Reset to Defaults",
+            "actionID": "aichat.mcp.servers.reset"
+          }
+        },
+        { "type": "Spacer" },
+        {
+          "type": "Button",
+          "id": 393,
+          "properties": {
+            "title": "Start",
+            "buttonStyle": "borderedProminent",
+            "keyboardShortcut": { "key": "return" },
+            "actionID": "aichat.mcp.servers.start"
+          }
+        }
+      ]
+    }
+  ]
+}

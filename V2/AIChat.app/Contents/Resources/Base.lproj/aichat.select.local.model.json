@@ -1,0 +1,199 @@
+{
+  "type": "NavigationSplitView",
+  "id": 100,
+  "properties": {
+    "columnVisibility": "all",
+    "style": "balanced",
+    "frame": {
+      "minWidth": 1050,
+      "minHeight": 480
+    },
+    "padding": {
+      "top": 4
+    }
+  },
+  "sidebar": {
+    "type": "VStack",
+    "properties": {
+      "spacing": 0,
+      "navigationSplitViewColumnWidth": {
+        "min": 300,
+        "ideal": 400,
+        "max": 620
+      }
+    },
+    "children": [
+      {
+        "type": "Table",
+        "id": 10,
+        "properties": {
+          "columns": ["Model", "Size"],
+          "widths": [220, 70],
+          "minWidths": [150, 50],
+          "actionID": "aichat.select.local.model.selection.changed"
+        }
+      },
+      {
+        "type": "HStack",
+        "properties": {
+          "spacing": 0
+        },
+        "children": [
+          {
+            "type": "Button",
+            "id": 20,
+            "properties": {
+              "systemImage": "finder",
+              "imageScale": "medium",
+              "buttonStyle": "plain",
+              "actionID": "aichat.select.local.model.reveal",
+              "disabled": true,
+              "frame": { "width": 32, "height": 28 }
+            }
+          },
+          {
+            "type": "Button",
+            "id": 22,
+            "properties": {
+              "systemImage": "arrow.clockwise",
+              "imageScale": "medium",
+              "buttonStyle": "plain",
+              "actionID": "aichat.select.local.model.reload",
+              "frame": { "width": 32, "height": 28 }
+            }
+          },
+          {
+            "type": "Divider",
+            "properties": {
+              "frame": { "height": 16 }
+            }
+          },
+          {
+            "type": "Button",
+            "id": 24,
+            "properties": {
+              "systemImage": "trash",
+              "imageScale": "medium",
+              "buttonStyle": "plain",
+              "actionID": "aichat.select.local.model.delete",
+              "disabled": true,
+              "frame": { "width": 32, "height": 28 }
+            }
+          },
+          { "type": "Spacer" }
+        ]
+      }
+    ]
+  },
+  "detail": {
+    "type": "VStack",
+    "properties": {
+      "spacing": 16,
+      "padding": "default",
+      "frame": {
+        "minWidth": 380,
+        "idealWidth": 420
+      }
+    },
+    "children": [
+      {
+        "type": "GroupBox",
+        "properties": {
+          "title": "Model Info",
+          "frame": {
+            "maxWidth": "infinity",
+            "maxHeight": "infinity"
+          }
+        },
+        "children": [
+          {
+            "type": "HStack",
+            "properties": { "spacing": 0 },
+            "children": [
+              { "type": "Spacer" },
+              {
+                "type": "Button",
+                "id": 40,
+                "properties": {
+                  "systemImage": "questionmark.circle",
+                  "imageScale": "medium",
+                  "buttonStyle": "plain",
+                  "actionID": "aichat.model.help"
+                }
+              }
+            ]
+          },
+          {
+            "type": "ScrollView",
+            "properties": {
+              "frame": {
+                "maxWidth": "infinity",
+                "maxHeight": "infinity"
+              }
+            },
+            "content": {
+              "type": "Text",
+              "id": 12,
+              "properties": {
+                "text": "Select a model from the list.",
+                "frame": {
+                  "maxWidth": "infinity",
+                  "maxHeight": "infinity",
+                  "alignment": "topLeading"
+                },
+                "textSelection": "enabled",
+                "foregroundStyle": "secondary"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "type": "HStack",
+        "properties": {
+          "spacing": 8
+        },
+        "children": [
+          {
+            "type": "Button",
+            "id": 4,
+            "properties": {
+              "title": "Browse for File…",
+              "actionID": "aichat.select.local.model.browse"
+            }
+          },
+          {
+            "type": "Button",
+            "id": 21,
+            "properties": {
+              "title": "Browse Hugging Face…",
+              "actionID": "aichat.select.local.model.hf"
+            }
+          },
+          {
+            "type": "Spacer"
+          },
+          {
+            "type": "Toggle",
+            "id": 30,
+            "properties": {
+              "title": "Use Tools in Agentic Session",
+              "isOn": false,
+              "style": "checkbox"
+            }
+          },
+          {
+            "type": "Button",
+            "id": 3,
+            "properties": {
+              "title": "Continue",
+              "buttonStyle": "borderedProminent",
+              "disabled": true,
+              "actionID": "aichat.select.local.model.ok"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
