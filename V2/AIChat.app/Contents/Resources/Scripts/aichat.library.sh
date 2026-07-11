@@ -117,7 +117,7 @@ format_bytes() {
 # Globals
 # ──────────────────────────────────────────────────────────────
 
-APPLET_NAME="AIChatV2"
+APPLET_NAME="AIChat"
 
 # when no model is bundled with the app:
 AICHAT_MODEL_PATH=""

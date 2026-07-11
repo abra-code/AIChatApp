@@ -47,7 +47,6 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>aichatv2</string>
-				<string>aichat</string>
 			</array>
 		</dict>
 	</array>
@@ -56,7 +55,7 @@
 	<key>LSMinimumSystemVersion</key>
 	<string>14.6</string>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>AIChatV2 sends AppleEvents to other apps to provide functionality unique to this applet.</string>
+	<string>AIChat sends AppleEvents to other apps to provide functionality unique to this applet.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 </dict>

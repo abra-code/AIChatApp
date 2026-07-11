@@ -326,10 +326,14 @@ forget_server_host_entry() {
     [ -z "$target_pid" ] && return 0
     local host_pids
     host_pids=$("$plister" get keys "$prefs" "/server-hosts" 2>/dev/null) || return 0
-    local _fh_host_pid
+    local _fh_host_pid _fh_remaining
     while IFS= read -r _fh_host_pid; do
         [ -z "$_fh_host_pid" ] && continue
         "$plister" delete "$prefs" "/server-hosts/$_fh_host_pid/$target_pid" 2>/dev/null
+        # Drop the host dict too if this was its last server, so a host that outlives its only
+        # server (e.g. a sibling-safe reap while the host is still alive) leaves no empty cruft.
+        _fh_remaining=$("$plister" get keys "$prefs" "/server-hosts/$_fh_host_pid" 2>/dev/null)
+        [ -z "$_fh_remaining" ] && "$plister" delete "$prefs" "/server-hosts/$_fh_host_pid" 2>/dev/null
     done <<< "$host_pids"
 }
 
@@ -621,6 +625,45 @@ register_started_server() {
     echo "registered server pid=$server_pid port=$server_port size=$model_size dialog=$dialog_guid"
 }
 
+# stop_all_bundle_servers — at app.will.terminate, TERM every llama-server this bundle owns,
+# found by its own executable path under the OMC-provided $OMC_APP_BUNDLE_PATH. The app is
+# unconditionally going away, so every model server it launched must stop.
+#
+# Why this signal: at terminate OMC_FRONT_PROCESS_ID is the *frontmost* app (GetFrontAppPID =
+# NSWorkspace.frontmostApplication - on a non-frontmost quit that is NOT us), a pgrep for the app
+# executable is already empty (the app has begun exiting), and there is no OMC env for the app's
+# own pid. The one thing still true is that the llama-server is alive (that is the whole bug), so
+# matching on its binary path under our bundle finds it every time. Deliberately NOT keyed on the
+# port: the app will grow to run several models on different ports at once, and every one of them
+# is ours to stop here.
+#
+# Accepted limitation: a SECOND concurrently-running OS instance of this same bundle would have
+# its servers reaped too (same bundle path, no per-instance signal available at terminate). Dual-
+# instance is unsupported (single pinned port already precludes it today; the plan documents the
+# multi-instance/port-8099 cross-talk hazard). If real multi-instance is ever supported, ownership
+# will need a per-instance token wired in at launch, not reconstructed here.
+#
+# The exe-path re-check against the live argv (not the pgrep snapshot) is the pid-identity guard:
+# a recycled pid, or a process that only mentions the path as a later argument, is never signalled.
+stop_all_bundle_servers() {
+    local ls_bin="$OMC_APP_BUNDLE_PATH/Contents/Support/Llama.cpp/llama-server"
+    local sp args mcp_pid
+    for sp in $(/usr/bin/pgrep -f "$ls_bin" 2>/dev/null); do
+        args=$(/bin/ps -p "$sp" -o args= 2>/dev/null)
+        case "$args" in
+            "$ls_bin"|"$ls_bin "*) ;;
+            *) continue ;;
+        esac
+        echo "terminate: stopping bundle llama-server pid=$sp"
+        srvlog "TERMINATE stop-bundle-server pid=$sp"
+        kill -TERM "$sp" 2>/dev/null
+        mcp_pid=$("$plister" get string "$prefs" "/server-info/$sp/mcp-proxy-pid" 2>/dev/null)
+        kill_mcp_proxy "$mcp_pid"
+        "$plister" delete "$prefs" "/server-info/$sp" 2>/dev/null
+        forget_server_host_entry "$sp"
+    done
+}
+
 # stop_orphaned_servers — TERM any registered server whose host app is gone; prune entries.
 stop_orphaned_servers() {
     local host_pids server_pids host_pid server_pid
@@ -678,7 +721,7 @@ launch_model_on_pinned_port() {
     LAUNCHED_MODEL_LABEL=$(/usr/bin/basename "$model_path" .gguf)
 
     local old_servers
-    old_servers=$(/usr/bin/pgrep -f "AIChatV2.app/Contents/Support/Llama.cpp/llama-server" 2>/dev/null)
+    old_servers=$(/usr/bin/pgrep -f "$OMC_APP_BUNDLE_PATH/Contents/Support/Llama.cpp/llama-server" 2>/dev/null)
     if [ -n "$old_servers" ]; then
         srvlog "LAUNCH stopping-old front=${OMC_FRONT_PROCESS_ID} old_servers=[$(echo $old_servers | /usr/bin/tr '\n' ' ')]"
         echo "stopping previous V2 llama-server(s): $old_servers"

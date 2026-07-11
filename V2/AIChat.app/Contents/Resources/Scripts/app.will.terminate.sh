@@ -36,7 +36,11 @@ if [ -n "$OMC_FRONT_PROCESS_ID" ]; then
     done <<< "$curl_pids"
 fi
 
-echo "Stop our servers and orphaned servers without host app running"
+echo "Stop every llama-server this bundle owns (reliable at terminate: matches the server's own"
+echo "binary + pinned port, independent of OMC_FRONT_PROCESS_ID / app-exe pgrep, both unreliable here)"
+stop_all_bundle_servers
+
+echo "Prune registry: stop any registered server whose host app is gone (other-instance leftovers)"
 host_pids=$("$plister" get keys "$prefs" "/server-hosts")
 while read -r host_pid; do
     echo "registered host_pid = $host_pid"
