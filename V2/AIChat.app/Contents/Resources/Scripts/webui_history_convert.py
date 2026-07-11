@@ -183,6 +183,38 @@ def _load_dumps(dumps_dir):
     return best
 
 
+# The live write path (aichat.chat.entry.sh) records history as journal.jsonl - one envelope
+# {"sequence","type","id","data":<ChatItem>} per line - and history_store.py's read model
+# (index/transcript/title/info) reads ONLY journal.jsonl. So an imported session MUST have a
+# journal.jsonl or it lists (via meta.json) but restores empty, and a continued turn appended to
+# a missing journal would drop the imported history. We derive the journal from the same items
+# build_transcript already produced, making imported sessions structurally identical to native
+# ones: they restore, and continuing one appends new turns after the imported history.
+def _item_env_id(item, pos):
+    itype = item.get("type")
+    if itype in ("message", "thought"):
+        return (item.get("message") or {}).get("id") or "webui-i%d" % pos
+    if itype == "toolCall":
+        return (item.get("toolCall") or {}).get("id") or "webui-i%d" % pos
+    return item.get("id") or "webui-i%d" % pos
+
+
+def _journal_bytes(transcript):
+    seq = 0
+    out = []
+    for item in transcript.get("items", []):
+        seq += 1
+        out.append(json.dumps({"sequence": seq, "type": item.get("type"),
+                               "id": _item_env_id(item, seq), "data": item},
+                              ensure_ascii=False))
+    for level_key in ("usage", "plan"):  # transcript-level envelopes, if ever present
+        if level_key in transcript:
+            seq += 1
+            out.append(json.dumps({"sequence": seq, "type": level_key,
+                                   "data": transcript[level_key]}, ensure_ascii=False))
+    return ("\n".join(out) + "\n") if out else ""
+
+
 def _write_session(out_dir, entry):
     conv = entry["conv"]
     cid = conv["id"]
@@ -191,11 +223,17 @@ def _write_session(out_dir, entry):
     updated = conv.get("lastModified") or 0
 
     meta_path = os.path.join(session_dir, "meta.json")
-    if os.path.exists(meta_path):
+    journal_path = os.path.join(session_dir, "journal.jsonl")
+    # Skip only a session that is up to date AND fully written. journal.jsonl is written LAST
+    # (below) and is the file history_store.py reads, so its presence marks a complete session;
+    # meta.json alone means a prior run was interrupted mid-write and must be re-done rather than
+    # left listing-but-restoring-empty. A session already extended with live continued turns has
+    # journal.jsonl and current meta, so it is (correctly) skipped and never clobbered.
+    if os.path.exists(meta_path) and os.path.exists(journal_path):
         try:
             old = json.load(open(meta_path, encoding="utf-8"))
             if float(old.get("_lastModified", 0)) >= float(updated):
-                return "skipped"  # not newer - idempotent no-op
+                return "skipped"  # not newer and complete - idempotent no-op
         except (OSError, ValueError):
             pass
 
@@ -215,16 +253,25 @@ def _write_session(out_dir, entry):
     if stats["model"]:
         meta["model"] = stats["model"]
 
+    # Per-process temp suffix so two import runs racing on the same session (e.g. a background
+    # import orphaned by a quit, plus the next launch's fresh run) never write the same .tmp file
+    # and corrupt each other - each writes its own tmp and os.replace is atomic per file.
     def atomic(path, obj):
-        tmp = path + ".tmp"
+        tmp = "%s.%d.tmp" % (path, os.getpid())
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(obj, fh, ensure_ascii=False)
         os.replace(tmp, path)
 
+    # Order matters: everything EXCEPT journal.jsonl first, then journal.jsonl last, so the
+    # skip-guard above (journal.jsonl present) can treat the session as all-or-nothing.
     atomic(meta_path, meta)
     atomic(os.path.join(session_dir, "transcript.json"), transcript)
     atomic(os.path.join(session_dir, "archive.json"),
            {"conv": conv, "messages": entry["messages"]})
+    jtmp = "%s.%d.tmp" % (journal_path, os.getpid())
+    with open(jtmp, "w", encoding="utf-8") as fh:
+        fh.write(_journal_bytes(transcript))
+    os.replace(jtmp, journal_path)   # LAST: presence == complete session
     flattened = max(0, stats["total"] - stats["branch"])
     return "imported", flattened
 
@@ -232,16 +279,25 @@ def _write_session(out_dir, entry):
 def convert(dumps_dir, out_dir):
     best = _load_dumps(dumps_dir)
     os.makedirs(out_dir, exist_ok=True)
-    imported = skipped = flattened_total = 0
+    imported = skipped = flattened_total = failed = 0
     for cid, entry in best.items():
-        result = _write_session(out_dir, entry)
+        # Isolate each session: one malformed conversation must not abort the whole import (which
+        # would leave the marker unwritten and retry - re-hitting the same bad entry - every
+        # launch). Skip it, log it, keep going; a partial write from a raised session is re-done
+        # next run by the journal-completeness guard.
+        try:
+            result = _write_session(out_dir, entry)
+        except Exception as exc:  # noqa: BLE001 - best-effort import, never abort the batch
+            failed += 1
+            sys.stderr.write("skip session %s: %s\n" % (cid, exc))
+            continue
         if result == "skipped":
             skipped += 1
         else:
             imported += 1
             flattened_total += result[1]
-    return {"conversations": len(best), "imported": imported,
-            "skipped": skipped, "flattened_messages": flattened_total}
+    return {"conversations": len(best), "imported": imported, "skipped": skipped,
+            "failed": failed, "flattened_messages": flattened_total}
 
 
 def main(argv):

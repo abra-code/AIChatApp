@@ -397,6 +397,11 @@
       "NAME" : "AIChat"
     },
     {
+      "COMMAND_ID" : "app.did.launch",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
       "COMMAND_ID" : "app.will.terminate",
       "ENVIRONMENT_VARIABLES" : {
         "OMC_FRONT_PROCESS_ID" : ""
