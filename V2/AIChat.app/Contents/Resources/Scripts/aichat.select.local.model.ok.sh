@@ -63,11 +63,19 @@ fi
 # Close the selector window now that we're committed to loading
 "$dialog_tool" "$window_uuid" omc_window omc_terminate_ok
 
-# Hand the chosen model to the native chat window's init handler. Pasteboard key is
-# V2-namespaced so a running v1 (which uses AICHAT_MODEL_PATH) can't cross-talk.
-"$pasteboard" "AICHATV2_MODEL_PATH" put "$selected_path"
+# Queue the chosen model + tools decision for the chat window's init handler (single
+# epoch-stamped pasteboard entry - see launch_queue_arm in the base library). The ACP
+# transport needs both at once: the tools decision selects whether the agent argv carries
+# --mcp-config, and it cannot be re-decided after the transport freezes.
+use_tools="${OMC_ACTIONUI_VIEW_30_VALUE:-false}"
+launch_queue_arm "$selected_path" "$use_tools"
 
-# S1 is plain chat: tool execution (the MCP servers path) is deferred to S3, so we
-# always open the native chat window directly. The MCP config dialogs remain in the
-# bundle but are unwired from launch.
-"$next_command" "$OMC_CURRENT_COMMAND_GUID" "aichat.chat"
+# When tools are enabled, route through the MCP servers dialog so the user can review
+# which servers + sandbox paths apply and pick the session's working directory before
+# the session launches. Its Start handler chains to aichat.chat once preferences are
+# saved; closing the dialog discards the queued launch. Tools off goes straight to chat.
+if [ "$use_tools" = "true" ]; then
+    "$next_command" "$OMC_CURRENT_COMMAND_GUID" "aichat.mcp.servers"
+else
+    "$next_command" "$OMC_CURRENT_COMMAND_GUID" "aichat.chat"
+fi

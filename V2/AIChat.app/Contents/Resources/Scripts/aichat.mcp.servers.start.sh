@@ -1,8 +1,11 @@
 #!/bin/sh
 # aichat.mcp.servers.start.sh
 # Saves the dialog's toggle + project-path state to $mcp_prefs (table contents
-# are already persisted incrementally by the add/remove handlers), closes the
-# window, and — if a model is queued on the pasteboard — chains to aichat.new.
+# are already persisted incrementally by the add/remove handlers) and closes the
+# window. When a model launch is queued on the pasteboard (the selector's OK routed
+# here with tools enabled), chains to aichat.chat, whose init reads these prefs while
+# building the agent transport. Opened from the menu (nothing queued), it just saves:
+# the settings apply to the next model load; running windows keep their server set.
 
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.mcp.servers.library.sh"
 
@@ -22,8 +25,12 @@ echo "saved MCP prefs: allow-network=${OMC_ACTIONUI_VIEW_240_VALUE} time=${OMC_A
 
 "$dialog" "$window_uuid" omc_window omc_terminate_ok
 
-# If the model selector queued a model path, proceed to launch the session.
-queued_model=$("$pasteboard" "AICHAT_MODEL_PATH" get)
-if [ -n "$queued_model" ]; then
-    "$next_command" "$OMC_CURRENT_COMMAND_GUID" "aichat.new"
+# If this dialog owns a queued launch (stashed window-scoped by init), re-arm the global
+# queue with a fresh epoch - the user may have spent minutes in here - and open the chat
+# window on it.
+queued=$(pb_get "aichatv2_launch_${window_uuid}")
+pb_set "aichatv2_launch_${window_uuid}" ""
+if [ -n "$queued" ]; then
+    launch_queue_arm "$(launch_queue_model "$queued")" "$(launch_queue_tools "$queued")"
+    "$next_command" "$OMC_CURRENT_COMMAND_GUID" "aichat.chat"
 fi

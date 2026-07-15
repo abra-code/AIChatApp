@@ -59,6 +59,57 @@ model_switch_consume() {
     fi
 }
 
+# ──────────────────────────────────────────────────────────────
+# Launch handoff (model selector / Open... -> chat window)
+# ──────────────────────────────────────────────────────────────
+# ONE pasteboard entry carries a queued model launch: "model_path|use_tools|epoch". A single
+# key keeps the model and its tools decision atomic (they can never desync the way two
+# separate keys could), and the epoch makes staleness detectable - the pasteboard persists
+# across app relaunches, so every reader validates before trusting. use_tools is "true" or
+# "false". Model paths may contain "|"; parsing peels fields from the RIGHT so only the last
+# two "|" are structural.
+#
+# This supersedes the bare AICHATV2_MODEL_PATH handoff: the ACP transport needs the tools
+# decision at the same instant it needs the model (it builds the agent argv from both), and
+# the old scheme carried only the path. AICHATV2_MODEL_PATH is still honored as a fallback
+# by the chat init (Finder drops onto the app arrive that way, with no tools decision).
+#
+# The MCP servers dialog, when the selector routes a tools-on launch through it, moves the
+# queue into its own window-scoped key (aichatv2_launch_<window>) at init: the pending launch
+# then lives exactly as long as that dialog, a concurrently queued launch from another entry
+# point can't clobber it, and a quit/crash with the dialog open leaves no armed global queue.
+LAUNCH_QUEUE_KEY="aichatv2_launch_queue"
+LAUNCH_QUEUE_TTL=120
+
+# launch_queue_arm <model_path> <use_tools> — queue a launch (re-arming refreshes the epoch).
+launch_queue_arm() { pb_set "$LAUNCH_QUEUE_KEY" "$1|$2|$(/bin/date +%s)"; }
+
+# launch_queue_clear — drop any queued launch.
+launch_queue_clear() { pb_set "$LAUNCH_QUEUE_KEY" ""; }
+
+# launch_queue_consume — read+CLEAR the queue; echo "model_path|use_tools" only if armed
+# within LAUNCH_QUEUE_TTL seconds (every hop that arms it chains to its reader immediately),
+# else "". Stale or malformed queues are dropped. Split the result with
+# launch_queue_model / launch_queue_tools.
+launch_queue_consume() {
+    local val rest epoch now age
+    val=$(pb_get "$LAUNCH_QUEUE_KEY")
+    [ -n "$val" ] || return 0
+    launch_queue_clear
+    rest=${val%|*}
+    epoch=${val##*|}
+    case "$epoch" in ""|*[!0-9]*) return 0 ;; esac
+    now=$(/bin/date +%s)
+    age=$((now - epoch))
+    if [ "$age" -ge 0 ] && [ "$age" -le "$LAUNCH_QUEUE_TTL" ]; then
+        echo "$rest"
+    fi
+}
+
+# launch_queue_model / launch_queue_tools <"model_path|use_tools"> — split a consumed queue.
+launch_queue_model() { printf '%s' "${1%|*}"; }
+launch_queue_tools() { printf '%s' "${1##*|}"; }
+
 # chat_inject_empty <win> — clear the embedded Chat (id 1) to an empty conversation.
 # The Chat element's reconcileRestoredContent DEDUPES a re-injected transcript that equals
 # the last one, and live-typed turns never update its "last loaded" transcript - so a plain

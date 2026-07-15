@@ -29,6 +29,19 @@ import os
 import plistlib
 import sys
 
+# ── stdio-direct emitter mode (B3) ────────────────────────────────────────────
+# `--stdio-direct <out.json>` makes this script ALSO emit the mlx-agent --mcp-config
+# schema - {"servers":[{name,command,args,env?,gatedTools?}]} - built from the SAME
+# per-session server construction as the v1 proxy configs, then exit before the
+# proxy/port machinery. The mcp-proxy HTTP shim is dropped on this path: mlx-agent
+# speaks MCP stdio directly, spawning each server with its command+args. The v1 proxy
+# emitter (used by AIChat WebUI) is untouched when this flag is absent.
+_stdio_direct_out = None
+if "--stdio-direct" in sys.argv:
+    _i = sys.argv.index("--stdio-direct")
+    _stdio_direct_out = sys.argv[_i + 1]
+    del sys.argv[_i:_i + 2]
+
 app_bundle        = sys.argv[1]
 proxy_port        = int(sys.argv[2])
 out_proxy_json    = sys.argv[3]
@@ -188,6 +201,39 @@ if allow_network and srv_enabled("search"):
         "enabled": True,
     })
     server_order.append("search")
+
+# ── stdio-direct emitter (B3): the mlx-agent --mcp-config contract ────────────
+# Emit {"servers":[{name,command,args,env?,gatedTools?}]} from the servers already
+# constructed above (same replay sandbox flags, same time/search invocations), then
+# exit BEFORE the mcp-proxy per-port machinery below (which mlx-agent does not use).
+# gatedTools lists the tools that require a session/request_permission round-trip
+# before dispatch - replay's mutating + shell operations (verified against replay's
+# tools/list). Read-only tools (read_file, list_directory, grep_files, ...) are not
+# gated. time/search expose no mutating tools.
+if _stdio_direct_out:
+    gated_by_server = {
+        "local": ["write_file", "edit_file", "edit_files", "execute_command",
+                  "create_directory", "move_file", "delete_file"],
+    }
+    stdio_servers = []
+    for name in server_order:
+        spec = proxy_servers[name]
+        entry = {"name": name, "command": spec["command"], "args": list(spec.get("args") or [])}
+        if spec.get("env"):
+            entry["env"] = spec["env"]
+        if name in gated_by_server:
+            entry["gatedTools"] = gated_by_server[name]
+        stdio_servers.append(entry)
+    out_abs = os.path.abspath(_stdio_direct_out)
+    os.makedirs(os.path.dirname(out_abs), exist_ok=True)
+    # Remove any prior config first so a failure below degrades to "no config found" (the
+    # transport builder then falls back to chat mode) instead of silently reusing a stale one.
+    if os.path.exists(out_abs):
+        os.remove(out_abs)
+    with open(out_abs, "w") as fh:
+        json.dump({"servers": stdio_servers}, fh, indent=2)
+    print(f"  wrote stdio-direct config {_stdio_direct_out} ({len(stdio_servers)} server(s))")
+    sys.exit(0)
 
 proxy_config    = {"mcpServers": proxy_servers}
 llama_ui_config = {"mcpServers": llama_servers}

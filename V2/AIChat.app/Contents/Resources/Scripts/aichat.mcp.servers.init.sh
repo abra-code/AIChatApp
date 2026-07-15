@@ -55,3 +55,18 @@ mcp_refresh_path_table "$window_uuid" $RO_TABLE_ID servers/local/allowed-read
 # - buttons start disabled until the user picks a row
 "$dialog" "$window_uuid" $RW_REMOVE_BTN_ID omc_disable
 "$dialog" "$window_uuid" $RO_REMOVE_BTN_ID omc_disable
+
+# Take ownership of a queued launch (the model selector routed here with tools enabled):
+# move it from the global queue into this window's own key, so it lives exactly as long
+# as this dialog - another entry point queueing a launch meanwhile can't clobber it, and
+# a quit with the dialog open leaves nothing armed. The confirm button reflects what
+# confirming does: launching the queued session ("Start") or just saving prefs ("Save",
+# when opened from Tools > Configure MCP Servers with nothing queued).
+CONFIRM_BTN_ID=393
+queued=$(launch_queue_consume)
+pb_set "aichatv2_launch_${window_uuid}" "$queued"
+if [ -n "$queued" ]; then
+    "$dialog" "$window_uuid" $CONFIRM_BTN_ID omc_set_property "title" "Start"
+else
+    "$dialog" "$window_uuid" $CONFIRM_BTN_ID omc_set_property "title" "Save"
+fi

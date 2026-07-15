@@ -193,3 +193,133 @@ mcp_refresh_rw_table() {
             | "$dialog" "$window_uuid" "$table_id" omc_table_add_rows_from_stdin
     fi
 }
+
+# ──────────────────────────────────────────────────────────────
+# ACP transport (stdio-direct MCP for the bundled mlx-agent)
+# ──────────────────────────────────────────────────────────────
+# generate_stdio_mcp_config writes the mlx-agent --mcp-config file for one window;
+# aichat_acp_transport_json turns it into the Chat element's states["config"] transport,
+# selecting agent mode iff at least one server ends up enabled.
+
+# aichat_session_config_dir <window_uuid>
+# Per-window dir holding this window's generated mcp-config.json and the replay sandbox
+# profile. Overwritten on every launch / model switch, so nothing here is durable state.
+aichat_session_config_dir() {
+    printf '%s/Sessions/%s' "$mcp_app_support" "$1"
+}
+
+# generate_stdio_mcp_config <out_config_json>
+# Emit the mlx-agent --mcp-config (stdio-direct) file into <out_config_json>, honoring the
+# current MCP-servers prefs (per-server enabled flags, the allow-network master gate, and
+# the replay sandbox read/write paths). The replay sandbox profile is written next to
+# <out_config_json>. Returns 0 when the file is written (possibly {"servers":[]} if the
+# user disabled everything), non-zero if the bundled Python or the generator is missing.
+generate_stdio_mcp_config() {
+    local out_json="$1"
+    local python3="$OMC_APP_BUNDLE_PATH/Contents/Library/Python/bin/python3"
+    local script="$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/generate_mcp_configs.py"
+    if [ ! -f "$python3" ] || [ ! -f "$script" ]; then
+        echo "generate_stdio_mcp_config: bundled Python/generator missing ($python3 / $script)"
+        return 1
+    fi
+
+    # Seed the prefs plist with defaults on first run so the config the model sees matches
+    # exactly what the MCP Servers dialog shows. No-op when prefs already exist.
+    mcp_prefs_init_if_missing
+
+    local tz
+    tz=$(/usr/bin/readlink /etc/localtime 2>/dev/null | /usr/bin/sed 's|.*/zoneinfo/||')
+    [ -z "$tz" ] && tz="UTC"
+
+    local out_dir
+    out_dir=$(/usr/bin/dirname "$out_json")
+    /bin/mkdir -p "$out_dir" 2>/dev/null
+
+    # --stdio-direct makes the generator write the mlx-agent config to <out_json> (and the
+    # replay sandbox profile next to the <proxy_json> positional) and exit BEFORE the
+    # mcp-proxy/port machinery. The proxy port + proxy/webui json outputs are unused on this
+    # path but the positional slots must be present: <bundle> <port> <proxy_json>
+    # <webui_json> <tz> <prefs>. We point <proxy_json> into the same session dir so the
+    # sandbox profile lands beside the config.
+    "$python3" "$script" --stdio-direct "$out_json" \
+        "$OMC_APP_BUNDLE_PATH" 8101 \
+        "$out_dir/mcp-proxy.json" "$out_dir/mcp-webui.json" \
+        "$tz" "$mcp_prefs"
+}
+
+# aichat_acp_transport_json <agent_bin> <engine> <target> <window_uuid> [use_tools]
+# Generate this window's MCP config, then echo the ACP transport JSON for the Chat
+# element's states["config"].
+#
+# <engine> selects how mlx-agent generates, and what <target> means:
+#   openai - <target> is the llama-server base-url (e.g. http://127.0.0.1:8099/v1). The
+#            APPLET owns that server (launch, restart on model switch, reaping); mlx-agent
+#            only talks to it. This is V2's path today.
+#   mlx    - <target> is a safetensors model directory loaded in-process by mlx-agent.
+#            Unused until M2, but built now so M2 is a config change, not a port.
+#
+# When the config has at least one server, the transport adds --mcp-config <cfg> (which
+# defaults mlx-agent to agent mode); otherwise it is a plain chat transport with no tools.
+# use_tools is the per-session decision (the selector's agentic-session checkbox, or the
+# caller's auto-detection): anything but "true" skips config generation entirely - and
+# removes any config left by a previous launch of the same window - so the session is plain
+# chat regardless of which servers the prefs enable. Omitted means "true" (prefs decide).
+# Argv/JSON encoding is done in Python (json.dumps) so paths with spaces or quotes are safe;
+# if the bundled Python is somehow absent it falls back to a sed-escaped hand-built chat
+# transport rather than wedging the window. Echoes only the JSON on stdout; any generator
+# diagnostics go to stderr.
+aichat_acp_transport_json() {
+    local agent_bin="$1"
+    local engine="$2"
+    local target="$3"
+    local window_uuid="$4"
+    local use_tools="${5:-true}"
+
+    local python3="$OMC_APP_BUNDLE_PATH/Contents/Library/Python/bin/python3"
+    local cfg
+    cfg="$(aichat_session_config_dir "$window_uuid")/mcp-config.json"
+
+    if [ "$use_tools" = "true" ]; then
+        # Generate the config; its diagnostics go to stderr so stdout stays pure JSON.
+        generate_stdio_mcp_config "$cfg" 1>&2
+    else
+        # Tools off for this session: no config, and drop a stale one from a previous
+        # launch of this window so the argv builder below sees no servers.
+        /bin/rm -f "$cfg"
+    fi
+
+    # Build the transport argv in Python: agent mode only when the config parsed and lists
+    # >=1 server (a missing/empty/broken config falls back to chat — never wedges the window).
+    if [ -x "$python3" ]; then
+        "$python3" -c '
+import json, os, sys
+agent, engine, target, cfg = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+if engine == "openai":
+    argv = [agent, "acp", "--backend", "openai", "--base-url", target]
+else:
+    argv = [agent, "acp", "--model", target]
+n = 0
+try:
+    if os.path.isfile(cfg):
+        n = len(json.load(open(cfg)).get("servers", []))
+except Exception:
+    n = 0
+if n > 0:
+    argv += ["--mcp-config", cfg]
+print(json.dumps({"protocol": "acp", "transport": {"command": argv}}))
+' "$agent_bin" "$engine" "$target" "$cfg" && return 0
+    fi
+
+    # Bundled Python missing (or the builder above failed): emit a plain chat-only transport by
+    # hand. mlx-agent needs no Python to run, so chat still works even if the interpreter is gone
+    # — this is the honest "never wedges the window" path. JSON-escape the two path values
+    # (backslash then quote) so spaces/quotes are safe; control chars never occur in these paths.
+    local ae te
+    ae=$(printf '%s' "$agent_bin" | /usr/bin/sed 's/\\/\\\\/g; s/"/\\"/g')
+    te=$(printf '%s' "$target"    | /usr/bin/sed 's/\\/\\\\/g; s/"/\\"/g')
+    if [ "$engine" = "openai" ]; then
+        printf '{"protocol":"acp","transport":{"command":["%s","acp","--backend","openai","--base-url","%s"]}}\n' "$ae" "$te"
+    else
+        printf '{"protocol":"acp","transport":{"command":["%s","acp","--model","%s"]}}\n' "$ae" "$te"
+    fi
+}

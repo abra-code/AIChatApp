@@ -1,11 +1,17 @@
 #!/bin/sh
 
 # Merged chat + history window init (V2). Starts llama-server for the selected model on the
-# pinned port, then INJECTS the Chat element's openai-sse transport into states["config"]
-# via omc_set_state once /health passes. The Chat element defers building its transport
-# until that config lands, then FREEZES it, and the composer auto-enables on isConfigured -
-# so injecting only after the health probe gates the composer on server readiness (no manual
+# pinned port, then INJECTS the Chat element's ACP transport into states["config"] via
+# omc_set_state once /health passes. The Chat element defers building its transport until
+# that config lands, then FREEZES it, and the composer auto-enables on isConfigured - so
+# injecting only after the health probe gates the composer on server readiness (no manual
 # enable needed). aichat.chat.json carries only "properties" (no static config).
+#
+# The window speaks ACP to the bundled mlx-agent (Contents/Support/MLX), which runs the tool
+# loop + MCP stdio servers and generates through llama-server's OpenAI endpoint. The applet
+# keeps FULL ownership of llama-server (launch on the pinned port, /health, registry, orphan
+# reaping); the agent is a child that only talks to it. AICHAT_FORCE_OPENAI_SSE=1 restores
+# the pre-ACP direct-to-llama-server transport (temporary escape hatch).
 #
 # This is the app's single main surface: a NavigationSplitView with a collapsible history
 # sidebar (Table id 510) beside the Chat element (id 1). Init also fills the sidebar list
@@ -17,6 +23,7 @@
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.server.library.sh"
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.model.library.sh"
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.history.library.sh"
+source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.mcp.servers.library.sh"
 
 echo "[$(/usr/bin/basename "$0")]"
 
@@ -39,15 +46,34 @@ echo "chat_window_uuid: ${chat_window_uuid}"
 echo "OMC_FRONT_PROCESS_ID: ${OMC_FRONT_PROCESS_ID}"
 echo "AICHAT_MODEL_PATH: $AICHAT_MODEL_PATH"
 
+# use_tools is this session's agentic decision, fixed for the life of the window: the ACP
+# transport freezes once injected, so the agent argv (--mcp-config or not) cannot be
+# re-decided later. Default OFF: only an explicit opt-in turns tools on. An entry point with
+# no checkbox to offer (a gguf dropped on the app icon) is a "just chat with this model"
+# gesture, and matches the selector's own unchecked default - spawning the MCP servers
+# behind it would be a surprise the user cannot undo without reopening the window.
+# NOTE: must be a literal "false", not "" - aichat_acp_transport_json defaults an
+# empty/omitted value to "true" (its MLXChat-inherited "prefs decide" contract).
+use_tools="false"
+
 if [ -z "${AICHAT_MODEL_PATH}" ] && [ -n "${OMC_OBJ_PATH}" ]; then
 	# a gguf file dropped on the app icon
 	AICHAT_MODEL_PATH="$OMC_OBJ_PATH"
 	echo "GGUF file dropped on app: AICHAT_MODEL_PATH: $AICHAT_MODEL_PATH"
 elif [ -z "$AICHAT_MODEL_PATH" ]; then
-	# handed over by the model selector (V2-namespaced pasteboard key)
-	AICHAT_MODEL_PATH=$("$pasteboard" "AICHATV2_MODEL_PATH" get);
-	echo "GGUF from model selector: AICHAT_MODEL_PATH: $AICHAT_MODEL_PATH"
-	"$pasteboard" "AICHATV2_MODEL_PATH" set ""
+	# Handed over by the model selector: one epoch-stamped entry carrying the model AND its
+	# tools decision (see launch_queue_arm). Falls back to the bare V2-namespaced path key,
+	# which the selector no longer arms but other entry points may.
+	queued=$(launch_queue_consume)
+	if [ -n "$queued" ]; then
+		AICHAT_MODEL_PATH=$(launch_queue_model "$queued")
+		use_tools=$(launch_queue_tools "$queued")
+		echo "GGUF from launch queue: AICHAT_MODEL_PATH: $AICHAT_MODEL_PATH (use_tools=$use_tools)"
+	else
+		AICHAT_MODEL_PATH=$("$pasteboard" "AICHATV2_MODEL_PATH" get);
+		echo "GGUF from model selector: AICHAT_MODEL_PATH: $AICHAT_MODEL_PATH"
+		"$pasteboard" "AICHATV2_MODEL_PATH" set ""
+	fi
 fi
 
 if [ -z "$AICHAT_MODEL_PATH" ]; then
@@ -120,10 +146,22 @@ launch_model_on_pinned_port "$AICHAT_MODEL_PATH" "$chat_window_uuid"
 server_result=$?
 
 if [ "$server_result" = 0 ]; then
-	# Server is healthy. Inject the openai-sse transport into states["config"]; the Chat
+	# Server is healthy. Inject the Chat element's transport into states["config"]; the
 	# element builds + freezes its transport and auto-enables the composer on isConfigured.
 	# Injecting only now ties composer enablement to server readiness (no manual enable).
-	chat_config=$(/usr/bin/printf '{"protocol":"openai-sse","transport":{"baseURL":"%s","model":"auto","params":{"reasoning_format":"auto","stream_options":{"include_usage":true}}}}' "$base_url")
+	if [ "$AICHAT_FORCE_OPENAI_SSE" = "1" ]; then
+		# Escape hatch: talk to llama-server directly, no agent, no tools. Kept only to
+		# isolate an ACP-vs-server problem during the transition; removed in a later phase.
+		chat_config=$(/usr/bin/printf '{"protocol":"openai-sse","transport":{"baseURL":"%s","model":"auto","params":{"reasoning_format":"auto","stream_options":{"include_usage":true}}}}' "$base_url")
+		echo "AICHAT_FORCE_OPENAI_SSE=1: injecting the legacy openai-sse transport"
+	else
+		# All-ACP: the window speaks ACP to the bundled mlx-agent, which runs the tool loop
+		# and the MCP stdio servers and generates through the llama-server we just launched
+		# (--backend openai --base-url). The applet keeps FULL ownership of llama-server;
+		# mlx-agent only talks to it, which is why the agent gets no --model here.
+		agent_bin="$OMC_APP_BUNDLE_PATH/Contents/Support/MLX/mlx-agent"
+		chat_config=$(aichat_acp_transport_json "$agent_bin" openai "$base_url" "$chat_window_uuid" "$use_tools")
+	fi
 	"$dialog" "$chat_window_uuid" "$CHAT_VIEW_ID" omc_set_state config "$chat_config"
 	"$dialog" "$chat_window_uuid" "$MODEL_BTN_ID" omc_set_property "title" "$LAUNCHED_MODEL_LABEL"
 	set_chat_status "$LAUNCHED_MODEL_LABEL"
