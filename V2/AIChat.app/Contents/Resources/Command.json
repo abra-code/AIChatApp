@@ -301,21 +301,6 @@
       "NAME" : "AIChat"
     },
     {
-      "COMMAND_ID" : "aichat.mcp.inspect.server.start",
-      "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
-    },
-    {
-      "COMMAND_ID" : "aichat.mcp.inspect.server.stop",
-      "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
-    },
-    {
-      "COMMAND_ID" : "aichat.mcp.inspect.server.restart",
-      "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
-    },
-    {
       "COMMAND_ID" : "aichat.model.help",
       "EXECUTION_MODE" : "exe_script_file",
       "NAME" : "AIChat"

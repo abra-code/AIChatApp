@@ -2,277 +2,164 @@
 # ──────────────────────────────────────────────────────────────
 # MCP Servers inspector (aichat.mcp.inspect dialog)
 # ──────────────────────────────────────────────────────────────
-# Read-only window that lists the servers the most recent agentic session
-# launched (from llama-ui-mcp.json, written by generate_mcp_configs.py), shows
-# each endpoint URL, and — on demand, per server — fetches tools/list over the
-# proxy's Streamable HTTP endpoint via mcp_inspect.py so the user can inspect
-# each tool's JSON input schema. The control IDs below match aichat.mcp.inspect.json.
+# Read-only window into the tool surface an agentic session gets from the CURRENT
+# MCP prefs - the verification companion to the Configure MCP Servers dialog. On
+# init/refresh it generates the effective mlx-agent --mcp-config from the prefs
+# (exactly what the next launch would generate) and runs `mlx-agent tools`, which
+# spawns the stdio servers, performs the real initialize + tools/list handshake with
+# the same exposed-name collision rules the agent applies at session start, dumps the
+# result as JSON, and shuts the servers down. Selection handlers then read display
+# fragments out of that dump via mcp_tools_report.py - no MCP traffic after populate.
 #
-# Sourced ONLY by the aichat.mcp.inspect.* handler scripts (not by every applet
-# script), which keeps this inspector-specific code out of the base library.
-# It sources aichat.server.library.sh for the shared primitives it relies on:
-#   build_agent_path / kill_mcp_proxy (server lib) and, transitively from the base
-#   library, $dialog / $plister / $prefs / mcp_app_support / pb_set / pb_get.
+# There is deliberately no start/stop/restart here (that was the proxy-era AIChat
+# inspector): AIChat V2's MCP servers are stdio children owned by each window's
+# mlx-agent, with no lifecycle the applet could or should manage.
+#
+# Sourced ONLY by the aichat.mcp.inspect.* handler scripts. Control IDs match
+# aichat.mcp.inspect.json. Sources the servers library for generate_stdio_mcp_config
+# (and, transitively, the base library: $dialog / pb_set / pb_get / mcp_app_support).
 [ -n "${__AICHAT_MCP_INSPECT_LIB:-}" ] && return 0
 __AICHAT_MCP_INSPECT_LIB=1
 
-source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.server.library.sh"
+source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.mcp.servers.library.sh"
 
-# Scratch dir for cached per-server tools/list results and the current schema.
+# Scratch dir for the generated inspection config + the current tools dump. The dump is
+# shared (not per-window): it reflects the global prefs, so any inspector window showing
+# it is showing the same truth, and every init/refresh regenerates it.
 mcp_inspect_dir="$mcp_app_support/inspect"
+mcp_inspect_dump="$mcp_inspect_dir/tools.json"
 
-# mcp_url_port <url>  ->  the TCP port from an http://host:port/path URL (empty if none)
-mcp_url_port() {
-    printf '%s' "$1" | /usr/bin/sed -nE 's#^[a-z]+://[^/:]+:([0-9]+)(/.*)?$#\1#p'
-}
+SERVER_TABLE_ID=200
+COMMAND_FIELD_ID=210
+STATUS_ID=212
+TOOLS_TABLE_ID=300
+DESC_EDITOR_ID=402
+SCHEMA_EDITOR_ID=403
 
-# mcp_url_shortname <url>  ->  the server segment of .../servers/<name>/mcp
-mcp_url_shortname() {
-    printf '%s' "$1" | /usr/bin/sed -nE 's#.*/servers/([^/]+)/mcp.*#\1#p'
-}
-
-# mcp_port_listening <port>  ->  0 if a process is LISTENing on tcp:<port>.
-# The LISTEN filter is essential: a plain `lsof -ti tcp:<port>` also matches the
-# llama-server client connected to the proxy, and the stop path must never target
-# that — only the proxy's own listening socket.
-mcp_port_listening() {
-    [ -n "$1" ] || return 1
-    /usr/sbin/lsof -ti tcp:"$1" -sTCP:LISTEN > /dev/null 2>&1
-}
-
-# mcp_stop_proxy_on_port <port>
-# Stops the mcp-proxy instance listening on <port> and its child tool server.
-# Only the LISTENing pid is targeted (see mcp_port_listening), then kill_mcp_proxy
-# snapshots and terminates its subtree — so a connected llama-server is left alone.
-mcp_stop_proxy_on_port() {
-    local port="$1"
-    [ -n "$port" ] || return 1
-    local listener
-    listener=$(/usr/sbin/lsof -ti tcp:"$port" -sTCP:LISTEN 2>/dev/null)
-    [ -z "$listener" ] && return 0
-    kill_mcp_proxy "$listener"
-}
-
-# mcp_start_proxy_instance <name> <port>  ->  prints the new proxy pid, or empty on failure
-# Relaunches one mcp-proxy instance from the per-server config generate_mcp_configs.py
-# wrote (mcp-proxy-<name>.json), on its own port, exactly as launch_mcp_proxy does —
-# same agent PATH (so the Local/shell server sees the user's full terminal PATH) and
-# --pass-environment. Waits for the port to come up before reporting success.
-mcp_start_proxy_instance() {
-    local name="$1" port="$2"
-    [ -n "$name" ] && [ -n "$port" ] || { echo ""; return 1; }
-
-    local python3="$OMC_APP_BUNDLE_PATH/Contents/Library/Python/bin/python3"
-    local packages_dir="$OMC_APP_BUNDLE_PATH/Contents/Library/Packages"
-    local cfg="$mcp_app_support/mcp-proxy-$name.json"
-    [ -f "$python3" ] || { echo ""; return 1; }
-    [ -f "$cfg" ]     || { echo ""; return 1; }
-
-    /bin/mkdir -p "$mcp_app_support/logs"
-    local log="$mcp_app_support/logs/mcp-proxy-$name.log"
-    local agent_path
-    agent_path="$(build_agent_path)"
-
-    PATH="$agent_path" PYTHONPATH="$packages_dir" "$python3" -m mcp_proxy \
-        --host 127.0.0.1 \
-        --port "$port" \
-        --allow-origin '*' \
-        --pass-environment \
-        --named-server-config "$cfg" \
-        >> "$log" 2>&1 &
-    local pid=$!
-
-    # Wait up to ~4s for the listener to bind (or the proxy to die).
-    local i=0
-    while [ "$i" -lt 8 ]; do
-        mcp_port_listening "$port" && { echo "$pid"; return 0; }
-        /bin/ps -p "$pid" > /dev/null 2>&1 || break
-        sleep 0.5
-        i=$((i + 1))
-    done
-    echo ""
-    return 1
-}
-
-# mcp_owning_server_pid  ->  prints a live llama-server pid that owns this session's
-# proxies (i.e. has a /server-info/<pid>/mcp-proxy-pid registered), or nothing.
-# Used so a proxy started/restarted from this dialog is re-registered under its
-# session and not swept by reap_orphaned_bundle_processes at the next launch.
-mcp_owning_server_pid() {
-    [ -f "$prefs" ] || return 1
-    local hosts host servers s mcp
-    hosts=$("$plister" get keys "$prefs" "/server-hosts" 2>/dev/null) || return 1
-    while IFS= read -r host; do
-        [ -z "$host" ] && continue
-        kill -0 "$host" 2>/dev/null || continue
-        servers=$("$plister" get keys "$prefs" "/server-hosts/$host" 2>/dev/null)
-        while IFS= read -r s; do
-            [ -z "$s" ] && continue
-            kill -0 "$s" 2>/dev/null || continue
-            mcp=$("$plister" get string "$prefs" "/server-info/$s/mcp-proxy-pid" 2>/dev/null)
-            if [ -n "$mcp" ]; then echo "$s"; return 0; fi
-        done <<< "$servers"
-    done <<< "$hosts"
-    return 1
-}
-
-# mcp_register_proxy_pid <server_pid> <new_pid>
-# Appends <new_pid> to a session's space-separated mcp-proxy-pid list so app-quit /
-# cancel teardown and the orphan reaper treat it as a managed proxy. Best effort.
-mcp_register_proxy_pid() {
-    local server_pid="$1" new_pid="$2"
-    [ -n "$server_pid" ] && [ -n "$new_pid" ] || return 1
-    local cur
-    cur=$("$plister" get string "$prefs" "/server-info/$server_pid/mcp-proxy-pid" 2>/dev/null)
-    "$plister" set string "${cur:+$cur }$new_pid" "$prefs" "/server-info/$server_pid/mcp-proxy-pid" 2>/dev/null
-}
-
-# mcp_inspect_populate <window_uuid>
-# Fills the server table (id 200) from llama-ui-mcp.json, marking each server
-# 🟢 Running / 🔴 Stopped by probing its port. The hidden 3rd column carries the
-# full URL for the selection handler. When there is nothing to show, the guidance
-# goes to the endpoint status line (id 212) — there is no longer a window header.
-# Callers run this AFTER mcp_inspect_reset_detail so the empty-state notice is the
-# final word on the status line.
-mcp_inspect_populate() {
-    local window_uuid="$1"
-    local SERVER_TABLE_ID=200
-    local STATUS_ID=212
-    local llama_ui_mcp_json="$mcp_app_support/llama-ui-mcp.json"
-
-    # Server is first so it (the longest column) is the one ActionUI grows to fill
-    # the pane; the 🟢/🔴 status dot is a narrow last column.
-    "$dialog" "$window_uuid" $SERVER_TABLE_ID omc_table_set_columns "Server" "i"
-    "$dialog" "$window_uuid" $SERVER_TABLE_ID omc_table_remove_all_rows
-
-    if [ ! -f "$llama_ui_mcp_json" ]; then
-        "$dialog" "$window_uuid" $STATUS_ID "No MCP session found. Start a chat with \"Use Tools in Agentic Session\" enabled."
-        return 0
-    fi
-
-    local count
-    count=$("$plister" get count "$llama_ui_mcp_json" /mcpServers 2>/dev/null)
-    if [ -z "$count" ] || [ "$count" -le 0 ] 2>/dev/null; then
-        "$dialog" "$window_uuid" $STATUS_ID "No MCP servers configured for the current session."
-        return 0
-    fi
-
-    local i=0 buffer="" name url port status
-    while [ "$i" -lt "$count" ]; do
-        name=$("$plister" get value "$llama_ui_mcp_json" "/mcpServers/$i/name" 2>/dev/null)
-        url=$("$plister" get value "$llama_ui_mcp_json" "/mcpServers/$i/url" 2>/dev/null)
-        port=$(mcp_url_port "$url")
-        if mcp_port_listening "$port"; then
-            status="🟢"
-        else
-            status="🔴"
-        fi
-        # cols: 1=name (visible) 2=status dot (visible) 3=url (hidden data column)
-        buffer="${buffer}${name}	${status}	${url}
-"
-        i=$((i + 1))
-    done
-
-    if [ -n "$buffer" ]; then
-        printf "%s" "$buffer" | "$dialog" "$window_uuid" $SERVER_TABLE_ID omc_table_set_rows_from_stdin
-    fi
-}
-
-# mcp_inspect_show_server <window_uuid> <url>
-# Renders the detail panes for a server: endpoint URL + Copy, the Start/Stop/Restart
-# button states (by probing the port), and — when the server is live — its tools.
-# Shared by the row-selection handler and the start/stop/restart handlers so the view
-# is rebuilt identically after a lifecycle action (the table selection is lost on
-# repopulate, but the URL is held on the pasteboard, so the detail can be redrawn).
-mcp_inspect_show_server() {
-    local window_uuid="$1" url="$2"
-    local ENDPOINT_FIELD_ID=210 ENDPOINT_STATUS_ID=212
-    local START_BTN_ID=220 STOP_BTN_ID=221 RESTART_BTN_ID=222
-    local TOOLS_TABLE_ID=300 SCHEMA_DESC_ID=402 SCHEMA_EDITOR_ID=403
-
-    # Any (re)display invalidates the previously shown tool / schema.
-    "$dialog" "$window_uuid" $TOOLS_TABLE_ID omc_table_remove_all_rows
-    "$dialog" "$window_uuid" $SCHEMA_EDITOR_ID ""
-    "$dialog" "$window_uuid" $SCHEMA_DESC_ID "Select a tool to inspect its JSON schema."
-    pb_set "aichatv2_mcp_cache_${window_uuid}" ""
-
-    if [ -z "$url" ]; then
-        "$dialog" "$window_uuid" $ENDPOINT_FIELD_ID ""
-        "$dialog" "$window_uuid" $ENDPOINT_STATUS_ID "Select a server to view its endpoint and tools."
-        "$dialog" "$window_uuid" $START_BTN_ID omc_disable
-        "$dialog" "$window_uuid" $STOP_BTN_ID omc_disable
-        "$dialog" "$window_uuid" $RESTART_BTN_ID omc_disable
-        pb_set "aichatv2_mcp_url_${window_uuid}" ""
-        return 0
-    fi
-
-    "$dialog" "$window_uuid" $ENDPOINT_FIELD_ID "$url"
-    pb_set "aichatv2_mcp_url_${window_uuid}" "$url"
-
-    local port
-    port=$(mcp_url_port "$url")
-    if ! mcp_port_listening "$port"; then
-        # Stopped: only Start is actionable.
-        "$dialog" "$window_uuid" $START_BTN_ID omc_enable
-        "$dialog" "$window_uuid" $STOP_BTN_ID omc_disable
-        "$dialog" "$window_uuid" $RESTART_BTN_ID omc_disable
-        "$dialog" "$window_uuid" $ENDPOINT_STATUS_ID "Server is not running — Start it to query its tools."
-        return 0
-    fi
-
-    # Running: Stop / Restart are actionable; list tools.
-    "$dialog" "$window_uuid" $START_BTN_ID omc_disable
-    "$dialog" "$window_uuid" $STOP_BTN_ID omc_enable
-    "$dialog" "$window_uuid" $RESTART_BTN_ID omc_enable
-    "$dialog" "$window_uuid" $ENDPOINT_STATUS_ID "Loading tools…"
-
-    local short
-    short=$(mcp_url_shortname "$url")
-    [ -z "$short" ] && short="server"
-    /bin/mkdir -p "$mcp_inspect_dir"
-    local cache="$mcp_inspect_dir/${short}.tools.json"
-    local python3_bin="$OMC_APP_BUNDLE_PATH/Contents/Library/Python/bin/python3"
-    local inspect_py="$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/mcp_inspect.py"
-    local packages_dir="$OMC_APP_BUNDLE_PATH/Contents/Library/Packages"
-    local err_file="$mcp_inspect_dir/.last-error"
-
-    local rows rc
-    rows=$(PYTHONPATH="$packages_dir" "$python3_bin" "$inspect_py" list "$url" "$cache" 2>"$err_file")
-    rc=$?
-    if [ "$rc" != 0 ]; then
-        local msg
-        msg=$(/bin/cat "$err_file" 2>/dev/null)
-        "$dialog" "$window_uuid" $ENDPOINT_STATUS_ID "Could not list tools: ${msg:-unknown error}"
-        return 0
-    fi
-
-    pb_set "aichatv2_mcp_cache_${window_uuid}" "$cache"
-    if [ -n "$rows" ]; then
-        printf "%s\n" "$rows" | "$dialog" "$window_uuid" $TOOLS_TABLE_ID omc_table_set_rows_from_stdin
-        local tool_count
-        tool_count=$(printf "%s\n" "$rows" | /usr/bin/grep -c .)
-        "$dialog" "$window_uuid" $ENDPOINT_STATUS_ID "$tool_count tool(s) — select one to inspect its schema."
-    else
-        "$dialog" "$window_uuid" $ENDPOINT_STATUS_ID "This server exposes no tools."
-    fi
+# mcp_inspect_report <query> [args...]  ->  mcp_tools_report.py against the shared dump.
+# Prints the result on stdout; rc 1 = stale/bad dump (the output is a user-facing message).
+mcp_inspect_report() {
+    local q="$1"; shift
+    "$OMC_APP_BUNDLE_PATH/Contents/Library/Python/bin/python3" \
+        "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/mcp_tools_report.py" \
+        "$q" "$mcp_inspect_dump" "$@" 2>/dev/null
 }
 
 # mcp_inspect_reset_detail <window_uuid>
-# Clears the endpoint, tools, and schema panes and the lifecycle buttons (ids
-# 210/212, 220/221/222, 300, 402/403) plus the per-window selection state.
-# Used by the init and refresh handlers so a (re)load starts from a clean detail view.
+# Clears the command/status/tools/description/schema panes and the per-window
+# selection state. Callers run this before (re)populating the server table.
 mcp_inspect_reset_detail() {
     local window_uuid="$1"
-    "$dialog" "$window_uuid" 300 omc_table_set_columns "Tool"
-    "$dialog" "$window_uuid" 300 omc_table_set_column_widths 360
-    "$dialog" "$window_uuid" 300 omc_table_remove_all_rows
-    "$dialog" "$window_uuid" 210 ""
-    "$dialog" "$window_uuid" 212 "Select a server to view its endpoint and tools."
-    "$dialog" "$window_uuid" 220 omc_disable
-    "$dialog" "$window_uuid" 221 omc_disable
-    "$dialog" "$window_uuid" 222 omc_disable
-    "$dialog" "$window_uuid" 402 "Select a tool to inspect its JSON schema."
-    "$dialog" "$window_uuid" 403 ""
-    pb_set "aichatv2_mcp_url_${window_uuid}" ""
-    pb_set "aichatv2_mcp_cache_${window_uuid}" ""
+    "$dialog" "$window_uuid" $TOOLS_TABLE_ID omc_table_set_columns "Tool"
+    "$dialog" "$window_uuid" $TOOLS_TABLE_ID omc_table_set_column_widths 360
+    "$dialog" "$window_uuid" $TOOLS_TABLE_ID omc_table_remove_all_rows
+    "$dialog" "$window_uuid" $COMMAND_FIELD_ID ""
+    "$dialog" "$window_uuid" $STATUS_ID "Select a server to view its tools."
+    "$dialog" "$window_uuid" $DESC_EDITOR_ID "Select a tool to see its description."
+    "$dialog" "$window_uuid" $SCHEMA_EDITOR_ID ""
+    pb_set "aichatv2_mcp_srv_${window_uuid}" ""
+}
+
+# mcp_inspect_populate <window_uuid>
+# Generates the effective config from the current prefs, runs `mlx-agent tools`
+# (spawns + handshakes the servers; bounded per server by the agent's own timeout),
+# and fills the server table: name, 🟢/🔴 handshake dot, hidden index column for the
+# selection handler. Failure/empty states land on the status line.
+mcp_inspect_populate() {
+    local window_uuid="$1"
+
+    # Server is first so it (the longest column) is the one ActionUI grows to fill
+    # the pane; the handshake dot is a narrow last column (index stays hidden).
+    "$dialog" "$window_uuid" $SERVER_TABLE_ID omc_table_set_columns "Server" "i"
+    "$dialog" "$window_uuid" $SERVER_TABLE_ID omc_table_remove_all_rows
+
+    local agent_bin="$OMC_APP_BUNDLE_PATH/Contents/Support/MLX/mlx-agent"
+    if [ ! -x "$agent_bin" ]; then
+        "$dialog" "$window_uuid" $STATUS_ID "mlx-agent is missing from the bundle ($agent_bin)."
+        return 0
+    fi
+
+    /bin/mkdir -p "$mcp_inspect_dir"
+    local cfg="$mcp_inspect_dir/mcp-config.json"
+    "$dialog" "$window_uuid" $STATUS_ID "Launching MCP servers to query their tools…"
+    if ! generate_stdio_mcp_config "$cfg" 1>&2; then
+        "$dialog" "$window_uuid" $STATUS_ID "Could not generate the MCP config (bundled Python missing?)."
+        return 0
+    fi
+
+    # Dump to a window-scoped temp file and mv into place: rename is atomic, so a
+    # concurrent init/refresh (double-click, second inspector window) can never leave
+    # a half-written tools.json behind - readers see the old dump or the new one.
+    local err="$mcp_inspect_dir/.last-error"
+    local tmp_dump="$mcp_inspect_dir/.tools.${window_uuid}.tmp"
+    if ! "$agent_bin" tools --mcp-config "$cfg" > "$tmp_dump" 2>"$err"; then
+        local msg
+        msg=$(/usr/bin/tail -1 "$err" 2>/dev/null)
+        /bin/rm -f "$tmp_dump"
+        "$dialog" "$window_uuid" $STATUS_ID "Could not query the servers: ${msg:-mlx-agent tools failed}"
+        return 0
+    fi
+    /bin/mv -f "$tmp_dump" "$mcp_inspect_dump"
+
+    local rows
+    rows=$(mcp_inspect_report servers)
+    if [ -z "$rows" ]; then
+        "$dialog" "$window_uuid" $STATUS_ID "No MCP servers enabled. Use Tools > Configure MCP Servers… to enable some."
+        return 0
+    fi
+
+    printf "%s\n" "$rows" | "$dialog" "$window_uuid" $SERVER_TABLE_ID omc_table_set_rows_from_stdin
+    "$dialog" "$window_uuid" $STATUS_ID "Select a server to view its tools."
+}
+
+# mcp_inspect_show_server <window_uuid> <server_index>
+# Renders one server: its spawn command line, the tool-count/error status line, and
+# the tools table (exposed names, 🔒 on permission-gated tools; hidden index column).
+# The index is remembered on the pasteboard for the tool-selection handler.
+mcp_inspect_show_server() {
+    local window_uuid="$1" idx="$2"
+
+    "$dialog" "$window_uuid" $TOOLS_TABLE_ID omc_table_remove_all_rows
+    "$dialog" "$window_uuid" $DESC_EDITOR_ID "Select a tool to see its description."
+    "$dialog" "$window_uuid" $SCHEMA_EDITOR_ID ""
+    pb_set "aichatv2_mcp_srv_${window_uuid}" "$idx"
+
+    if [ -z "$idx" ]; then
+        "$dialog" "$window_uuid" $COMMAND_FIELD_ID ""
+        "$dialog" "$window_uuid" $STATUS_ID "Select a server to view its tools."
+        return 0
+    fi
+
+    "$dialog" "$window_uuid" $COMMAND_FIELD_ID "$(mcp_inspect_report command "$idx")"
+    "$dialog" "$window_uuid" $STATUS_ID "$(mcp_inspect_report summary "$idx")"
+
+    local rows
+    rows=$(mcp_inspect_report tools "$idx")
+    if [ -n "$rows" ]; then
+        printf "%s\n" "$rows" | "$dialog" "$window_uuid" $TOOLS_TABLE_ID omc_table_set_rows_from_stdin
+    fi
+}
+
+# mcp_inspect_show_tool <window_uuid> <server_index> <tool_index>
+# Renders one tool: description block (description, exposed-as, gating note) and the
+# pretty-printed JSON input schema. Multi-line content is piped in via stdin so no
+# shell quoting can mangle it.
+mcp_inspect_show_tool() {
+    local window_uuid="$1" srv="$2" tool="$3"
+
+    if [ -z "$tool" ]; then
+        "$dialog" "$window_uuid" $DESC_EDITOR_ID "Select a tool to see its description."
+        "$dialog" "$window_uuid" $SCHEMA_EDITOR_ID ""
+        return 0
+    fi
+    if [ -z "$srv" ]; then
+        "$dialog" "$window_uuid" $DESC_EDITOR_ID "Selection is out of date - refresh the server list."
+        "$dialog" "$window_uuid" $SCHEMA_EDITOR_ID ""
+        return 0
+    fi
+
+    mcp_inspect_report desc "$srv" "$tool" | \
+        "$dialog" "$window_uuid" $DESC_EDITOR_ID omc_set_value_from_stdin
+    mcp_inspect_report schema "$srv" "$tool" | \
+        "$dialog" "$window_uuid" $SCHEMA_EDITOR_ID omc_set_value_from_stdin
 }

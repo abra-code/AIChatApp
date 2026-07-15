@@ -22,9 +22,9 @@
 	<key>CFBundleExecutable</key>
 	<string>AIChatV2</string>
 	<key>CFBundleIconFile</key>
-	<string>AIChat</string>
+	<string>Sparkle</string>
 	<key>CFBundleIconName</key>
-	<string>AIChat</string>
+	<string>Sparkle</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.abracode.AIChatV2</string>
 	<key>CFBundleInfoDictionaryVersion</key>

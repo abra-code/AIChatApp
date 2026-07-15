@@ -5,8 +5,14 @@
 # instances, and reaping orphaned bundle processes. Sources aichat.mcp.servers.library.sh
 # (generate_mcp_configs / any_mcp_server_enabled read the MCP prefs), which in turn
 # sources the base library. Sourced by aichat.init (launch), aichat.cancel and
-# app.will.terminate (teardown), aichat.mcp.servers.toggle.network (regenerate configs),
-# and aichat.mcp.inspect.library.sh (build_agent_path / kill_mcp_proxy).
+# app.will.terminate (teardown), and aichat.mcp.servers.toggle.network (regenerate configs).
+# NOT by the MCP inspector any more: it is stdio-based now (mlx-agent tools) and sources
+# only aichat.mcp.servers.library.sh.
+#
+# NOTE: launch_mcp_proxy and the per-server proxy machinery below now have NO callers - the
+# ACP flip made mlx-agent the owner of the MCP stdio children, and the inspector was the last
+# proxy-era consumer. The kill/reap helpers stay live (they clear proxies stranded by an
+# older build). Retiring the dead launch path is deliberate follow-up work, not this change.
 [ -n "${__AICHAT_SERVER_LIB:-}" ] && return 0
 __AICHAT_SERVER_LIB=1
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.mcp.servers.library.sh"
