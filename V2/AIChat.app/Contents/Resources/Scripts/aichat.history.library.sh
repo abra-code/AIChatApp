@@ -43,9 +43,14 @@ history_populate_table() {
     [ -n "$rows" ] && printf "%s" "$rows" | "$dialog" "$win" "$table_id" omc_table_set_rows_from_stdin
 }
 
-# history_transcript_json <session_dir> — ChatTranscript JSON for states["content"].
+# history_transcript_json <session_dir> [prime] — ChatTranscript JSON for states["content"].
+# Optional prime ("true"/"false"/"defer") rides on the JSON as the transient restore
+# directive: "defer" = display only, the element replays the conversation into the agent
+# lazily on the next send (the seamless sidebar switch); false = display with a FRESH agent
+# context (Read Only); true/absent = replay immediately. See docs/session-prime.md in the
+# mlx-agent repo.
 history_transcript_json() {
-    "$history_py" "$history_store" transcript "$1"
+    "$history_py" "$history_store" transcript "$1" ${2:+"$2"}
 }
 
 # history_info_line <sid> — one compact "Model · Started · Messages" line for the info strip.
@@ -83,15 +88,16 @@ except Exception:
     pass' "$dir/meta.json" "$2"
 }
 
-# history_inject_content <window_uuid> <view_id> <sid> — load a saved transcript into the
-# Chat element via states["content"]. Unlike the string-state API this is re-injectable
-# (OMC's omc_set_state uses the native setter): each call REPLACES the displayed
-# conversation, so selecting different rows swaps the chat in place. Injecting
-# {"version":1,"items":[]} (see aichat.chat.new.sh) clears it.
+# history_inject_content <window_uuid> <view_id> <sid> [prime] — load a saved transcript
+# into the Chat element via states["content"]. Unlike the string-state API this is
+# re-injectable (OMC's omc_set_state uses the native setter): each call REPLACES the
+# displayed conversation, so selecting different rows swaps the chat in place. Injecting
+# {"version":1,"items":[]} (see aichat.chat.new.sh) clears it. Optional prime
+# ("true"/"false"/"defer") is the context directive (see history_transcript_json).
 history_inject_content() {
     local dir transcript
     dir=$(history_session_dir "$3") || return 1
-    transcript=$(history_transcript_json "$dir")
+    transcript=$(history_transcript_json "$dir" ${4:+"$4"})
     [ -n "$transcript" ] || return 1
     "$dialog" "$1" "$2" omc_set_state content "$transcript"
 }

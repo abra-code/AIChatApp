@@ -183,8 +183,15 @@ def cmd_index(history_root):
     return 0
 
 
-def cmd_transcript(session_dir):
+def cmd_transcript(session_dir, prime=None):
     transcript, _stats = _build_transcript(session_dir)
+    # Transient restore directive for the Chat element (NOT part of the persisted
+    # transcript; the element's codec drops the key): "defer" displays the conversation
+    # WITHOUT touching the agent - the element replays it (ACP session/prime) lazily,
+    # when the user next sends into it (the seamless sidebar switch); false displays it
+    # with a fresh agent context (Read Only); true/absent replays it immediately.
+    if prime is not None:
+        transcript["prime"] = prime
     json.dump(transcript, sys.stdout, ensure_ascii=False)
     sys.stdout.write("\n")
     return 0
@@ -304,7 +311,13 @@ def main(argv):
     if cmd == "index":
         return cmd_index(path)
     if cmd == "transcript":
-        return cmd_transcript(path)
+        # Optional third positional: "true"/"false"/"defer" -> the transient "prime" key
+        # on the emitted JSON; anything else / absent -> key omitted (element default:
+        # replay immediately).
+        prime = None
+        if len(argv) > 3:
+            prime = {"true": True, "false": False, "defer": "defer"}.get(argv[3].lower())
+        return cmd_transcript(path, prime)
     if cmd == "preview":
         return cmd_preview(path)
     if cmd == "info":

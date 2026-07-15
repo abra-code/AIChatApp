@@ -603,8 +603,9 @@ calculate_context_optimal_size() {
     return 0
 }
 
-# chat_window_set_status <win_uuid> <suffix> — reflect load state in a chat window's title.
-chat_window_set_status() { "$dialog" "$1" omc_window "AIChat V2 — $2"; }
+# (chat_window_set_status moved to aichat.library.sh - the base library this one already
+# reaches via aichat.mcp.servers.library.sh - so the history selection handler can use it
+# without sourcing the whole server library.)
 
 # register_started_server <host_pid> <server_pid> <model_path> <dialog_guid> <port> <size>
 register_started_server() {

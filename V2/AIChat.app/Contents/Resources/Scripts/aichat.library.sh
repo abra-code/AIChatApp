@@ -117,8 +117,9 @@ launch_queue_tools() { printf '%s' "${1##*|}"; }
 # We disambiguate with a per-window monotonic counter in the transcript "title" (app-owned,
 # never rendered by the element, never persisted), so consecutive clears always differ.
 # (macOS `date` has no %N, so a timestamp nonce could collide within one second - hence a
-# counter.) NOTE: this clears the DISPLAY; the openai-sse transport's wire history is only
-# cleared too once ActionUIChat seeds the wire from applyLoadedTranscript (component work).
+# counter.) Under ACP an empty inject clears the DISPLAY AND the agent's context: the element
+# seeds the wire from the loaded transcript, so New Chat really does start the model fresh.
+# (The old openai-sse transport cleared only the display - that caveat died with the flip.)
 chat_inject_empty() {
     local win="$1" seq
     seq=$(pb_get "aichatv2_clearseq_${win}")
@@ -184,3 +185,14 @@ port_num="8099"
 mcp_app_support="$HOME/Library/Application Support/AIChatV2"
 # Chat history store root (per-session dirs; see aichat.history.library.sh + history_store.py).
 history_root="$mcp_app_support/History"
+
+# chat_window_set_status <window_uuid> <status> — reflect load/model/conversation state in a
+# chat window's title. Lives in the BASE library so callers that have no business pulling in
+# the server library (registry, port pinning, orphan reaping) still have it - the history
+# selection handler is the one that forced the move.
+# NOTE: the brand is the literal "AIChat V2", NOT $APPLET_NAME. $APPLET_NAME is "AIChat" (it
+# titles this app's dialogs), while every window title in V2 reads "AIChat V2 — ...".
+# MLXChat's copy uses $APPLET_NAME because there the two happen to agree; here they do not,
+# and interpolating would silently retitle every chat window. This is the ONLY place the
+# brand is spelled - every titling caller goes through this helper.
+chat_window_set_status() { "$dialog" "$1" omc_window "AIChat V2 — $2"; }

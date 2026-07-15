@@ -21,7 +21,7 @@ pb_set "aichatv2_session_${win}" ""
 model_path=$(pb_get "aichatv2_modelpath_${win}")
 if [ -n "$model_path" ]; then
     label=$(/usr/bin/basename "$model_path" .gguf)
-    "$dialog" "$win" omc_window "AIChat V2 — $label"
+    chat_window_set_status "$win" "$label"
 fi
 
 # Drop any selection and disable the row-action buttons (omc_deselect fires no actionID).

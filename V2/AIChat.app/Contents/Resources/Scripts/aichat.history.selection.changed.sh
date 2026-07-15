@@ -1,10 +1,13 @@
 #!/bin/sh
 # aichat.history.selection.changed.sh
 # A sidebar row was clicked: load that conversation into the embedded Chat element in place
-# (re-injecting states["content"] REPLACES the displayed transcript), bind this window to
-# the session so typing continues it, enable the row-action buttons, and refresh the info
-# strip if it is showing. No Open/Continue step - selecting IS opening; typing IS continuing
-# (with the currently-loaded model, whatever it is).
+# (re-injecting states["content"] REPLACES the displayed transcript) and bind this window to
+# the session so typing continues it. Switching is SEAMLESS: the "defer" prime directive
+# displays the transcript without touching the agent's context - no dialog, no eager
+# decision. The Chat element replays the conversation into the model (ACP session/prime)
+# lazily, only when the user actually sends a message into it, and skips the replay when
+# the agent already holds that conversation (browsing away and back is free). The element's
+# status bar dot shows whether the context is loaded or loads on the next message.
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.history.library.sh"
 
 win="$OMC_ACTIONUI_WINDOW_UUID"
@@ -20,10 +23,22 @@ if [ -z "$sid" ] || ! history_valid_sid "$sid"; then
     exit 0
 fi
 
+# Re-selecting the already-loaded conversation is a no-op (no re-inject): the entry.sh
+# first-turn flow re-selects row 0 programmatically, and re-injecting what is already
+# loaded would only churn the display.
+if [ "$(pb_get "aichatv2_session_${win}")" = "$sid" ]; then
+    for b in $ROW_BUTTONS; do "$dialog" "$win" "$b" omc_enable; done
+    exit 0
+fi
+
 # Load the transcript into the chat (replaces whatever was shown) and bind the window to the
 # session so aichat.chat.entry.sh appends new turns to it instead of minting a new session.
-history_inject_content "$win" "$CHAT_VIEW_ID" "$sid"
+history_inject_content "$win" "$CHAT_VIEW_ID" "$sid" "defer"
 pb_set "aichatv2_session_${win}" "$sid"
+
+# Title: which conversation is loaded (context state shows in the chat's status bar).
+title=$(history_title "$sid")
+chat_window_set_status "$win" "$title"
 
 for b in $ROW_BUTTONS; do "$dialog" "$win" "$b" omc_enable; done
 
