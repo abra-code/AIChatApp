@@ -412,9 +412,16 @@ reap_dead_server_mcp_proxies() {
 
 # _bundle_managed_process <args-string>
 # 0 if the command's executable lives in a swept bundle dir (llama-server, bundled
-# python, or replay). Matches the START of the whole argument string, so a bundle path
-# containing spaces is handled and a path that only appears as a later argument is not
+# python, replay, or mlx-agent). Matches the START of the whole argument string, so a bundle
+# path containing spaces is handled and a path that only appears as a later argument is not
 # mistaken for the executable.
+#
+# mlx-agent normally needs no sweeping: it is the Chat element's ACP child, so its stdin
+# closes when the app goes away and it exits on its own (verified on a hard kill of the
+# app). It is swept anyway for the case that self-teardown cannot cover - an agent wedged
+# mid-generation, or one whose own MCP children outlive it - since a survivor would hold the
+# session's MCP servers open. Sweeping it also reaps the agent's descendants (replay, the
+# bundled python servers), which the two classes above already match.
 _bundle_managed_process() {
     case "$1" in
         "$OMC_APP_BUNDLE_PATH/Contents/Library/Python/"*)                 return 0 ;;
@@ -422,6 +429,8 @@ _bundle_managed_process() {
         "$OMC_APP_BUNDLE_PATH/Contents/Support/replay "*)                 return 0 ;;
         "$OMC_APP_BUNDLE_PATH/Contents/Support/Llama.cpp/llama-server"|\
         "$OMC_APP_BUNDLE_PATH/Contents/Support/Llama.cpp/llama-server "*) return 0 ;;
+        "$OMC_APP_BUNDLE_PATH/Contents/Support/MLX/mlx-agent"|\
+        "$OMC_APP_BUNDLE_PATH/Contents/Support/MLX/mlx-agent "*)          return 0 ;;
     esac
     return 1
 }

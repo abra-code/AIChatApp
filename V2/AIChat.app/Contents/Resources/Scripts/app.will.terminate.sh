@@ -96,9 +96,38 @@ while read -r host_pid; do
     fi
 done <<< "$host_pids"
 
+# Belt-and-suspenders for the ACP agent: mlx-agent is the Chat element's child and its stdin
+# closes when the app goes away, so it normally exits by itself (verified: on a hard kill of
+# the app the agent is gone within seconds while llama-server survives). TERM any that is
+# still alive anyway - a wedged agent would hold this session's MCP servers (replay, the
+# bundled python servers) open, and those DO orphan. Identified by its own executable path
+# under $OMC_APP_BUNDLE_PATH, the only reliable signal at terminate (OMC_FRONT_PROCESS_ID and
+# app-exe pgrep are not - see the orphan-server postmortem). The reap below cannot cover this
+# case: at terminate the agent is still parented to the app, and the reap only touches PPID 1.
+agent_bin="$OMC_APP_BUNDLE_PATH/Contents/Support/MLX/mlx-agent"
+for ap in $(/usr/bin/pgrep -f "$agent_bin" 2>/dev/null); do
+    args=$(/bin/ps -p "$ap" -o args= 2>/dev/null)
+    case "$args" in
+        "$agent_bin"|"$agent_bin "*) ;;   # our bundled agent (guards a recycled pid)
+        *) continue ;;
+    esac
+    echo "terminate: stopping bundle mlx-agent pid=$ap"
+    kill -TERM "$ap" 2>/dev/null
+done
+
+# Reap the per-window agent-mode session dirs (Sessions/<window-uuid>/ holding each window's
+# generated mcp-config.json + replay sandbox profile). They are regenerated on every launch and
+# hold no durable state; at quit all windows are gone, and each agent already read its config at
+# session/new, so removing the whole tree is safe (nothing re-reads it). This bounds the
+# otherwise-unreaped accumulation across launches. ($mcp_app_support comes from the base library.)
+if [ -n "$mcp_app_support" ] && [ -d "$mcp_app_support/Sessions" ]; then
+    echo "terminate: removing agent session dirs under $mcp_app_support/Sessions"
+    /bin/rm -rf "$mcp_app_support/Sessions"
+fi
+
 # Safety net: after the registry teardown above, sweep any of this bundle's llama-server
-# / mcp-proxy / replay processes still orphaned on launchd — children stranded when a
-# proxy had already died (kill_mcp_proxy can't pgrep -P a dead proxy) and any leftovers
+# / mcp-proxy / replay / mlx-agent processes still orphaned on launchd — children stranded
+# when a proxy had already died (kill_mcp_proxy can't pgrep -P a dead proxy) and any leftovers
 # from a crashed session. A still-running app instance's server and proxies stay
 # registered under a live host, so they are protected and left running.
 reap_orphaned_bundle_processes
