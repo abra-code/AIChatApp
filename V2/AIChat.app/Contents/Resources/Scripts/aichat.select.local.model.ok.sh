@@ -1,6 +1,9 @@
 #!/bin/sh
 # aichat.select.local.model.ok.sh
-# Loads the selected model: stops any running server, then chains to aichat.chat.
+# Loads the selected model in a NEW chat window, coexisting with any models already running
+# (each window gets its own llama-server on its own port; RAM permitting - the caller already
+# warned). If the SAME model is already loaded, activates that window instead of duplicating
+# it. An armed in-place switch (Model button) is the one path that reuses the current window.
 
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.model.library.sh"
 
@@ -38,7 +41,7 @@ if [ -n "$switch_win" ]; then
     # aichat.chat.switch.model.sh restarts llama-server underneath a transport that was FROZEN
     # with the pinned baseURL, and deliberately re-injects nothing. Both directions break, one
     # loudly and one silently:
-    #   gguf -> mlx: launch_model_on_pinned_port TERMs the healthy server FIRST, then fails to
+    #   gguf -> mlx: launch_model_on_port TERMs the healthy server FIRST, then fails to
     #     load a directory as a gguf - the conversation is left pointing at a dead port.
     #   mlx -> gguf: a server does start, but the window's frozen argv is [--model <dir>] with
     #     no baseURL, so it keeps generating with the OLD model under the NEW title.

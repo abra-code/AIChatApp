@@ -215,13 +215,23 @@ if [ "$engine" = "mlx" ]; then
 			"Could not prepare the MLX engine for this model."
 	fi
 else
-	# V2 pins a single server port (see aichat.library.sh); the injected config's baseURL
-	# matches. One active gguf model at a time on the pinned port.
-	base_url="http://127.0.0.1:${port_num}/v1"
+	# Multi-model: claim a free port for THIS window from the range (see aichat.library.sh),
+	# stash it so the in-place switch handler relaunches on the same port, and freeze the
+	# injected baseURL to it. Other windows keep their own servers on their own ports.
+	port_num=$(find_free_port_in "$LLAMA_PORT_RANGE_START" "$LLAMA_PORT_RANGE_END")
+	if [ -z "$port_num" ]; then
+		engine_ready=1
+		echo "no free llama-server port in ${LLAMA_PORT_RANGE_START}-${LLAMA_PORT_RANGE_END}"
+		"$alert" --level "stop" --title "$APPLET_NAME" --ok "OK" \
+			"Too many models are already running. Close a model window and try again."
+	else
+		pb_set "aichatv2_port_${chat_window_uuid}" "$port_num"
+		base_url="http://127.0.0.1:${port_num}/v1"
 
-	echo "Starting llama-server on pinned port $port_num..."
-	launch_model_on_pinned_port "$AICHAT_MODEL_PATH" "$chat_window_uuid"
-	engine_ready=$?
+		echo "Starting llama-server on port $port_num..."
+		launch_model_on_port "$AICHAT_MODEL_PATH" "$chat_window_uuid" "$port_num"
+		engine_ready=$?
+	fi
 
 	if [ "$engine_ready" = 0 ]; then
 		if [ "$AICHAT_FORCE_OPENAI_SSE" = "1" ]; then
@@ -245,7 +255,7 @@ if [ "$engine_ready" = 0 ]; then
 	set_chat_status "$model_label"
 	echo "chat ready ($engine, $model_label) - injected states[config]"
 else
-	# wait_for_pinned_server / report_server_launch_failure already showed an alert.
+	# wait_for_server / report_server_launch_failure / the no-port branch already alerted.
 	set_chat_status "failed to load model"
 	echo "chat init failed (engine=$engine, engine_ready=$engine_ready)"
 fi

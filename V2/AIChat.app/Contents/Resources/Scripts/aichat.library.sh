@@ -178,10 +178,15 @@ AICHAT_MODEL_PATH=""
 # AICHAT_MODEL_PATH="$OMC_APP_BUNDLE_PATH/Contents/Resources/LFM2-1.2B-F16.gguf"
 
 prefs="/Users/$USER/Library/Preferences/com.abracode.AIChatV2-servers.plist"
-# V2 pins a single llama-server port (S1: one active model at a time). Chosen outside
-# v1's 8088-8097 llama range and 8101-8140 mcp range so v1 and v2 coexist. The Chat
-# element's static baseURL in aichat.chat.json must match this.
-port_num="8099"
+# Multi-model: each gguf chat window runs its OWN llama-server on its OWN port, so several
+# models can be loaded at once (RAM permitting - see warn_ram_pressure_for_new_model). A free
+# port is claimed from this range at window init (find_free_port_in) and stashed per-window
+# (aichatv2_port_<win>); the window's ACP transport baseURL is frozen to that port for the
+# window's life, so an in-place gguf->gguf switch relaunches on the SAME port and needs no
+# re-inject. Range chosen clear of v1's 8088-8097 (llama) and 8101-8140 (mcp) so v1 and the
+# merged app coexist. (Was a single pinned 8099 in S1 - one active model at a time.)
+LLAMA_PORT_RANGE_START="8150"
+LLAMA_PORT_RANGE_END="8189"
 mcp_app_support="$HOME/Library/Application Support/AIChatV2"
 # Chat history store root (per-session dirs; see aichat.history.library.sh + history_store.py).
 history_root="$mcp_app_support/History"

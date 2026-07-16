@@ -512,11 +512,11 @@ reap_orphaned_bundle_processes() {
 # Pinned-port model server launch (shared by chat init + model switch)
 # ──────────────────────────────────────────────────────────────
 # Factored out of aichat.chat.init.sh so the in-place model-switch handler
-# (aichat.chat.switch.model.sh) can restart the single pinned-port server without
-# duplicating the launch / health-probe / registration logic. Everything below uses the
-# base-library globals ($port_num, $prefs, $plister, $dialog, $alert, $APPLET_NAME) and the
-# explicit window UUID passed in, so it is window-agnostic and safe to call from a handler
-# running in any window's context.
+# (aichat.chat.switch.model.sh) can restart a window's server without duplicating the launch
+# / health-probe / registration logic. Everything below uses the base-library globals
+# ($prefs, $plister, $dialog, $alert, $APPLET_NAME) plus the explicit window UUID and port
+# passed in, so it is window-agnostic and safe to call from a handler running in any window's
+# context. The port is per-window now (multi-model), not a shared pin.
 
 # kv_cache_scale <type> — bytes-per-element scale of a KV cache quant, relative to f16.
 kv_cache_scale() {
@@ -654,10 +654,11 @@ register_started_server() {
 # is ours to stop here.
 #
 # Accepted limitation: a SECOND concurrently-running OS instance of this same bundle would have
-# its servers reaped too (same bundle path, no per-instance signal available at terminate). Dual-
-# instance is unsupported (single pinned port already precludes it today; the plan documents the
-# multi-instance/port-8099 cross-talk hazard). If real multi-instance is ever supported, ownership
-# will need a per-instance token wired in at launch, not reconstructed here.
+# its servers reaped too (same bundle path, no per-instance signal available at terminate). Note
+# this is a SECOND OS-level copy of the app, NOT the several-models-in-one-app case this handler
+# is built for: those all belong to this one instance and are all ours to stop. If two OS copies
+# are ever supported, ownership will need a per-instance token wired in at launch, not
+# reconstructed here.
 #
 # The exe-path re-check against the live argv (not the pgrep snapshot) is the pid-identity guard:
 # a recycled pid, or a process that only mentions the path as a later argument, is never signalled.
@@ -698,12 +699,12 @@ stop_orphaned_servers() {
     done <<< "$host_pids"
 }
 
-# wait_for_pinned_server <win_uuid> — poll /health on $port_num until ready (updating the
+# wait_for_server <win_uuid> <port> — poll /health on <port> until ready (updating the
 # window title) or time out with an alert. 0 = ready, 13 = timeout.
-wait_for_pinned_server() {
-    local win="$1" result=0 seconds_count=0
+wait_for_server() {
+    local win="$1" port="$2" result=0 seconds_count=0
     while true; do
-        /usr/bin/curl --fail --silent "http://localhost:$port_num/health" >/dev/null 2>&1 && {
+        /usr/bin/curl --fail --silent "http://localhost:$port/health" >/dev/null 2>&1 && {
             echo "server became responsive after $seconds_count seconds"; break; }
         seconds_count=$((seconds_count + 1))
         if [ "$seconds_count" -ge 30 ]; then
@@ -726,40 +727,50 @@ report_server_launch_failure() {
     return 11
 }
 
-# launch_model_on_pinned_port <model_path> <win_uuid>
-# Stop any previous V2 server on the pinned port (clearing its stale registry entries so a
-# later cancel of THIS window matches only the new server), launch llama-server for
-# model_path, wait for health, and register it. Sets LAUNCHED_MODEL_LABEL. 0 = ready.
+# launch_model_on_port <model_path> <win_uuid> <port>
+# Free ONLY <port> (never a sibling window's server), launch llama-server for model_path on
+# it, wait for health, and register it. Sets LAUNCHED_MODEL_LABEL. 0 = ready.
+#
+# Multi-model: <port> is the window's own port (find_free_port_in at init, stashed as
+# aichatv2_port_<win>). On a NEW window it is a freshly-allocated idle port, so the free step
+# is a no-op and the launch coexists with every other window's server. On an in-place
+# gguf->gguf switch it is the SAME port the window already owns, so freeing it TERMs this
+# window's outgoing server and the incoming model takes the port back - the frozen baseURL
+# never moves, so no config re-inject is needed. Other ports are never touched here.
 LAUNCHED_MODEL_LABEL=""
-launch_model_on_pinned_port() {
+launch_model_on_port() {
     local model_path="$1"
     local win="$2"
+    local port="$3"
     LAUNCHED_MODEL_LABEL=$(/usr/bin/basename "$model_path" .gguf)
 
-    local old_servers
-    old_servers=$(/usr/bin/pgrep -f "$OMC_APP_BUNDLE_PATH/Contents/Support/Llama.cpp/llama-server" 2>/dev/null)
-    if [ -n "$old_servers" ]; then
-        srvlog "LAUNCH stopping-old front=${OMC_FRONT_PROCESS_ID} old_servers=[$(echo $old_servers | /usr/bin/tr '\n' ' ')]"
-        echo "stopping previous V2 llama-server(s): $old_servers"
-        local _op
-        for _op in $old_servers; do
-            kill -TERM "$_op" 2>/dev/null
-            "$plister" delete "$prefs" "/server-info/$_op" 2>/dev/null
-            forget_server_host_entry "$_op"
-        done
-        local w=0
-        while /usr/sbin/lsof -ti "tcp:${port_num}" >/dev/null 2>&1 && [ "$w" -lt 10 ]; do sleep 1; w=$((w+1)); done
-    fi
+    # Free only THIS port. The binary-path guard means a non-bundle process that happens to
+    # hold the port is never signalled (it would just fail the bind below and alert).
+    local ls_bin="$OMC_APP_BUNDLE_PATH/Contents/Support/Llama.cpp/llama-server"
+    local old_pid args
+    for old_pid in $(/usr/sbin/lsof -ti "tcp:${port}" 2>/dev/null); do
+        args=$(/bin/ps -p "$old_pid" -o args= 2>/dev/null)
+        case "$args" in
+            "$ls_bin"|"$ls_bin "*) ;;
+            *) continue ;;
+        esac
+        srvlog "LAUNCH freeing-port port=${port} old=${old_pid} win=$win"
+        echo "stopping previous llama-server pid=$old_pid on port $port"
+        kill -TERM "$old_pid" 2>/dev/null
+        "$plister" delete "$prefs" "/server-info/$old_pid" 2>/dev/null
+        forget_server_host_entry "$old_pid"
+    done
+    local w=0
+    while /usr/sbin/lsof -ti "tcp:${port}" >/dev/null 2>&1 && [ "$w" -lt 10 ]; do sleep 1; w=$((w+1)); done
 
     local KV=q8_0
     local context_size model_size
     context_size=$(calculate_context_optimal_size "$model_path" "$KV" "$KV")
     model_size=$(/usr/bin/stat -f%z -L "$model_path" 2>/dev/null)
 
-    local llama_server_bin="$OMC_APP_BUNDLE_PATH/Contents/Support/Llama.cpp/llama-server"
-    echo "launching llama-server (ctx=$context_size) for $LAUNCHED_MODEL_LABEL on port $port_num"
-    "$llama_server_bin" \
-        --host 127.0.0.1 --port "$port_num" \
+    echo "launching llama-server (ctx=$context_size) for $LAUNCHED_MODEL_LABEL on port $port"
+    "$ls_bin" \
+        --host 127.0.0.1 --port "$port" \
         --ctx-size "$context_size" \
         --cache-type-k "$KV" \
         --cache-type-v "$KV" \
@@ -773,13 +784,13 @@ launch_model_on_pinned_port() {
         return 11
     fi
 
-    wait_for_pinned_server "$win"
+    wait_for_server "$win" "$port"
     local r=$?
     if [ "$r" = 0 ]; then
-        register_started_server "${OMC_FRONT_PROCESS_ID}" "$server_pid" "$model_path" "$win" "$port_num" "$model_size"
-        srvlog "LAUNCH ok server=$server_pid port=$port_num win=$win registered_host=${OMC_FRONT_PROCESS_ID} app_pids=[$(srvlog_apppids)] hosts=[$(srvlog_hosts)] model=$LAUNCHED_MODEL_LABEL"
+        register_started_server "${OMC_FRONT_PROCESS_ID}" "$server_pid" "$model_path" "$win" "$port" "$model_size"
+        srvlog "LAUNCH ok server=$server_pid port=$port win=$win registered_host=${OMC_FRONT_PROCESS_ID} app_pids=[$(srvlog_apppids)] hosts=[$(srvlog_hosts)] model=$LAUNCHED_MODEL_LABEL"
     else
-        srvlog "LAUNCH failed r=$r server=$server_pid port=$port_num win=$win front=${OMC_FRONT_PROCESS_ID}"
+        srvlog "LAUNCH failed r=$r server=$server_pid port=$port win=$win front=${OMC_FRONT_PROCESS_ID}"
     fi
     return "$r"
 }
