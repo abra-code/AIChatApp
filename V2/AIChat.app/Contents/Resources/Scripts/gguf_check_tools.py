@@ -17,17 +17,32 @@ def gguf_chat_template(path):
             n = struct.unpack('<Q', f.read(8))[0]
             return f.read(n).decode('utf-8', errors='replace')
 
+        # Byte width of every fixed-size GGUF metadata type. Types absent here (8 string,
+        # 9 array) are variable-length and must be walked.
+        WIDTH = {0: 1, 1: 1, 7: 1,          # uint8 / int8 / bool
+                 2: 2, 3: 2,                # uint16 / int16
+                 4: 4, 5: 4, 6: 4,          # uint32 / int32 / float32
+                 10: 8, 11: 8, 12: 8}       # uint64 / int64 / float64
+
         def skip(t):
             if t == 8:    # string
                 f.seek(struct.unpack('<Q', f.read(8))[0], 1)
             elif t == 9:  # array
                 et = struct.unpack('<I', f.read(4))[0]
-                for _ in range(struct.unpack('<Q', f.read(8))[0]):
-                    skip(et)
-            elif t in (0, 1, 7):  f.seek(1, 1)   # uint8 / int8 / bool
-            elif t in (2, 3):     f.seek(2, 1)   # uint16 / int16
-            elif t in (4, 5, 6):  f.seek(4, 1)   # uint32 / int32 / float32
-            else:                 f.seek(8, 1)   # uint64 / int64 / float64
+                n = struct.unpack('<Q', f.read(8))[0]
+                w = WIDTH.get(et)
+                if w is not None:
+                    # Fixed-width elements: jump the whole array in ONE seek. This is the
+                    # difference between opening the picker and hanging it - tokenizer.
+                    # ggml.scores / .token_type carry one entry per vocab token (250k+ is
+                    # normal), and stepping them individually meant a quarter-million
+                    # Python-level seeks, each one discarding the reader's buffer.
+                    f.seek(n * w, 1)
+                else:
+                    for _ in range(n):
+                        skip(et)
+            else:
+                f.seek(WIDTH.get(t, 8), 1)
 
         for _ in range(kv_count):
             key = read_str()

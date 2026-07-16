@@ -6,6 +6,7 @@
 # pinned baseURL and llama-server serves whichever model is loaded, so NO config re-inject
 # is needed - the same window and conversation continue with the new model. No new window.
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.server.library.sh"
+source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.model.library.sh"
 
 MODEL_BTN_ID=530
 
@@ -20,7 +21,7 @@ model_path=$("$pasteboard" "AICHATV2_MODEL_PATH" get)
 echo "switching window $target_win to model $model_path"
 chat_window_set_status "$target_win" "loading model…"
 pb_set "aichatv2_modelpath_${target_win}" "$model_path"
-chat_loading_overlay_show "$target_win" "$(/usr/bin/basename "$model_path" .gguf)"
+chat_loading_overlay_show "$target_win" "$(model_display_label "$model_path")"
 
 launch_model_on_pinned_port "$model_path" "$target_win"
 if [ $? -eq 0 ]; then

@@ -31,19 +31,52 @@ if [ -n "$switch_win" ]; then
         "$dialog_tool" "$window_uuid" omc_window omc_terminate_ok
         exit 0
     fi
-    model_bytes=$(/usr/bin/stat -f%z -L "$selected_path" 2>/dev/null)
-    model_label=$(/usr/bin/basename "$selected_path" .gguf)
-    warn_ram_pressure_for_new_model "$model_bytes" "$model_label"
-    if [ $? -ne 0 ]; then
-        echo "switch cancelled at RAM-pressure warning"
-        model_switch_arm "$switch_win"   # re-arm so another pick still switches
+    # ── The in-place switch is GGUF-to-GGUF ONLY ─────────────────────────────
+    # The Model button routes through THIS picker (aichat.model.switch.sh arms the switch and
+    # opens it), and the picker now lists MLX models - so without this guard a user can reach
+    # a cross-engine switch that the switch path is architecturally unable to perform.
+    # aichat.chat.switch.model.sh restarts llama-server underneath a transport that was FROZEN
+    # with the pinned baseURL, and deliberately re-injects nothing. Both directions break, one
+    # loudly and one silently:
+    #   gguf -> mlx: launch_model_on_pinned_port TERMs the healthy server FIRST, then fails to
+    #     load a directory as a gguf - the conversation is left pointing at a dead port.
+    #   mlx -> gguf: a server does start, but the window's frozen argv is [--model <dir>] with
+    #     no baseURL, so it keeps generating with the OLD model under the NEW title.
+    # The real 2x2 (stop/start the server, respawn the agent, re-prime the transcript) is M2
+    # piece 4, gated on the ChatView cancel fix. Until then refuse, and offer the one thing
+    # that is always correct: open it in a new window, leaving this conversation untouched.
+    current_engine=$(model_engine "$current")
+    new_engine=$(model_engine "$selected_path")
+
+    if [ "$current_engine" = "gguf" ] && [ "$new_engine" = "gguf" ]; then
+        # Engine-dispatched anyway: keeps this branch honest if the guard ever widens.
+        new_bytes=$(model_bytes "$selected_path" "$new_engine")
+        model_label=$(model_display_label "$selected_path")
+        warn_ram_pressure_for_new_model "$new_bytes" "$model_label"
+        if [ $? -ne 0 ]; then
+            echo "switch cancelled at RAM-pressure warning"
+            model_switch_arm "$switch_win"   # re-arm so another pick still switches
+            exit 0
+        fi
+        "$dialog_tool" "$window_uuid" omc_window omc_terminate_ok
+        pb_set "aichatv2_switch_target" "$switch_win"
+        "$pasteboard" "AICHATV2_MODEL_PATH" put "$selected_path"
+        "$next_command" "$OMC_CURRENT_COMMAND_GUID" "aichat.chat.switch.model"
         exit 0
     fi
-    "$dialog_tool" "$window_uuid" omc_window omc_terminate_ok
-    pb_set "aichatv2_switch_target" "$switch_win"
-    "$pasteboard" "AICHATV2_MODEL_PATH" put "$selected_path"
-    "$next_command" "$OMC_CURRENT_COMMAND_GUID" "aichat.chat.switch.model"
-    exit 0
+
+    echo "cross-engine switch refused (current=$current_engine, selected=$new_engine)"
+    "$alert" --level caution --title "Open in a New Window?" \
+        --ok "Open in New Window" --cancel "Cancel" \
+        "Switching a conversation between the GGUF and MLX engines is not supported yet.
+
+\"$(model_display_label "$selected_path")\" can be opened in a new chat window instead. The current conversation stays exactly as it is."
+    if [ $? -ne 0 ]; then
+        echo "user declined the new-window fallback"
+        exit 0
+    fi
+    # Fall through to the normal new-window path below. The switch arm was already consumed,
+    # so nothing is left armed to fire later.
 fi
 
 # ── Same model already running? ───────────────────────────────────────────────
@@ -52,9 +85,9 @@ activate_if_model_running "$selected_path" "$window_uuid" && exit 0
 # ── RAM check ────────────────────────────────────────────────────────────────
 # Check before closing the window so the user can pick a different model if they cancel.
 
-model_bytes=$(/usr/bin/stat -f%z -L "$selected_path" 2>/dev/null)
-model_label=$(/usr/bin/basename "$selected_path" .gguf)
-warn_ram_pressure_for_new_model "$model_bytes" "$model_label"
+new_bytes=$(model_bytes "$selected_path")
+model_label=$(model_display_label "$selected_path")
+warn_ram_pressure_for_new_model "$new_bytes" "$model_label"
 if [ $? -ne 0 ]; then
     echo "User cancelled load due to RAM pressure warning"
     exit 0

@@ -5,6 +5,7 @@
 # element in the info-slot container (id 541) - omc_hide would leave a gap. The current
 # conversation is whichever session this window is bound to (empty = a fresh New Chat).
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.history.library.sh"
+source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.model.library.sh"
 
 win="$OMC_ACTIONUI_WINDOW_UUID"
 INFO_SLOT_ID=541
@@ -27,7 +28,7 @@ fi
 if [ -z "$info" ]; then
     info="New conversation"
     model_path=$(pb_get "aichatv2_modelpath_${win}")
-    [ -n "$model_path" ] && info="${info}   ·   Model: $(/usr/bin/basename "$model_path" .gguf)"
+    [ -n "$model_path" ] && info="${info}   ·   Model: $(model_display_label "$model_path")"
 fi
 
 # Insert a fresh Text into the slot (defensively remove any stale one first), then set text.

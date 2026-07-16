@@ -5,6 +5,7 @@
 # REPLACES the displayed conversation; unbinding the session key makes the next finalized
 # entry mint a new session dir. Keeps the sidebar and the running server as-is.
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.history.library.sh"
+source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.model.library.sh"
 
 win="$OMC_ACTIONUI_WINDOW_UUID"
 CHAT_VIEW_ID=1
@@ -20,7 +21,7 @@ pb_set "aichatv2_session_${win}" ""
 # Retitle to the active model (stamped by init / model switch).
 model_path=$(pb_get "aichatv2_modelpath_${win}")
 if [ -n "$model_path" ]; then
-    label=$(/usr/bin/basename "$model_path" .gguf)
+    label=$(model_display_label "$model_path")
     chat_window_set_status "$win" "$label"
 fi
 
@@ -31,6 +32,6 @@ for b in $ROW_BUTTONS; do "$dialog" "$win" "$b" omc_disable; done
 # If the info strip is showing, refresh it to the "new conversation" state.
 if [ "$(pb_get "aichatv2_info_${win}")" = "1" ]; then
     info="New conversation"
-    [ -n "$model_path" ] && info="${info}   ·   Model: $(/usr/bin/basename "$model_path" .gguf)"
+    [ -n "$model_path" ] && info="${info}   ·   Model: $(model_display_label "$model_path")"
     "$dialog" "$win" "$INFO_TEXT_ID" "$info"
 fi

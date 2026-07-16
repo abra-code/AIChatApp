@@ -2,6 +2,7 @@
 # aichat.history.delete.sh
 # Delete a saved chat (its whole session directory) after a confirm, then refresh the list.
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.history.library.sh"
+source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.model.library.sh"
 
 win="$OMC_ACTIONUI_WINDOW_UUID"
 sid="$OMC_ACTIONUI_TABLE_510_COLUMN_2_VALUE"
@@ -30,7 +31,7 @@ if [ "$(pb_get "aichatv2_session_${win}")" = "$sid" ]; then
     # to fall back to the model here - otherwise the window keeps naming a chat that no
     # longer exists. Same end state as New Chat: empty chat, unbound, titled by model.
     model_path=$(pb_get "aichatv2_modelpath_${win}")
-    [ -n "$model_path" ] && chat_window_set_status "$win" "$(/usr/bin/basename "$model_path" .gguf)"
+    [ -n "$model_path" ] && chat_window_set_status "$win" "$(model_display_label "$model_path")"
 fi
 
 "$next_command" "$OMC_CURRENT_COMMAND_GUID" "aichat.history.refresh"

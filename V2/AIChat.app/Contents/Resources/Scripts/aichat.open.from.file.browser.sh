@@ -10,9 +10,13 @@ if [ -n "$OMC_DLG_CHOOSE_FILE_PATH" ]; then
 
     activate_if_model_running "$selected_path" && exit 0
 
-    model_bytes=$(/usr/bin/stat -f%z -L "$selected_path" 2>/dev/null)
-    model_label=$(/usr/bin/basename "$selected_path" .gguf)
-    warn_ram_pressure_for_new_model "$model_bytes" "$model_label"
+    # Engine-dispatched, and named new_bytes so it stops shadowing the model_bytes FUNCTION.
+    # stat here would size an MLX model at ~320 bytes (the directory entry): non-zero, so it
+    # clears warn_ram_pressure_for_new_model's `-gt 0` guard, then never trips the threshold -
+    # the warning silently never fires for exactly the models big enough to need it.
+    new_bytes=$(model_bytes "$selected_path")
+    model_label=$(model_display_label "$selected_path")
+    warn_ram_pressure_for_new_model "$new_bytes" "$model_label"
     if [ $? -ne 0 ]; then
         exit 0
     fi

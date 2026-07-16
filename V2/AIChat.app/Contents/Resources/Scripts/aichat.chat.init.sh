@@ -1,17 +1,22 @@
 #!/bin/sh
 
-# Merged chat + history window init (V2). Starts llama-server for the selected model on the
-# pinned port, then INJECTS the Chat element's ACP transport into states["config"] via
-# omc_set_state once /health passes. The Chat element defers building its transport until
-# that config lands, then FREEZES it, and the composer auto-enables on isConfigured - so
-# injecting only after the health probe gates the composer on server readiness (no manual
-# enable needed). aichat.chat.json carries only "properties" (no static config).
+# Merged chat + history window init (V2). Prepares the selected model's ENGINE, then INJECTS
+# the Chat element's ACP transport into states["config"] via omc_set_state once that engine
+# is ready. The Chat element defers building its transport until the config lands, then
+# FREEZES it, and the composer auto-enables on isConfigured - so injecting only at the end
+# gates the composer on real readiness (no manual enable). aichat.chat.json carries only
+# "properties" (no static config).
 #
-# The window speaks ACP to the bundled mlx-agent (Contents/Support/MLX), which runs the tool
-# loop + MCP stdio servers and generates through llama-server's OpenAI endpoint. The applet
-# keeps FULL ownership of llama-server (launch on the pinned port, /health, registry, orphan
-# reaping); the agent is a child that only talks to it. AICHAT_FORCE_OPENAI_SSE=1 restores
-# the pre-ACP direct-to-llama-server transport (temporary escape hatch).
+# TWO ENGINES, one transport. The window always speaks ACP to the bundled mlx-agent
+# (Contents/Support/MLX), which runs the tool loop + MCP stdio servers. What differs is how
+# the tokens get generated, and that is decided by the model's SHAPE (see model_engine):
+#   - .gguf FILE -> this applet launches llama-server on the pinned port and keeps FULL
+#     ownership of it (launch, /health, registry, orphan reaping); the agent is a child that
+#     only talks to it (--backend openai --base-url), so it gets no --model.
+#   - safetensors DIRECTORY -> no server exists at all; mlx-agent maps the weights itself
+#     (--model). Nothing to health-check, register or reap on this path.
+# AICHAT_FORCE_OPENAI_SSE=1 restores the pre-ACP direct-to-llama-server transport (temporary
+# escape hatch); it is gguf-only by construction and is ignored on the mlx path.
 #
 # This is the app's single main surface: a NavigationSplitView with a collapsible history
 # sidebar (Table id 510) beside the Chat element (id 1). Init also fills the sidebar list
@@ -85,14 +90,54 @@ fi
 
 echo "AICHAT_MODEL_PATH = $AICHAT_MODEL_PATH"
 
+# ── Which engine? ─────────────────────────────────────────────────────────────
+# The model's SHAPE decides, not a setting: a .gguf FILE runs on llama-server (this applet
+# owns the server; mlx-agent reaches it with --backend openai), while a safetensors
+# DIRECTORY is loaded in-process by mlx-agent itself (--model, no server anywhere). Detect
+# once, here, and branch on it below - the picker made the same call using the same helper.
+engine=$(model_engine "$AICHAT_MODEL_PATH")
+if [ -z "$engine" ]; then
+	alert_message="This is not a model AIChat can load:
+
+$AICHAT_MODEL_PATH
+
+Expected either a .gguf file, or a folder containing config.json and .safetensors shards."
+	echo "$alert_message"
+	"$alert" --level "stop" --title "$APPLET_NAME" --ok "OK" "$alert_message"
+	exit 1
+fi
+
+if [ "$engine" = "mlx" ]; then
+	# Resolve to the PHYSICAL directory: mlx-swift-lm's weight loader fails to map sharded
+	# or quantized tensors when handed a SYMLINKED model dir (it reports "Key
+	# model.norm.weight not found"), which reads as a corrupt model rather than a symlink
+	# problem. Re-check the result: if the dir vanished between the detect above and here,
+	# cd fails and pwd -P yields "" - never inject an empty --model.
+	AICHAT_MODEL_PATH=$(cd "$AICHAT_MODEL_PATH" 2>/dev/null && pwd -P)
+	if [ -z "$AICHAT_MODEL_PATH" ] || [ ! -d "$AICHAT_MODEL_PATH" ]; then
+		alert_message="The selected model folder is no longer available."
+		echo "$alert_message"
+		"$alert" --level "stop" --title "$APPLET_NAME" --ok "OK" "$alert_message"
+		exit 1
+	fi
+fi
+
+# One label for both engines: for a gguf this is the filename minus .gguf (exactly what the
+# server library's LAUNCHED_MODEL_LABEL used to produce), for an mlx dir it is <org>/<name>
+# rather than the snapshot hash.
+model_label=$(model_display_label "$AICHAT_MODEL_PATH")
+echo "engine = $engine, model_label = $model_label"
+
 # Stamp the model path for this window so the history entry handler (aichat.chat.entry.sh)
 # can record it in the session's meta.json (list display + info line) and so the model
-# switch handler can compare against the currently-loaded model.
+# switch handler can compare against the currently-loaded model. Stamped AFTER the mlx
+# symlink resolution above, so the comparison is against the path actually loaded.
 pb_set "aichatv2_modelpath_${chat_window_uuid}" "$AICHAT_MODEL_PATH"
 
 # Persist model path as a recent if it lives outside the standard caches.
 # The model selector init script reads this list and deduplicates against cache results.
 case "$AICHAT_MODEL_PATH" in
+	"$HOME/Library/Application Support/AIChatV2/Models/"*|\
 	"$HOME/.cache/huggingface/"*|"$HOME/.lmstudio/"*|\
 	"$HOME/.ollama/"*|"$HOME/.localai/"*|\
 	"$HOME/Library/Application Support/Jan/"*|\
@@ -135,41 +180,74 @@ stop_orphaned_servers
 # above, and runs before this session launches its server for a clean slate.
 reap_orphaned_bundle_processes
 
-# V2 pins a single server port (see aichat.library.sh); the injected config's baseURL
-# matches. One active model at a time on the pinned port.
-base_url="http://127.0.0.1:${port_num}/v1"
+chat_loading_overlay_show "$chat_window_uuid" "$model_label"
 
-chat_loading_overlay_show "$chat_window_uuid" "$(/usr/bin/basename "$AICHAT_MODEL_PATH" .gguf)"
+# Both engines end at the same place - one ACP transport injected into states["config"] -
+# and differ only in what has to exist first, and therefore in what can fail. The Chat
+# element defers building its transport until this config lands, then FREEZES it, so the
+# composer enables exactly when the engine is actually ready.
+agent_bin="$OMC_APP_BUNDLE_PATH/Contents/Support/MLX/mlx-agent"
+chat_config=""
 
-echo "Starting llama-server on pinned port $port_num..."
-launch_model_on_pinned_port "$AICHAT_MODEL_PATH" "$chat_window_uuid"
-server_result=$?
-
-if [ "$server_result" = 0 ]; then
-	# Server is healthy. Inject the Chat element's transport into states["config"]; the
-	# element builds + freezes its transport and auto-enables the composer on isConfigured.
-	# Injecting only now ties composer enablement to server readiness (no manual enable).
+if [ "$engine" = "mlx" ]; then
+	# No server on this path. mlx-agent maps the weights itself, so there is nothing to
+	# launch, health-check, register or reap, and nothing to be ready FOR: the transport is
+	# complete the moment we can name the model directory. A bad or unloadable model surfaces
+	# as an ACP error in the window instead of a failed health probe out here.
 	if [ "$AICHAT_FORCE_OPENAI_SSE" = "1" ]; then
-		# Escape hatch: talk to llama-server directly, no agent, no tools. Kept only to
-		# isolate an ACP-vs-server problem during the transition; removed in a later phase.
-		chat_config=$(/usr/bin/printf '{"protocol":"openai-sse","transport":{"baseURL":"%s","model":"auto","params":{"reasoning_format":"auto","stream_options":{"include_usage":true}}}}' "$base_url")
-		echo "AICHAT_FORCE_OPENAI_SSE=1: injecting the legacy openai-sse transport"
-	else
-		# All-ACP: the window speaks ACP to the bundled mlx-agent, which runs the tool loop
-		# and the MCP stdio servers and generates through the llama-server we just launched
-		# (--backend openai --base-url). The applet keeps FULL ownership of llama-server;
-		# mlx-agent only talks to it, which is why the agent gets no --model here.
-		agent_bin="$OMC_APP_BUNDLE_PATH/Contents/Support/MLX/mlx-agent"
-		chat_config=$(aichat_acp_transport_json "$agent_bin" openai "$base_url" "$chat_window_uuid" "$use_tools")
+		# The escape hatch is llama-server-only by construction (it IS the direct-to-server
+		# transport). There is no server on the mlx path, so honour it would mean pointing the
+		# window at a dead port. Say so rather than failing mysteriously.
+		echo "AICHAT_FORCE_OPENAI_SSE=1 ignored: the mlx engine runs no llama-server"
 	fi
+	echo "mlx engine: mlx-agent loads $AICHAT_MODEL_PATH in-process; no llama-server"
+	chat_config=$(aichat_acp_transport_json "$agent_bin" mlx "$AICHAT_MODEL_PATH" "$chat_window_uuid" "$use_tools")
+	# There is no health probe on this path, so the transport JSON is the ONLY thing that can
+	# be wrong before injection. Injecting "" would freeze the element on an empty config and
+	# leave the composer permanently disabled under a title claiming the model is loaded -
+	# failing silently in the one place with no server to blame.
+	if [ -n "$chat_config" ]; then
+		engine_ready=0
+	else
+		engine_ready=1
+		echo "mlx engine: transport JSON came back empty; refusing to inject"
+		"$alert" --level "stop" --title "$APPLET_NAME" --ok "OK" \
+			"Could not prepare the MLX engine for this model."
+	fi
+else
+	# V2 pins a single server port (see aichat.library.sh); the injected config's baseURL
+	# matches. One active gguf model at a time on the pinned port.
+	base_url="http://127.0.0.1:${port_num}/v1"
+
+	echo "Starting llama-server on pinned port $port_num..."
+	launch_model_on_pinned_port "$AICHAT_MODEL_PATH" "$chat_window_uuid"
+	engine_ready=$?
+
+	if [ "$engine_ready" = 0 ]; then
+		if [ "$AICHAT_FORCE_OPENAI_SSE" = "1" ]; then
+			# Escape hatch: talk to llama-server directly, no agent, no tools. Kept only to
+			# isolate an ACP-vs-server problem during the transition; removed in a later phase.
+			chat_config=$(/usr/bin/printf '{"protocol":"openai-sse","transport":{"baseURL":"%s","model":"auto","params":{"reasoning_format":"auto","stream_options":{"include_usage":true}}}}' "$base_url")
+			echo "AICHAT_FORCE_OPENAI_SSE=1: injecting the legacy openai-sse transport"
+		else
+			# All-ACP: the window speaks ACP to the bundled mlx-agent, which runs the tool loop
+			# and the MCP stdio servers and generates through the llama-server we just launched
+			# (--backend openai --base-url). The applet keeps FULL ownership of llama-server;
+			# mlx-agent only talks to it, which is why the agent gets no --model here.
+			chat_config=$(aichat_acp_transport_json "$agent_bin" openai "$base_url" "$chat_window_uuid" "$use_tools")
+		fi
+	fi
+fi
+
+if [ "$engine_ready" = 0 ]; then
 	"$dialog" "$chat_window_uuid" "$CHAT_VIEW_ID" omc_set_state config "$chat_config"
-	"$dialog" "$chat_window_uuid" "$MODEL_BTN_ID" omc_set_property "title" "$LAUNCHED_MODEL_LABEL"
-	set_chat_status "$LAUNCHED_MODEL_LABEL"
-	echo "chat ready on $base_url ($LAUNCHED_MODEL_LABEL) - injected states[config]"
+	"$dialog" "$chat_window_uuid" "$MODEL_BTN_ID" omc_set_property "title" "$model_label"
+	set_chat_status "$model_label"
+	echo "chat ready ($engine, $model_label) - injected states[config]"
 else
 	# wait_for_pinned_server / report_server_launch_failure already showed an alert.
 	set_chat_status "failed to load model"
-	echo "chat init failed (server_result=$server_result)"
+	echo "chat init failed (engine=$engine, engine_ready=$engine_ready)"
 fi
 
 # Load finished (success or failure): remove the loading spinner overlay.

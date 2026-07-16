@@ -2,7 +2,7 @@
 # aichat.select.local.model.selection.changed.sh
 # Updates the info pane and enables/disables Load Model when table selection changes.
 
-source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.library.sh"
+source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.model.library.sh"
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.model.glossary.library.sh"
 
 TABLE_ID=10
@@ -21,17 +21,38 @@ selected_path="$OMC_ACTIONUI_TABLE_10_COLUMN_3_VALUE"
 if [ -n "$selected_path" ]; then
     "$dialog_tool" "$window_uuid" $LOAD_BUTTON_ID omc_enable
     "$dialog_tool" "$window_uuid" $REVEAL_BUTTON_ID omc_enable
-    "$dialog_tool" "$window_uuid" $DELETE_BUTTON_ID omc_enable
 
-    filename=$(/usr/bin/basename "$selected_path")
-    file_size=$(/usr/bin/stat -f%z -L "$selected_path" 2>/dev/null || echo 0)
+    # Everything below is engine-dispatched through the model library, so the pane and the
+    # list badge can never disagree about a model. Note size: a GGUF is one file, an MLX
+    # model is a directory of shards - stat'ing the selection directly would report an MLX
+    # model as a few hundred bytes (the directory entry), not the ~4-30GB it really is.
+    engine=$(model_engine "$selected_path")
+
+    # Delete only offers what it can actually do: aichat.select.local.model.delete.sh handles
+    # a single .gguf FILE and exits on anything else, so leaving the button enabled for an MLX
+    # row makes Delete a silent no-op. Disabling it says so honestly. Recursively deleting a
+    # multi-GB model DIRECTORY is a destructive operation that deserves its own design (and
+    # its own confirmation), not an incidental widening of a file-shaped handler.
+    if [ "$engine" = "gguf" ]; then
+        "$dialog_tool" "$window_uuid" $DELETE_BUTTON_ID omc_enable
+    else
+        "$dialog_tool" "$window_uuid" $DELETE_BUTTON_ID omc_disable
+    fi
+    filename=$(model_display_label "$selected_path")
+    model_size=$(model_bytes "$selected_path" "$engine")
     size_gb=$(printf "%.2f" \
-        "$(echo "scale=4; $file_size / (1024*1024*1024)" | /usr/bin/bc -l 2>/dev/null)")
+        "$(echo "scale=4; $model_size / (1024*1024*1024)" | /usr/bin/bc -l 2>/dev/null)")
     modified=$(/usr/bin/stat -f "%Sm" -L "$selected_path" 2>/dev/null)
-    parent=$(/usr/bin/dirname "$selected_path")
+
+    case "$engine" in
+        gguf) engine_label="GGUF (llama-server)" ;;
+        mlx)  engine_label="MLX (in-process)" ;;
+        *)    engine_label="Unrecognised" ;;
+    esac
 
     # Detect cache source
     case "$selected_path" in
+        */Library/Application\ Support/AIChatV2/Models/*) source_label="Downloaded" ;;
         */.cache/huggingface/*)                         source_label="Hugging Face" ;;
         */.lmstudio/*)                                  source_label="LM Studio" ;;
         */.ollama/*)                                    source_label="Ollama" ;;
@@ -41,10 +62,7 @@ if [ -n "$selected_path" ]; then
         *)                                              source_label="Local file" ;;
     esac
 
-    python3="$OMC_APP_BUNDLE_PATH/Contents/Library/Python/bin/python3"
-    check_script="$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/gguf_check_tools.py"
-    supports_tools=$("$python3" "$check_script" "$selected_path" 2>/dev/null)
-    if [ "$supports_tools" = "true" ]; then
+    if model_supports_tools "$selected_path" "$engine"; then
         tools_label="Supported"
         "$dialog_tool" "$window_uuid" $USE_TOOLS_TOGGLE_ID true
     else
@@ -53,7 +71,8 @@ if [ -n "$selected_path" ]; then
     fi
 
     br="  "
-    info="**File:**     ${filename}${br}
+    info="**Model:**    ${filename}${br}
+**Engine:**   ${engine_label}${br}
 **Size:**     ${size_gb} GB${br}
 **Tools:**    ${tools_label}${br}
 **Source:**   ${source_label}${br}
