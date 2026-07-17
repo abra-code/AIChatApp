@@ -54,6 +54,23 @@ model_display_label() {
 	esac
 }
 
+# model_dir_bytes <dir> -> total bytes of the model's *.safetensors shards, summed RECURSIVELY
+# (find, not a top-level glob) so a repo whose shards live in a subdirectory is still measured.
+# Used for the MLX RAM check (weights dominate the footprint).
+model_dir_bytes() {
+	local total=0
+	local st=""
+	local sz=""
+	while IFS= read -r st; do
+		[ -n "$st" ] || continue
+		sz=$(/usr/bin/stat -f%z -L "$st" 2>/dev/null || echo 0)
+		total=$((total + sz))
+	done <<EOF
+$(/usr/bin/find -L "$1" -name "*.safetensors" -type f 2>/dev/null)
+EOF
+	echo "$total"
+}
+
 # model_supports_tools <path> [engine] -> 0 when the model can drive the agent's tool loop.
 # Both engines answer the SAME question - does the chat template know how to render tool
 # definitions and tool calls - but the template lives in a different container per engine:

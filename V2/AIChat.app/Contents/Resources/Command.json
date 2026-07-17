@@ -130,19 +130,16 @@
     },
     {
       "COMMAND_ID" : "aichat.hf.browse.search",
-      "ENVIRONMENT_VARIABLES" : {
-        "OMC_ACTIONUI_VIEW_201_VALUE" : "",
-        "OMC_ACTIONUI_VIEW_204_VALUE" : ""
-      },
       "EXECUTION_MODE" : "exe_script_file",
       "NAME" : "AIChat"
     },
     {
       "COMMAND_ID" : "aichat.hf.browse.sort.changed",
-      "ENVIRONMENT_VARIABLES" : {
-        "OMC_ACTIONUI_VIEW_201_VALUE" : "",
-        "OMC_ACTIONUI_VIEW_204_VALUE" : ""
-      },
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
+      "COMMAND_ID" : "aichat.hf.browse.source.changed",
       "EXECUTION_MODE" : "exe_script_file",
       "NAME" : "AIChat"
     },

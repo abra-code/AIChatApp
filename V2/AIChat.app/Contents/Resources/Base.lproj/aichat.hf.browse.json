@@ -24,6 +24,22 @@
     },
     "children": [
       {
+        "type": "Picker",
+        "id": 205,
+        "properties": {
+          "title": "",
+          "pickerStyle": "segmented",
+          "options": [
+            {"title": "Any",  "tag": "any"},
+            {"title": "MLX",  "tag": "mlx"},
+            {"title": "GGUF", "tag": "gguf"}
+          ],
+          "actionID": "aichat.hf.browse.source.changed",
+          "frame": { "maxWidth": "infinity" },
+          "padding": { "leading": 12, "trailing": 12, "bottom": 6 }
+        }
+      },
+      {
         "type": "HStack",
         "properties": {
           "spacing": 6,
@@ -178,6 +194,7 @@
         "children": [
           {
             "type": "Text",
+            "id": 212,
             "properties": {
               "text": "Select Quantization",
               "font": "subheadline",
