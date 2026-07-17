@@ -25,6 +25,7 @@ No third-party deps; runs under the bundle's embedded python3.
 """
 import json
 import os
+import re
 import sys
 import time
 
@@ -102,6 +103,30 @@ def _updated_epoch(session_dir):
     return newest
 
 
+def _model_label(model_path):
+    """Display name for a model path. Mirrors model_display_label() in
+    aichat.model.library.sh - keep the two in sync.
+
+    GGUF: keep the filename (its quant suffix, e.g. -Q5_K_S, is exactly what the user is
+      choosing between), only drop the .gguf extension.
+    MLX in the HF cache (.../models--<org>--<name>/snapshots/<hash>/...): the leaf is a
+      content hash, useless as a label, so surface "<org>/<name>" instead.
+    ORDER IS LOAD-BEARING: the .gguf test runs FIRST, because a GGUF living in the HF cache
+      also matches the snapshot pattern and would otherwise be relabelled org/name, losing
+      the quant - the one thing that distinguishes two rows of the same model.
+    """
+    if not model_path:
+        return ""
+    path = model_path.rstrip("/")
+    base = os.path.basename(path)
+    if base.endswith(".gguf"):
+        return base[: -len(".gguf")]
+    match = re.search(r"/models--([^/]+)/snapshots/", path)
+    if match:
+        return match.group(1).replace("--", "/")
+    return base
+
+
 def _build_transcript(session_dir):
     """Return (transcript_dict, stats) where stats = {msgs, model, created}."""
     meta = _read_meta(session_dir)
@@ -139,9 +164,14 @@ def _build_transcript(session_dir):
     if plan:
         transcript["plan"] = plan
 
+    # Prefer recomputing the label from the raw modelPath so sessions written before this
+    # derivation was HF-cache-aware (their stored "model" is a bare snapshot hash) display
+    # correctly. Fall back to the stored label only when no path was recorded.
+    model_path = meta.get("modelPath")
+    model = _model_label(model_path) if model_path else (meta.get("model") or "")
     stats = {
         "msgs": msg_count,
-        "model": meta.get("model") or "",
+        "model": model,
         "created": meta.get("created") or "",
         "title": title,
     }
@@ -239,10 +269,7 @@ def cmd_meta_init(sid, model_path):
     }
     if model_path:
         meta["modelPath"] = model_path
-        base = os.path.basename(model_path)
-        if base.endswith(".gguf"):
-            base = base[: -len(".gguf")]
-        meta["model"] = base
+        meta["model"] = _model_label(model_path)
     json.dump(meta, sys.stdout, ensure_ascii=False)
     sys.stdout.write("\n")
     return 0

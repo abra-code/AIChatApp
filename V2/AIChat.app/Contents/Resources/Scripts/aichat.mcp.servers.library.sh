@@ -227,12 +227,10 @@ generate_stdio_mcp_config() {
     # exactly what the MCP Servers dialog shows. No-op when prefs already exist.
     mcp_prefs_init_if_missing
 
-    local tz
-    tz=$(/usr/bin/readlink /etc/localtime 2>/dev/null | /usr/bin/sed 's|.*/zoneinfo/||')
+    local tz="$(/usr/bin/readlink /etc/localtime 2>/dev/null | /usr/bin/sed 's|.*/zoneinfo/||')"
     [ -z "$tz" ] && tz="UTC"
 
-    local out_dir
-    out_dir=$(/usr/bin/dirname "$out_json")
+    local out_dir="$(/usr/bin/dirname "$out_json")"
     /bin/mkdir -p "$out_dir" 2>/dev/null
 
     # --stdio-direct makes the generator write the mlx-agent config to <out_json> (and the
@@ -276,8 +274,7 @@ aichat_acp_transport_json() {
     local use_tools="${5:-true}"
 
     local python3="$OMC_APP_BUNDLE_PATH/Contents/Library/Python/bin/python3"
-    local cfg
-    cfg="$(aichat_session_config_dir "$window_uuid")/mcp-config.json"
+    local cfg="$(aichat_session_config_dir "$window_uuid")/mcp-config.json"
 
     # The agent's working directory: the user's chosen Project workspace. ChatView launches
     # mlx-agent with this as the process cwd AND sends it as session/new's `cwd`, so relative
