@@ -279,6 +279,21 @@ aichat_acp_transport_json() {
     local cfg
     cfg="$(aichat_session_config_dir "$window_uuid")/mcp-config.json"
 
+    # The agent's working directory: the user's chosen Project workspace. ChatView launches
+    # mlx-agent with this as the process cwd AND sends it as session/new's `cwd`, so relative
+    # paths resolve here and mlx-agent tells the model where it is (a model cannot call getcwd).
+    # ACP requires cwd to be an ABSOLUTE path. The Project field is an editable TextField (the
+    # folder picker only pre-fills it), so the stored value can be anything the user typed -
+    # validate it here rather than trusting it. A relative value would otherwise be anchored by
+    # ChatView against the host's cwd ("/" for a launchd-launched GUI app), yielding e.g.
+    # "/Documents" and possibly a failed process launch - worse than the old "rooted at /". Fall
+    # back to $HOME for anything not absolute-and-existing, so the agent is never rooted at "/".
+    local cwd="$(mcp_prefs_get_string servers/local/project)"
+    case "$cwd" in
+        /*) [ -d "$cwd" ] || cwd="$HOME" ;;
+        *)  cwd="$HOME" ;;
+    esac
+
     if [ "$use_tools" = "true" ]; then
         # Generate the config; its diagnostics go to stderr so stdout stays pure JSON.
         generate_stdio_mcp_config "$cfg" 1>&2
@@ -288,38 +303,27 @@ aichat_acp_transport_json() {
         /bin/rm -f "$cfg"
     fi
 
-    # Build the transport argv in Python: agent mode only when the config parsed and lists
-    # >=1 server (a missing/empty/broken config falls back to chat — never wedges the window).
-    if [ -x "$python3" ]; then
-        "$python3" -c '
-import json, os, sys
-agent, engine, target, cfg = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
-if engine == "openai":
-    argv = [agent, "acp", "--backend", "openai", "--base-url", target]
-else:
-    argv = [agent, "acp", "--model", target]
-n = 0
-try:
-    if os.path.isfile(cfg):
-        n = len(json.load(open(cfg)).get("servers", []))
-except Exception:
-    n = 0
-if n > 0:
-    argv += ["--mcp-config", cfg]
-print(json.dumps({"protocol": "acp", "transport": {"command": argv}}))
-' "$agent_bin" "$engine" "$target" "$cfg" && return 0
+    # Build the transport argv + JSON in a helper (json.dumps keeps paths with spaces/quotes
+    # safe): agent mode only when the config parsed and lists >=1 server (a missing/empty/broken
+    # config falls back to chat — never wedges the window).
+    local builder="$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/acp_transport_json.py"
+    if [ -x "$python3" ] && [ -f "$builder" ]; then
+        "$python3" "$builder" "$agent_bin" "$engine" "$target" "$cfg" "$cwd" && return 0
     fi
 
     # Bundled Python missing (or the builder above failed): emit a plain chat-only transport by
     # hand. mlx-agent needs no Python to run, so chat still works even if the interpreter is gone
-    # — this is the honest "never wedges the window" path. JSON-escape the two path values
-    # (backslash then quote) so spaces/quotes are safe; control chars never occur in these paths.
-    local ae te
-    ae=$(printf '%s' "$agent_bin" | /usr/bin/sed 's/\\/\\\\/g; s/"/\\"/g')
-    te=$(printf '%s' "$target"    | /usr/bin/sed 's/\\/\\\\/g; s/"/\\"/g')
+    # — this is the honest "never wedges the window" path. JSON-escape the path values (backslash
+    # then quote) so spaces/quotes are safe. agent_bin/target are program-controlled and never
+    # hold control chars; cwd is user-supplied and validated absolute-and-existing above, so a raw
+    # control char in a folder name (APFS permits it) would still slip through unescaped here — a
+    # tolerated gap on this rare degraded path (json.dumps on the primary path handles it fully).
+    local ae="$(printf '%s' "$agent_bin" | /usr/bin/sed 's/\\/\\\\/g; s/"/\\"/g')"
+    local te="$(printf '%s' "$target"    | /usr/bin/sed 's/\\/\\\\/g; s/"/\\"/g')"
+    local ce="$(printf '%s' "$cwd"       | /usr/bin/sed 's/\\/\\\\/g; s/"/\\"/g')"
     if [ "$engine" = "openai" ]; then
-        printf '{"protocol":"acp","transport":{"command":["%s","acp","--backend","openai","--base-url","%s"]}}\n' "$ae" "$te"
+        printf '{"protocol":"acp","transport":{"command":["%s","acp","--backend","openai","--base-url","%s"],"cwd":"%s"}}\n' "$ae" "$te" "$ce"
     else
-        printf '{"protocol":"acp","transport":{"command":["%s","acp","--model","%s"]}}\n' "$ae" "$te"
+        printf '{"protocol":"acp","transport":{"command":["%s","acp","--model","%s"],"cwd":"%s"}}\n' "$ae" "$te" "$ce"
     fi
 }
