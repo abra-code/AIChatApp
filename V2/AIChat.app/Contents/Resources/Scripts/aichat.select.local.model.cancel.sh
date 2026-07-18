@@ -6,4 +6,7 @@
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.library.sh"
 
 pb_set "$MODEL_SWITCH_KEY" ""
+# Benchmark-pane state is per-window; drop it so keys don't accumulate across lifetimes.
+pb_set "aichatv2_selected_model_${OMC_ACTIONUI_WINDOW_UUID}" ""
+pb_set "aichatv2_bench_running_${OMC_ACTIONUI_WINDOW_UUID}" ""
 "$dialog" "$OMC_ACTIONUI_WINDOW_UUID" omc_window omc_terminate_cancel

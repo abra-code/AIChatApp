@@ -11,6 +11,8 @@ LOAD_BUTTON_ID=3
 REVEAL_BUTTON_ID=20
 DELETE_BUTTON_ID=24
 USE_TOOLS_TOGGLE_ID=30
+BENCH_TEXT_ID=50
+BENCH_BTN_ID=51
 
 dialog_tool="$OMC_OMC_SUPPORT_PATH/omc_dialog_control"
 window_uuid="$OMC_ACTIONUI_WINDOW_UUID"
@@ -94,9 +96,38 @@ ${glossary}"
     fi
 
     "$dialog_tool" "$window_uuid" $INFO_TEXT_ID markdown "$info"
+
+    # ── Benchmark pane ────────────────────────────────────────────────────────
+    # Remember the selection so the benchmark handler only repaints the pane if the user
+    # is still looking at the model it measured (runs take minutes).
+    pb_set "aichatv2_selected_model_${window_uuid}" "$selected_path"
+    bench_db="$HOME/Library/Application Support/AIChatV2/benchmarks.json"
+    bench_text=""
+    if [ -f "$bench_db" ]; then
+        bench_text=$("$OMC_APP_BUNDLE_PATH/Contents/Library/Python/bin/python3" \
+            "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.bench.py" \
+            lookup --db "$bench_db" --label "$filename" --model "$selected_path" 2>/dev/null)
+    fi
+    if [ -n "$bench_text" ]; then
+        "$dialog_tool" "$window_uuid" $BENCH_TEXT_ID markdown "$bench_text"
+    else
+        "$dialog_tool" "$window_uuid" $BENCH_TEXT_ID "No benchmark recorded for this model on this Mac. Run one to measure prefill and generation speed."
+    fi
+    # Leave the button alone while a run is in flight (the handler re-enables it). The
+    # stamp is "path|epoch"; treat an old one as dead (SIGKILL'd handler) - same TTL as
+    # the benchmark handler, else a wedged stamp would keep the button disabled forever.
+    bench_running=$(pb_get "aichatv2_bench_running_${window_uuid}")
+    bench_epoch="${bench_running##*|}"
+    case "$bench_epoch" in *[!0-9]*|"") bench_epoch=0 ;; esac
+    if [ -z "$bench_running" ] || [ $(( $(/bin/date +%s) - bench_epoch )) -gt 7200 ]; then
+        "$dialog_tool" "$window_uuid" $BENCH_BTN_ID omc_enable
+    fi
 else
+    pb_set "aichatv2_selected_model_${window_uuid}" ""
     "$dialog_tool" "$window_uuid" $LOAD_BUTTON_ID omc_disable
     "$dialog_tool" "$window_uuid" $REVEAL_BUTTON_ID omc_disable
     "$dialog_tool" "$window_uuid" $DELETE_BUTTON_ID omc_disable
+    "$dialog_tool" "$window_uuid" $BENCH_BTN_ID omc_disable
+    "$dialog_tool" "$window_uuid" $BENCH_TEXT_ID "Select a model from the list."
     "$dialog_tool" "$window_uuid" $INFO_TEXT_ID "Select a model from the list."
 fi

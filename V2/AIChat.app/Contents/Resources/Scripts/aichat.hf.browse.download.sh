@@ -1,8 +1,11 @@
 #!/bin/bash
 # aichat.hf.browse.download.sh
 # Downloads the selected model into the shared Hugging Face cache
-# (~/.cache/huggingface/hub/models--<author>--<name>/snapshots/main/), then hands it to a new
-# chat window. Two shapes, chosen by the format stashed by model.selection.changed:
+# (~/.cache/huggingface/hub/models--<author>--<name>/snapshots/main/). Download-ONLY: the
+# browser stays open and nothing is loaded - loading is an explicit decision made in the
+# model picker, which owns the RAM warning and the agentic/regular path choice (auto-loading
+# from here used to force the non-agentic regular chat path).
+# Two shapes, chosen by the format stashed by model.selection.changed:
 #   GGUF - one quant FILE (table 213 selection); AICHAT_MODEL_PATH = that .gguf file.
 #   MLX  - the whole repo tree (config + *.safetensors shards + tokenizer); AICHAT_MODEL_PATH =
 #          the snapshot DIRECTORY. Resumes (skips full-size files), cancellable across the whole
@@ -69,12 +72,22 @@ cleanup_dl_state() {
 
 stop_requested() { [ "$(pb_get "$PB_DL_STOP")" = "1" ]; }
 
-# hand_off <path> - close the browser and load <path> in a new chat window (V2 handoff).
-hand_off() {
-    pb_set "$PB_LAST_QUERY" ""
-    "$dialog_tool" "$window_uuid" omc_window omc_terminate_ok
-    "$pasteboard" "AICHAT_MODEL_PATH" put "$1"
-    "$next_command" "$OMC_CURRENT_COMMAND_GUID" "aichat.new"
+# stop_exit <log-msg> - user-Stop epilogue. The browser stays open for further downloads
+# now, so a Stop must restore the idle UI instead of leaving a stale progress bar and a
+# disabled Download button behind.
+stop_exit() {
+    echo "$1"
+    reset_ui
+    "$dialog_tool" "$window_uuid" $INFO_TEXT_ID "Download stopped."
+    exit 0
+}
+
+# download_finished <label> - download-only epilogue: browser stays open, user loads the
+# model explicitly from the model picker (Select Model), where the RAM warning and the
+# agentic/regular decision live.
+download_finished() {
+    reset_ui
+    "$dialog_tool" "$window_uuid" $INFO_TEXT_ID "Downloaded. Load \"$1\" from the model picker (Select Model) when you want to chat with it."
 }
 
 # mlx_model_complete <dir> - 0 only if <dir> holds config.json plus every weight shard. A
@@ -116,13 +129,10 @@ download_gguf() {
     local download_url="https://huggingface.co/${repo_id}/resolve/main/${filename_enc}"
     echo "Destination: $dest_path"
 
-    # Already cached? Load directly.
+    # Already cached? Nothing to do - loading happens from the model picker.
     if [ -f "$dest_path" ]; then
-        echo "File already exists, loading directly"
-        activate_if_model_running "$dest_path" && exit 0
-        local cached_bytes="$(/usr/bin/stat -f%z -L "$dest_path" 2>/dev/null)"
-        warn_ram_pressure_for_new_model "$cached_bytes" "${filename%.gguf}" || exit 0
-        hand_off "$dest_path"
+        echo "File already cached: $dest_path"
+        "$dialog_tool" "$window_uuid" $INFO_TEXT_ID "Already downloaded. Load \"${filename%.gguf}\" from the model picker (Select Model)."
         exit 0
     fi
 
@@ -140,7 +150,7 @@ download_gguf() {
         | /usr/bin/awk '/[Cc]ontent-[Ll]ength:/{len=$2} END{print len}' \
         | /usr/bin/tr -d '\r')"
     echo "Total bytes: '${total_bytes}'"
-    if stop_requested; then echo "cancelled during size probe"; exit 0; fi
+    if stop_requested; then stop_exit "cancelled during size probe"; fi
 
     # Disk preflight (reserve 15 GB headroom above the download).
     local SAFETY_HEADROOM_GB=15
@@ -164,16 +174,8 @@ macOS needs free space for swap files and system caches. Free up space and try a
         fi
     fi
 
-    # RAM preflight.
-    if [ -n "$total_bytes" ] && [ "$total_bytes" -gt 0 ] 2>/dev/null; then
-        warn_ram_pressure_for_new_model "$total_bytes" "${filename%.gguf}"
-        if [ $? -ne 0 ]; then
-            reset_ui
-            "$dialog_tool" "$window_uuid" $INFO_TEXT_ID "Select a model from the list."
-            exit 0
-        fi
-    fi
-    if stop_requested; then echo "cancelled after RAM check"; exit 0; fi
+    # (No RAM preflight here: this is a pure download now, and the load-time RAM warning
+    # lives in the model picker's OK handler.)
 
     # Download.
     "$dialog_tool" "$window_uuid" $CANCEL_BTN_ID omc_disable
@@ -211,7 +213,7 @@ macOS needs free space for swap files and system caches. Free up space and try a
     local curl_result=$?
     pb_set "$PB_DL_PID" ""
 
-    if stop_requested; then echo "stopped during download"; exit 0; fi
+    if stop_requested; then stop_exit "stopped during download"; fi
 
     if [ "$curl_result" != 0 ]; then
         echo "curl failed with exit code $curl_result"
@@ -224,7 +226,7 @@ Please check your internet connection and try again."
     fi
 
     echo "Download complete: $dest_path"
-    hand_off "$dest_path"
+    download_finished "${filename%.gguf}"
 }
 
 # ══ MLX: whole repo tree ══════════════════════════════════════════════════════
@@ -233,17 +235,11 @@ download_mlx() {
     manifest="/tmp/aichatv2_hf_manifest_$$.tsv"
     echo "Destination dir: $dest_dir"
 
-    # Already fully downloaded? Open directly (offline-friendly). A partial multi-shard dir must
-    # fall through to the resuming loop, so require a complete set.
+    # Already fully downloaded? Nothing to do - loading happens from the model picker. A
+    # partial multi-shard dir must fall through to the resuming loop, so require a complete set.
     if mlx_model_complete "$dest_dir"; then
-        echo "Model already complete, opening directly"
-        activate_if_model_running "$dest_dir" && exit 0
-        local bytes="$(model_dir_bytes "$dest_dir")"
-        warn_ram_pressure_for_new_model "$bytes" "$(model_display_label "$dest_dir")" || {
-            "$dialog_tool" "$window_uuid" $INFO_TEXT_ID "Ready. Select Download again when you want to load it."
-            exit 0
-        }
-        hand_off "$dest_dir"
+        echo "Model already complete: $dest_dir"
+        "$dialog_tool" "$window_uuid" $INFO_TEXT_ID "Already downloaded. Load \"$(model_display_label "$dest_dir")\" from the model picker (Select Model)."
         exit 0
     fi
 
@@ -261,7 +257,7 @@ download_mlx() {
     local http_code="$(/usr/bin/curl -fsSL \
         "https://huggingface.co/api/models/${repo_id}/tree/main?recursive=true" \
         -o "$tree_json" -w '%{http_code}' 2>/dev/null)"
-    if stop_requested; then echo "cancelled during tree fetch"; rm -f "$tree_json"; exit 0; fi
+    if stop_requested; then rm -f "$tree_json"; stop_exit "cancelled during tree fetch"; fi
     if [ "$http_code" != "200" ] || [ ! -s "$tree_json" ]; then
         echo "HF tree API error: HTTP $http_code"
         reset_ui
@@ -323,18 +319,10 @@ macOS needs free space for swap files and system caches. Free up space and try a
             exit 0
         fi
     fi
-    if stop_requested; then echo "cancelled during preflight"; exit 0; fi
+    if stop_requested; then stop_exit "cancelled during preflight"; fi
 
-    # RAM preflight (weights only). open re-checks post-download from real shard sizes.
-    if [ "$weights_bytes" -gt 0 ]; then
-        warn_ram_pressure_for_new_model "$weights_bytes" "$name"
-        if [ $? -ne 0 ]; then
-            reset_ui
-            "$dialog_tool" "$window_uuid" $INFO_TEXT_ID "Select a model from the list."
-            exit 0
-        fi
-    fi
-    if stop_requested; then echo "cancelled after RAM check"; exit 0; fi
+    # (No RAM preflight here: pure download; the model picker's OK handler owns the
+    # load-time RAM warning.)
 
     # Download all files sequentially.
     "$dialog_tool" "$window_uuid" $CANCEL_BTN_ID omc_disable
@@ -350,7 +338,7 @@ macOS needs free space for swap files and system caches. Free up space and try a
     # Read via redirect (NOT a pipe) so base_done persists in this shell.
     while IFS="$tab" read -r esize rel; do
         [ -n "$rel" ] || continue
-        if stop_requested; then echo "stopped before $rel"; exit 0; fi
+        if stop_requested; then stop_exit "stopped before $rel"; fi
         local out="${dest_dir}/${rel}"
         /bin/mkdir -p "$(/usr/bin/dirname "$out")"
 
@@ -389,7 +377,7 @@ macOS needs free space for swap files and system caches. Free up space and try a
         local curl_result=$?
         pb_set "$PB_DL_PID" ""
 
-        if stop_requested; then echo "stopped during $rel"; exit 0; fi
+        if stop_requested; then stop_exit "stopped during $rel"; fi
         if [ "$curl_result" != 0 ]; then
             echo "curl failed on $rel (exit $curl_result)"
             dl_failed="$rel"
@@ -418,10 +406,7 @@ Check your internet connection and try again."
     fi
 
     echo "Download complete: $dest_dir"
-    "$dialog_tool" "$window_uuid" $PROGRESS_ID "100"
-    "$dialog_tool" "$window_uuid" $PROGRESS_LABEL_ID "${total_fmt} / ${total_fmt} (100%)"
-    # Already RAM-checked pre-download.
-    hand_off "$dest_dir"
+    download_finished "$(model_display_label "$dest_dir")"
 }
 
 # ══ Dispatch ══════════════════════════════════════════════════════════════════

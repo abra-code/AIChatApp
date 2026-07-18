@@ -41,6 +41,16 @@ MODEL_SWITCH_TTL=120
 # model_switch_arm <chat_window_uuid> — arm the next selector OK to switch this window.
 model_switch_arm() { pb_set "$MODEL_SWITCH_KEY" "$1|$(/bin/date +%s)"; }
 
+# model_switch_disarm_for <chat_window_uuid> — drop the handoff iff it targets this window.
+# Called from the chat window's close handler: a switch armed by a window that no longer
+# exists must not make the selector treat the next pick as an in-place switch (it would
+# either target a dead window or pop the cross-engine dialog with no conversation open).
+model_switch_disarm_for() {
+    local val
+    val=$(pb_get "$MODEL_SWITCH_KEY")
+    case "$val" in "$1|"*) pb_set "$MODEL_SWITCH_KEY" "" ;; esac
+}
+
 # model_switch_consume — read+CLEAR the handoff; echo the chat window UUID only if armed
 # within MODEL_SWITCH_TTL seconds, else "" (stale/malformed handoffs are dropped). Window
 # UUIDs never contain "|".

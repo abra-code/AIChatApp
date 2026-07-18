@@ -149,6 +149,65 @@
         ]
       },
       {
+        "type": "GroupBox",
+        "properties": {
+          "title": "Benchmark",
+          "frame": {
+            "maxWidth": "infinity"
+          }
+        },
+        "children": [
+          {
+            "type": "ScrollView",
+            "properties": {
+              "frame": {
+                "maxWidth": "infinity",
+                "minHeight": 84,
+                "maxHeight": 84
+              }
+            },
+            "content": {
+              "type": "Text",
+              "id": 50,
+              "properties": {
+                "text": "Select a model from the list.",
+                "frame": {
+                  "maxWidth": "infinity",
+                  "maxHeight": "infinity",
+                  "alignment": "topLeading"
+                },
+                "textSelection": "enabled",
+                "foregroundStyle": "secondary"
+              }
+            }
+          },
+          {
+            "type": "HStack",
+            "properties": { "spacing": 8 },
+            "children": [
+              {
+                "type": "Text",
+                "properties": {
+                  "text": "Measures prompt and generation speed on this Mac.",
+                  "font": "caption",
+                  "foregroundStyle": "secondary"
+                }
+              },
+              { "type": "Spacer" },
+              {
+                "type": "Button",
+                "id": 51,
+                "properties": {
+                  "title": "Run Benchmark",
+                  "disabled": true,
+                  "actionID": "aichat.select.local.model.benchmark"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
         "type": "HStack",
         "properties": {
           "spacing": 8

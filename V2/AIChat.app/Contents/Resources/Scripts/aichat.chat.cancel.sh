@@ -7,6 +7,10 @@ source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.server.library.sh
 echo "[$(/usr/bin/basename "$0")]"
 echo "OMC_FRONT_PROCESS_ID: $OMC_FRONT_PROCESS_ID"
 echo "OMC_ACTIONUI_WINDOW_UUID: $OMC_ACTIONUI_WINDOW_UUID"
+
+# If this window's Model button armed an in-place switch that was never consumed, drop it:
+# the selector must not offer to "switch" a conversation that no longer exists.
+model_switch_disarm_for "$OMC_ACTIONUI_WINDOW_UUID"
 srvlog "WINDOW-CANCEL enter front=${OMC_FRONT_PROCESS_ID} win=$OMC_ACTIONUI_WINDOW_UUID app_pids=[$(srvlog_apppids)] hosts=[$(srvlog_hosts)] v2_servers=[$(srvlog_servers)]"
 
 if [ -f "$prefs" ]; then

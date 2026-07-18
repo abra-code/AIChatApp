@@ -272,7 +272,7 @@
                 "type": "Button",
                 "id": 222,
                 "properties": {
-                  "title": "Download & Start",
+                  "title": "Download",
                   "buttonStyle": "borderedProminent",
                   "disabled": true,
                   "actionID": "aichat.hf.browse.download"

@@ -47,6 +47,14 @@
       "NAME" : "AIChat"
     },
     {
+      "COMMAND_ID" : "aichat.select.local.model.benchmark",
+      "ENVIRONMENT_VARIABLES" : {
+        "OMC_ACTIONUI_TABLE_10_COLUMN_3_VALUE" : ""
+      },
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "AIChat"
+    },
+    {
       "COMMAND_ID" : "aichat.select.local.model.reload",
       "EXECUTION_MODE" : "exe_script_file",
       "NAME" : "AIChat"

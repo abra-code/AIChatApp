@@ -548,8 +548,173 @@ params_from_gguf_filename() {
     echo "0"
 }
 
+# ---------------------------------------------------------------------------------------
+# GPU memory policy (Apple Silicon).
+#
+# Metal caps a process's GPU working set at roughly 74% of unified memory. llama-server's
+# --fit machinery sizes layer offload and context against that cap by actually measuring
+# device memory, but it is blind to two things this policy corrects (both confirmed by
+# experiment on a 24 GB M5, where they show up as screen flashing / on-screen artifacts
+# from a starved WindowServer):
+#
+#   1. Sibling llama-servers. Each server sees the FULL cap as "free device memory", so
+#      with one server per window the fleet overcommits the GPU.
+#   2. The display server itself. --fit's default free-memory margin is 1024 MiB, which
+#      is not enough headroom for WindowServer + compositor on small-RAM machines.
+#
+# A third, independent failure is mmap: the Metal backend wires the ENTIRE mapped model
+# file into the GPU working set even when --fit offloads only some layers, so a model
+# whose file is near or above the cap fails every command buffer with
+# kIOGPUCommandBufferCallbackErrorOutOfMemory no matter how few layers it offloads
+# (observed with gemma-4-31B Q4_K_M, 17.8 GiB, on the 24 GB M5: -ngl 8 still OOMs;
+# --no-mmap fixes it).
+#
+# compute_server_memory_args <model_path>
+# Echoes the llama-server arguments implementing the policy:
+#   --fit-target <MiB>  display reserve (RAM/8, clamped to 2-6 GiB) + the estimated
+#                       footprint of every live sibling server
+#   --fit-ctx 8192      --fit may shrink the context this far before dropping GPU layers
+#   [--no-mmap]         added when the file might not fully offload inside the budget,
+#                       so only the layers that actually run on the GPU get wired
+# Context size is deliberately NOT set: -c defaults to the model's own training limit
+# and --fit shrinks it against MEASURED device memory (KV + compute buffers included),
+# which beats any shell-side estimate. The retired heuristic below used to fix
+# --ctx-size at up to 131072 computed from total RAM, which --fit is not allowed to
+# shrink - on small models that alone could blow the GPU budget.
+#
+# GPU-stress testing overrides: if /tmp/aichatv2_srvtune exists (and is owned by the
+# user) it is sourced and may set TUNE_BASE_RESERVE_MB, TUNE_FIT_TARGET_MB,
+# TUNE_NO_MMAP (1|0), TUNE_CTX, TUNE_EXTRA_ARGS. The chosen policy is srvlog'd as
+# MEMPOLICY either way (touch /tmp/aichatv2_srvdbg to capture).
+compute_server_memory_args() {
+    local model_path="$1"
+    local ls_bin="$OMC_APP_BUNDLE_PATH/Contents/Support/Llama.cpp/llama-server"
+
+    local ram_mib=$(( $(/usr/sbin/sysctl -n hw.memsize) / 1048576 ))
+    local cap_mib=$(( ram_mib * 74 / 100 ))
+
+    local reserve_mib=$(( ram_mib / 8 ))
+    [ "$reserve_mib" -lt 2048 ] && reserve_mib=2048
+    [ "$reserve_mib" -gt 6144 ] && reserve_mib=6144
+
+    # Live sibling engines: each one's wired footprint is roughly its weights plus
+    # KV/compute overhead; 15% + 768 MiB errs on the safe side. The patterns match the
+    # binary BASENAME on purpose: orphaned llama-servers from OTHER bundles (v1.2, Enoch
+    # - see the orphan-cleanup notes) and MLXChat's mlx-agent hold GPU memory just the
+    # same, and a basename pattern also dodges ERE metacharacters in the bundle path.
+    # The argv --model validation below filters out unrelated matches. The outgoing
+    # server on OUR port was already killed and waited out by launch_model_on_port.
+    local others_mib=0 pid margs mpath msize
+    for pid in $(/usr/bin/pgrep -f "[/]llama-server" 2>/dev/null); do
+        margs=$(/bin/ps -p "$pid" -o args= 2>/dev/null)
+        mpath="${margs##*--model }"
+        case "$mpath" in *.gguf*) mpath="${mpath%%.gguf*}.gguf" ;; *) continue ;; esac
+        [ -f "$mpath" ] || continue
+        msize=$(/usr/bin/stat -f%z -L "$mpath" 2>/dev/null)
+        [ -n "$msize" ] || continue
+        others_mib=$(( others_mib + msize / 1048576 * 115 / 100 + 768 ))
+    done
+    # NOTE: sharded GGUFs (-00001-of-000NN.gguf) are counted by their first shard only.
+    for pid in $(/usr/bin/pgrep -f "[/]mlx-agent" 2>/dev/null); do
+        margs=$(/bin/ps -p "$pid" -o args= 2>/dev/null)
+        case "$margs" in *"--model "*) ;; *) continue ;; esac
+        mpath="${margs##*--model }"
+        mpath="${mpath%% --*}"
+        [ -d "$mpath" ] || continue
+        # -L: HF-cache snapshot dirs are symlink farms into blobs/ - without it du says 0.
+        msize=$(/usr/bin/du -skL "$mpath" 2>/dev/null | /usr/bin/awk '{print $1}')
+        [ -n "$msize" ] || continue
+        others_mib=$(( others_mib + msize / 1024 * 115 / 100 + 768 ))
+    done
+
+    local fit_target_mib=$(( reserve_mib + others_mib ))
+
+    # $TMPDIR is the per-user mode-700 temp dir, so unlike /tmp no other local user can
+    # plant or swap the file (sourcing a /tmp path would be a TOCTOU hole). Non-numeric
+    # values are ignored, not trusted: an arithmetic expansion error would kill the
+    # whole launch handler.
+    local tune_file="${TMPDIR:-/tmp}/aichatv2_srvtune"
+    local TUNE_BASE_RESERVE_MB="" TUNE_FIT_TARGET_MB="" TUNE_NO_MMAP="" TUNE_CTX="" TUNE_EXTRA_ARGS=""
+    if [ -f "$tune_file" ] && [ -O "$tune_file" ]; then
+        . "$tune_file"
+    fi
+    case "$TUNE_BASE_RESERVE_MB" in *[!0-9]*) TUNE_BASE_RESERVE_MB="" ;; esac
+    case "$TUNE_FIT_TARGET_MB" in *[!0-9]*) TUNE_FIT_TARGET_MB="" ;; esac
+    case "$TUNE_CTX" in *[!0-9]*) TUNE_CTX="" ;; esac
+    [ -n "$TUNE_BASE_RESERVE_MB" ] && fit_target_mib=$(( TUNE_BASE_RESERVE_MB + others_mib ))
+    [ -n "$TUNE_FIT_TARGET_MB" ] && fit_target_mib="$TUNE_FIT_TARGET_MB"
+
+    local model_mib=$(( $(/usr/bin/stat -f%z -L "$model_path" 2>/dev/null || echo 0) / 1048576 ))
+    local budget_mib=$(( cap_mib - fit_target_mib ))
+    local args
+
+    if [ "$budget_mib" -le $(( model_mib / 2 )) ]; then
+        # Deep starvation (siblings already own most of the GPU): don't hand --fit an
+        # impossible target - its probe walk toward ngl 0 can trip a llama.cpp assert
+        # (GGML_SCHED_MAX_SPLIT_INPUTS, seen with gemma-4-E2B behind a wired 31B) and
+        # abort the server. Go explicit CPU with a modest context instead: slow, but the
+        # display stays alive and nothing crashes. --no-op-offload keeps per-op traffic
+        # off the already-saturated GPU.
+        # --no-mmap also here: it is unverified whether Metal wraps the mapped file at
+        # -ngl 0, and it makes the launch pick up the size-scaled health-wait limit.
+        args="--fit off -ngl 0 --no-op-offload --no-mmap --ctx-size ${TUNE_CTX:-16384}"
+        [ -n "$TUNE_EXTRA_ARGS" ] && args="$args $TUNE_EXTRA_ARGS"
+        srvlog "MEMPOLICY CPU-FALLBACK ram=${ram_mib} cap=${cap_mib} reserve=${reserve_mib} others=${others_mib} target=${fit_target_mib} model_mib=${model_mib} budget=${budget_mib} args=[$args]"
+        echo "$args"
+        return 0
+    fi
+
+    local no_mmap=0
+    [ $(( model_mib * 100 )) -gt $(( budget_mib * 85 )) ] && no_mmap=1
+    [ -n "$TUNE_NO_MMAP" ] && no_mmap="$TUNE_NO_MMAP"
+
+    args="--fit-target $fit_target_mib --fit-ctx 8192"
+    [ "$no_mmap" = "1" ] && args="$args --no-mmap"
+    [ -n "$TUNE_CTX" ] && args="$args --ctx-size $TUNE_CTX"
+    [ -n "$TUNE_EXTRA_ARGS" ] && args="$args $TUNE_EXTRA_ARGS"
+
+    srvlog "MEMPOLICY ram=${ram_mib} cap=${cap_mib} reserve=${reserve_mib} others=${others_mib} target=${fit_target_mib} model_mib=${model_mib} no_mmap=${no_mmap} budget=${budget_mib} args=[$args]"
+    echo "$args"
+}
+
+# launch_lock_acquire / launch_lock_release — serialize sibling-scan + spawn across
+# windows. Without it, two windows launching in the same moment both scan before either
+# server process exists, both see others=0, and both fit to the full GPU - exactly the
+# overcommit the policy exists to prevent. mkdir is the atomic primitive; locks older
+# than 60 s (crashed handler) are stolen, and a waiter gives up after 30 s rather than
+# deadlock a launch.
+# LAUNCH_LOCK_OWNED guards release: a waiter that gives up proceeds UNLOCKED and must
+# not rmdir the lock the real holder still owns. Stale locks are stolen with an atomic
+# rename (only one contender's mv of the directory can succeed; losers loop) - a plain
+# rmdir+mkdir steal would let two contenders both "win".
+LAUNCH_LOCK_OWNED=0
+launch_lock_acquire() {
+    local lock="${TMPDIR:-/tmp}/aichatv2_launch.lock" waited=0 age
+    while ! /bin/mkdir "$lock" 2>/dev/null; do
+        age=$(( $(/bin/date +%s) - $(/usr/bin/stat -f%m "$lock" 2>/dev/null || echo 0) ))
+        if [ "$age" -gt 60 ]; then
+            if /bin/mv "$lock" "$lock.stale.$$" 2>/dev/null; then
+                srvlog "LAUNCH-LOCK stole stale lock age=${age}s"
+                /bin/rm -rf "$lock.stale.$$" 2>/dev/null
+            fi
+            continue
+        fi
+        [ "$waited" -ge 30 ] && { srvlog "LAUNCH-LOCK wait timed out, proceeding unlocked"; return 0; }
+        sleep 1; waited=$((waited + 1))
+    done
+    LAUNCH_LOCK_OWNED=1
+}
+launch_lock_release() {
+    [ "$LAUNCH_LOCK_OWNED" = "1" ] || return 0
+    LAUNCH_LOCK_OWNED=0
+    /bin/rmdir "${TMPDIR:-/tmp}/aichatv2_launch.lock" 2>/dev/null
+}
+
 # calculate_context_optimal_size <model_path> [cache_type_k] [cache_type_v]
 # Largest context window that fits comfortably in unified memory for this model + KV quant.
+# NOTE: retired from the launch path in favor of compute_server_memory_args + --fit (see
+# the policy comment above) - kept, with its two helpers, for reference until the
+# GPU-stress testing round confirms the measured policy on more machines.
 calculate_context_optimal_size() {
     local model_path="$1"
     local cache_type_k="${2:-f16}"
@@ -699,15 +864,17 @@ stop_orphaned_servers() {
     done <<< "$host_pids"
 }
 
-# wait_for_server <win_uuid> <port> — poll /health on <port> until ready (updating the
-# window title) or time out with an alert. 0 = ready, 13 = timeout.
+# wait_for_server <win_uuid> <port> [limit_seconds] — poll /health on <port> until ready
+# (updating the window title) or time out with an alert. 0 = ready, 13 = timeout.
+# limit_seconds defaults to 30; launches that pass --no-mmap hand in a size-scaled limit
+# because the model file is read and copied instead of mapped.
 wait_for_server() {
-    local win="$1" port="$2" result=0 seconds_count=0
+    local win="$1" port="$2" limit="${3:-30}" result=0 seconds_count=0
     while true; do
         /usr/bin/curl --fail --silent "http://localhost:$port/health" >/dev/null 2>&1 && {
             echo "server became responsive after $seconds_count seconds"; break; }
         seconds_count=$((seconds_count + 1))
-        if [ "$seconds_count" -ge 30 ]; then
+        if [ "$seconds_count" -ge "$limit" ]; then
             local message="Timed out after $seconds_count seconds while waiting for llama-server response.\n\nPlease try again"
             "$alert" --level "stop" --title "$APPLET_NAME" --ok "OK" "$message"
             result=13
@@ -747,7 +914,7 @@ launch_model_on_port() {
     # Free only THIS port. The binary-path guard means a non-bundle process that happens to
     # hold the port is never signalled (it would just fail the bind below and alert).
     local ls_bin="$OMC_APP_BUNDLE_PATH/Contents/Support/Llama.cpp/llama-server"
-    local old_pid args
+    local old_pid args killed_pids="" still=""
     for old_pid in $(/usr/sbin/lsof -ti "tcp:${port}" 2>/dev/null); do
         args=$(/bin/ps -p "$old_pid" -o args= 2>/dev/null)
         case "$args" in
@@ -757,34 +924,64 @@ launch_model_on_port() {
         srvlog "LAUNCH freeing-port port=${port} old=${old_pid} win=$win"
         echo "stopping previous llama-server pid=$old_pid on port $port"
         kill -TERM "$old_pid" 2>/dev/null
+        killed_pids="$killed_pids $old_pid"
         "$plister" delete "$prefs" "/server-info/$old_pid" 2>/dev/null
         forget_server_host_entry "$old_pid"
     done
     local w=0
     while /usr/sbin/lsof -ti "tcp:${port}" >/dev/null 2>&1 && [ "$w" -lt 10 ]; do sleep 1; w=$((w+1)); done
+    # The listener closes before model teardown finishes, so waiting on the port is not
+    # enough: an in-place swap could scan the DYING server as a sibling, see no budget,
+    # and needlessly dive into the CPU fallback. Wait (bounded) for the pids themselves.
+    w=0
+    while [ -n "$killed_pids" ] && [ "$w" -lt 20 ]; do
+        still=""
+        for old_pid in $killed_pids; do
+            /bin/ps -p "$old_pid" >/dev/null 2>&1 && still="$still $old_pid"
+        done
+        killed_pids="$still"
+        [ -z "$killed_pids" ] && break
+        sleep 1; w=$((w+1))
+    done
+    [ -n "$killed_pids" ] && srvlog "LAUNCH outgoing server(s) still exiting after ${w}s:${killed_pids}"
 
     local KV=q8_0
-    local context_size model_size
-    context_size=$(calculate_context_optimal_size "$model_path" "$KV" "$KV")
+    local model_size mem_args
     model_size=$(/usr/bin/stat -f%z -L "$model_path" 2>/dev/null)
 
-    echo "launching llama-server (ctx=$context_size) for $LAUNCHED_MODEL_LABEL on port $port"
+    # Lock across scan + spawn so a concurrent window's launch can't scan a world in
+    # which our server doesn't exist yet (and vice versa).
+    launch_lock_acquire
+    mem_args=$(compute_server_memory_args "$model_path")
+
+    # $mem_args is intentionally unquoted: it is a flag string built above (no paths).
+    echo "launching llama-server for $LAUNCHED_MODEL_LABEL on port $port (mem policy: $mem_args)"
     "$ls_bin" \
         --host 127.0.0.1 --port "$port" \
-        --ctx-size "$context_size" \
         --cache-type-k "$KV" \
         --cache-type-v "$KV" \
         --context-shift \
         --sleep-idle-seconds 600 \
         --model "$model_path" \
-        --jinja &
+        --jinja \
+        $mem_args &
     local server_pid=$!
     if [ -z "$server_pid" ] || ! { sleep 1; /bin/ps -p "$server_pid" >/dev/null 2>&1; }; then
+        launch_lock_release
         report_server_launch_failure
         return 11
     fi
+    launch_lock_release
 
-    wait_for_server "$win" "$port"
+    # --no-mmap loads copy the whole file, so give big models more than the 30 s default:
+    # 10 s per GiB of model on top of the base, capped at 5 minutes.
+    local wait_limit=30
+    case " $mem_args " in *" --no-mmap "*)
+        wait_limit=$(( 30 + model_size / 1073741824 * 10 ))
+        [ "$wait_limit" -gt 300 ] && wait_limit=300 ;;
+    esac
+
+    wait_for_server "$win" "$port" "$wait_limit"
     local r=$?
     if [ "$r" = 0 ]; then
         register_started_server "${OMC_FRONT_PROCESS_ID}" "$server_pid" "$model_path" "$win" "$port" "$model_size"
