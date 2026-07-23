@@ -171,6 +171,30 @@
                             }
                           }
                         ]
+                      },
+                      {
+                        "type": "VStack",
+                        "properties": { "spacing": 2, "alignment": "leading" },
+                        "children": [
+                          {
+                            "type": "Toggle",
+                            "id": 260,
+                            "properties": {
+                              "title": "PDF - read-only document inspection",
+                              "isOn": true,
+                              "style": "checkbox"
+                            }
+                          },
+                          {
+                            "type": "Text",
+                            "properties": {
+                              "text": "Read PDF text, outline, forms, and render/OCR pages - confined to the sandbox paths below. Fully offline.",
+                              "foregroundStyle": "secondary",
+                              "font": "caption",
+                              "padding": { "leading": 22 }
+                            }
+                          }
+                        ]
                       }
                     ]
                   }

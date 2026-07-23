@@ -3,7 +3,8 @@
 # Updates the git-excluded runtime engines inside V2's AIChat.app:
 #   1. llama.cpp  - llama-server + its dylibs, from a GitHub release (the GGUF engine)
 #   2. mlx-agent  - built from source with xcodebuild (the ACP agent + MLX engine)
-# then codesigns the bundle and verifies both engines actually launch.
+#   3. pdfutil    - built from source with ./build.sh (the read-only PDF MCP server)
+# then codesigns the bundle and verifies the engines actually launch.
 #
 # Relationship to ../update-llama-cpp.sh: that script serves the V1 app (and Enoch), which
 # renders its UI from llama.cpp's WebUI and therefore has to download and sed-patch
@@ -13,7 +14,8 @@
 # mlx-agent, which V1 does not, so the two scripts do not converge.
 #
 # arm64 only for the agent: mlx-agent is Metal/MLX and does not build for x86_64. The
-# llama.cpp half still accepts --arch=x86_64 (pass --skip-agent with it).
+# llama.cpp half still accepts --arch=x86_64 (pass --skip-agent with it). pdfutil builds
+# for either arch, so it is deployed on both the arm64 and x86_64 paths.
 #
 # The .app bundle is auto-detected from this script's directory.
 
@@ -26,15 +28,18 @@ VERSION="auto"
 ARCH="auto"
 SIGNING_IDENTITY="-"
 AGENT_REPO="${AGENT_REPO:-}"
+PDFUTIL_REPO="${PDFUTIL_REPO:-}"
 DO_LLAMA="yes"
 DO_AGENT="yes"
+DO_PDFUTIL="yes"
 DO_BUILD="yes"
 DO_CODESIGN="yes"
 
 # Set by prepare()
 ASSET_NAME=""; DOWNLOAD_URL=""; WORK_DIR=""; TARBALL=""; EXTRACT_DIR=""
 AGENT_BUILD_DIR=""
-LLAMA_STATUS="skipped"; AGENT_STATUS="skipped"
+PDFUTIL_BUILD_BIN=""
+LLAMA_STATUS="skipped"; AGENT_STATUS="skipped"; PDFUTIL_STATUS="skipped"
 
 SCRIPT_DIR="$(cd "$(/usr/bin/dirname "$0")" >/dev/null 2>&1 && pwd)"
 
@@ -63,6 +68,7 @@ done
 
 INSTALL_DIR="$APP_BUNDLE/Contents/Support/Llama.cpp"
 MLX_DIR="$APP_BUNDLE/Contents/Support/MLX"
+PDFUTIL_BIN="$APP_BUNDLE/Contents/Support/pdfutil"
 
 show_help() {
     cat <<EOF
@@ -71,23 +77,27 @@ Usage: $0 [OPTIONS]
 Updates the runtime engines in $(/usr/bin/basename "$APP_BUNDLE"):
   llama.cpp -> Contents/Support/Llama.cpp/   (downloaded release, no WebUI - V2 is native)
   mlx-agent -> Contents/Support/MLX/         (built from source with xcodebuild)
+  pdfutil   -> Contents/Support/pdfutil      (built from source with ./build.sh)
 
 Options:
   --version=VERSION   llama.cpp build tag (e.g. b8797, default: auto-detect latest)
   --arch=ARCH         arm64 or x86_64 (default: host). x86_64 requires --skip-agent.
   --identity=CERT     codesign identity (default: - for ad-hoc)
   --agent-repo=PATH   mlx-agent repo (default: ../../mlx-agent sibling checkout)
+  --pdfutil-repo=PATH pdfutil repo (default: ../../pdfutil sibling checkout)
   --skip-llama        leave llama.cpp untouched
   --skip-agent        leave mlx-agent untouched
-  --skip-build        deploy the agent's existing build products without rebuilding
+  --skip-pdfutil      leave pdfutil untouched
+  --skip-build        deploy the agent's & pdfutil's existing build products without rebuilding
   --skip-codesign     do not codesign
   --help              show this message
 
 Examples:
   ./update-aichat.sh
   ./update-aichat.sh --version=b8797
-  ./update-aichat.sh --skip-llama                 # rebuild + redeploy just the agent
-  ./update-aichat.sh --skip-agent                 # just refresh llama.cpp
+  ./update-aichat.sh --skip-llama                 # rebuild + redeploy just the agent + pdfutil
+  ./update-aichat.sh --skip-agent                 # refresh llama.cpp + pdfutil
+  ./update-aichat.sh --skip-llama --skip-agent    # rebuild + redeploy just pdfutil
 EOF
     exit 0
 }
@@ -103,8 +113,11 @@ while [ $# -gt 0 ]; do
         --identity) shift; SIGNING_IDENTITY="${1:-}" ;;
         --agent-repo=*) AGENT_REPO="${1#*=}" ;;
         --agent-repo) shift; AGENT_REPO="${1:-}" ;;
+        --pdfutil-repo=*) PDFUTIL_REPO="${1#*=}" ;;
+        --pdfutil-repo) shift; PDFUTIL_REPO="${1:-}" ;;
         --skip-llama) DO_LLAMA="no" ;;
         --skip-agent) DO_AGENT="no" ;;
+        --skip-pdfutil) DO_PDFUTIL="no" ;;
         --skip-build) DO_BUILD="no" ;;
         --skip-codesign) DO_CODESIGN="no" ;;
         *) echo "Unknown option: $1"; show_help ;;
@@ -191,10 +204,32 @@ prepare() {
         AGENT_BUILD_DIR="$AGENT_REPO/build/Build/Products/Debug"
     fi
 
+    if [ "$DO_PDFUTIL" = "yes" ]; then
+        # Locate the pdfutil repo (github.com/abra-code/pdfutil, Apache 2.0) by its
+        # build.sh: it is a plain-swiftc build (no Xcode project, no Package.swift), so
+        # build.sh is the identifying marker. When missing, offer to clone it into the
+        # sibling location and continue.
+        if [ -z "$PDFUTIL_REPO" ]; then
+            for _cand in "$SCRIPT_DIR/../../pdfutil"; do
+                [ -f "$_cand/build.sh" ] && { PDFUTIL_REPO="$(cd "$_cand" && pwd)"; break; }
+            done
+        fi
+        if [ -z "$PDFUTIL_REPO" ]; then
+            offer_clone "https://github.com/abra-code/pdfutil" "$(cd "$SCRIPT_DIR/../.." && pwd)/pdfutil" \
+                && [ -f "$SCRIPT_DIR/../../pdfutil/build.sh" ] \
+                && PDFUTIL_REPO="$(cd "$SCRIPT_DIR/../../pdfutil" && pwd)"
+        fi
+        [ -n "$PDFUTIL_REPO" ] && [ -f "$PDFUTIL_REPO/build.sh" ] \
+            || fail "pdfutil repo not found (looked for build.sh); clone github.com/abra-code/pdfutil or pass --pdfutil-repo=PATH."
+        # build.sh always writes the (single- or universal-arch) binary here.
+        PDFUTIL_BUILD_BIN="$PDFUTIL_REPO/build/pdfutil"
+    fi
+
     echo "  App bundle : $APP_BUNDLE"
     echo "  Arch       : $ARCH"
     echo "  llama.cpp  : $([ "$DO_LLAMA" = yes ] && echo "$VERSION" || echo "<skipped>")"
     echo "  mlx-agent  : $([ "$DO_AGENT" = yes ] && echo "${AGENT_REPO}$([ "$DO_BUILD" = no ] && echo " (no rebuild)")" || echo "<skipped>")"
+    echo "  pdfutil    : $([ "$DO_PDFUTIL" = yes ] && echo "${PDFUTIL_REPO}$([ "$DO_BUILD" = no ] && echo " (no rebuild)")" || echo "<skipped>")"
     echo "  Codesign   : $([ "$DO_CODESIGN" = yes ] && echo "$SIGNING_IDENTITY" || echo "<skipped>")"
     echo
 }
@@ -333,7 +368,45 @@ update_agent() {
     echo
 }
 
-# ── 3. Codesign ───────────────────────────────────────────────────────────────
+# ── 3. pdfutil ────────────────────────────────────────────────────────────────
+update_pdfutil() {
+    echo "==== pdfutil ===="
+    echo
+
+    if [ "$DO_BUILD" = "yes" ]; then
+        # build.sh is a plain `xcrun swiftc -O` build (zero third-party deps - only macOS
+        # system frameworks), so no Metal/Xcode-project machinery is needed. Pass the app's
+        # arch so the deployed slice matches the rest of the bundle (build.sh accepts
+        # arm64|x86_64; bare it would build a universal binary). It ad-hoc signs its output,
+        # which the bundle-wide codesign below overwrites anyway.
+        echo "  Building (./build.sh $ARCH)..."
+        ( cd "$PDFUTIL_REPO" && ./build.sh "$ARCH" ) 2>&1 | /usr/bin/tail -5
+        [ "${PIPESTATUS[0]}" = 0 ] || fail "pdfutil build.sh failed."
+    else
+        echo "  --skip-build: reusing existing build product"
+    fi
+
+    [ -x "$PDFUTIL_BUILD_BIN" ] \
+        || fail "No built pdfutil at $PDFUTIL_BUILD_BIN (build first, or drop --skip-build)."
+
+    /bin/mkdir -p "$(/usr/bin/dirname "$PDFUTIL_BIN")" || fail "Could not create Support dir for pdfutil"
+    /bin/cp -f "$PDFUTIL_BUILD_BIN" "$PDFUTIL_BIN"
+    /bin/chmod +x "$PDFUTIL_BIN"
+
+    # Prove the deployed binary IS the one just built - BEFORE codesigning, since signing
+    # rewrites the signature blob in place and a byte-compare could never match afterwards
+    # (same ordering rationale as update_agent).
+    /usr/bin/cmp -s "$PDFUTIL_BUILD_BIN" "$PDFUTIL_BIN" \
+        || fail "Deployed pdfutil differs from the build product - copy did not take."
+
+    [ -f "$PDFUTIL_REPO/LICENSE" ] && /bin/cp -f "$PDFUTIL_REPO/LICENSE" "${PDFUTIL_BIN}.LICENSE"
+
+    PDFUTIL_STATUS="deployed"
+    echo "  ${GREEN}Deployed${RESET} pdfutil"
+    echo
+}
+
+# ── 4. Codesign ───────────────────────────────────────────────────────────────
 codesign_app() {
     echo "==== Codesigning ===="
     echo
@@ -343,7 +416,7 @@ codesign_app() {
     echo
 }
 
-# ── 4. Verify ─────────────────────────────────────────────────────────────────
+# ── 5. Verify ─────────────────────────────────────────────────────────────────
 verify() {
     echo "==== Verifying ===="
     echo
@@ -368,6 +441,17 @@ verify() {
             || fail "mlx-agent --help failed - a metallib/dylib load failure, or a broken signature."
         echo "  ${GREEN}OK${RESET} mlx-agent launches (post-signing)"
     fi
+
+    if [ "$DO_PDFUTIL" = "yes" ]; then
+        # Freshness is already proven by the cmp in update_pdfutil (pre-signing). What is
+        # left to prove is that the binary still loads once signed. --version is a full
+        # process launch that exits 0.
+        local pdfutil_version
+        pdfutil_version=$("$PDFUTIL_BIN" --version 2>&1 | head -1 || echo "")
+        [ -n "$pdfutil_version" ] || fail "pdfutil --version produced no output - load failure or broken signature?"
+        echo "  pdfutil: $pdfutil_version"
+        echo "  ${GREEN}OK${RESET} pdfutil launches (post-signing)"
+    fi
     echo
 }
 
@@ -376,6 +460,7 @@ print_summary() {
     echo
     echo "  llama.cpp : $LLAMA_STATUS"
     echo "  mlx-agent : $AGENT_STATUS"
+    echo "  pdfutil   : $PDFUTIL_STATUS"
     echo
     echo "  ${GREEN}$(/usr/bin/basename "$APP_BUNDLE") is ready.${RESET}"
     echo
@@ -385,6 +470,7 @@ main() {
     prepare
     [ "$DO_LLAMA" = "yes" ] && update_llama
     [ "$DO_AGENT" = "yes" ] && update_agent
+    [ "$DO_PDFUTIL" = "yes" ] && update_pdfutil
     [ "$DO_CODESIGN" = "yes" ] && codesign_app
     verify
     cleanup

@@ -10,7 +10,9 @@
 # gate, per-server enabled flags, the prominent project workspace, and the
 # allowed-read / allowed-write lists shown and edited in the MCP servers dialog. When
 # allow-network is false, the time and search servers are omitted and replay gets
-# --deny-network. That plist is seeded with Homebrew, nvm, temp, third-party tool/data
+# --deny-network. The bundled pdf server (pdfutil) is read-only and network-free, so
+# it honors only its own enabled flag and reuses the local sandbox's readable dirs as
+# its --root confinement (see the pdf block below). That plist is seeded with Homebrew, nvm, temp, third-party tool/data
 # dirs, and the app bundle by mcp_prefs_write_defaults() in aichat.library.sh, so
 # nothing is granted to the sandbox invisibly here. (The system executable dirs and
 # macOS system libraries are granted by replay's sandbox baseline and are deliberately
@@ -171,6 +173,66 @@ if srv_enabled("local"):
         "enabled": True,
     })
     server_order.append("local")
+
+if srv_enabled("pdf"):
+    # pdfutil (github.com/abra-code/pdfutil, Apache 2.0): a read-only, network-free
+    # PDF inspection server exposing pdf_info / pdf_text / pdf_search / pdf_outline /
+    # pdf_render / pdf_ocr / pdf_forms_list over MCP stdio. It confines every tool to
+    # its --root directories and requires at least one, so it is granted the SAME
+    # directory set the local (replay) sandbox may touch: the project workspace, the
+    # user's extra read/write paths, and the login-session $TMPDIR. Those are read from
+    # the local prefs directly so PDF access does not depend on the "local" server being
+    # enabled. pdfutil has no network, so it is NOT gated by allow-network; and all its
+    # tools are read-only, so it exposes no gatedTools below.
+    pdfutil_bin = f"{app_bundle}/Contents/Support/pdfutil"
+    pdf_local_prefs = prefs.get("servers", {}).get("local", {})
+    pdf_roots = []
+
+    def _add_pdf_root(directory):
+        directory = (directory or "").strip()
+        if not directory:
+            return
+        # pdfutil canonicalizes its roots (resolvingSymlinksInPath); realpath here so
+        # the /var -> /private/var (and /tmp -> /private/tmp) symlinks match, and so
+        # duplicates collapse. pdfutil rejects a --root that is not an existing dir, so
+        # skip anything that no longer exists rather than start a server that exits 1.
+        directory = os.path.realpath(directory)
+        if os.path.isdir(directory) and directory not in pdf_roots:
+            pdf_roots.append(directory)
+
+    _add_pdf_root(pdf_local_prefs.get("project"))
+    for directory in (pdf_local_prefs.get("allowed-write") or []):
+        _add_pdf_root(directory)
+    for directory in (pdf_local_prefs.get("allowed-read") or []):
+        _add_pdf_root(directory)
+    if pdf_local_prefs.get("include-session-tmpdir", True):
+        _add_pdf_root(os.environ.get("TMPDIR", ""))
+
+    # pdfutil requires >=1 existing --root and refuses to start otherwise. If the user
+    # has cleared every sandbox path (empty project, no read/write paths, session tmpdir
+    # off) there is nothing for it to read, so the server is simply omitted rather than
+    # started against a fallback like $HOME - that would grant the PDF tools read access
+    # to the whole home dir in exactly the configuration where the user asked for none,
+    # and would also give pdf a broader set than replay. With no roots the toggle has
+    # nothing to act on; enabling it takes effect again as soon as a sandbox path exists.
+    if pdf_roots:
+        pdf_args = ["mcp"]
+        for root in pdf_roots:
+            pdf_args += ["--root", root]
+        proxy_servers["pdf"] = {
+            "command": pdfutil_bin,
+            "args": pdf_args,
+            "enabled": True,
+        }
+        llama_servers.append({
+            "id": "aichatv2-pdf",
+            "url": f"http://127.0.0.1:{proxy_port}/servers/pdf/mcp",
+            "name": "PDF Tools",
+            "enabled": True,
+        })
+        server_order.append("pdf")
+    else:
+        print("  pdf server enabled but no readable sandbox paths configured; omitting it")
 
 if allow_network and srv_enabled("time"):
     proxy_servers["time"] = {

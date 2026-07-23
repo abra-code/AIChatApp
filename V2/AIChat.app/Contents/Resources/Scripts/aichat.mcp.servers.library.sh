@@ -18,6 +18,7 @@ source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.library.sh"
 #   /allow-network                : bool  (session-wide network master gate)
 #   /servers/time/enabled         : bool
 #   /servers/search/enabled       : bool
+#   /servers/pdf/enabled          : bool  (pdfutil - read-only PDF tools, no network)
 #   /servers/local/enabled        : bool
 #   /servers/local/project        : string  (primary read-write workspace)
 #   /servers/local/allowed-write  : array<string>  (additional RW paths)
@@ -52,6 +53,8 @@ mcp_prefs_write_defaults() {
     "$plister" insert "enabled" bool true "$mcp_prefs" /servers/time
     "$plister" insert "search" dict "$mcp_prefs" /servers
     "$plister" insert "enabled" bool true "$mcp_prefs" /servers/search
+    "$plister" insert "pdf"    dict "$mcp_prefs" /servers
+    "$plister" insert "enabled" bool true "$mcp_prefs" /servers/pdf
     "$plister" insert "local"  dict "$mcp_prefs" /servers
     "$plister" insert "enabled" bool true "$mcp_prefs" /servers/local
     "$plister" insert "project" string "" "$mcp_prefs" /servers/local

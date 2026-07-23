@@ -17,6 +17,7 @@ TIME_TOGGLE_ID=210
 SEARCH_TOGGLE_ID=220
 LOCAL_TOGGLE_ID=230
 NETWORK_TOGGLE_ID=240
+PDF_TOGGLE_ID=260
 PROJECT_FIELD_ID=310
 RW_TABLE_ID=320
 RW_REMOVE_BTN_ID=322
@@ -29,6 +30,7 @@ mcp_prefs_write_defaults
 "$dialog" "$window_uuid" $SEARCH_TOGGLE_ID  true
 "$dialog" "$window_uuid" $LOCAL_TOGGLE_ID   true
 "$dialog" "$window_uuid" $NETWORK_TOGGLE_ID true
+"$dialog" "$window_uuid" $PDF_TOGGLE_ID     true
 "$dialog" "$window_uuid" $PROJECT_FIELD_ID  ""
 
 # Defaults allow network, so the network-dependent toggles are interactive again.
