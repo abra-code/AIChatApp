@@ -138,6 +138,7 @@ therefore downloads and patches `index.html` / `bundle.js` / `bundle.css` on eve
 ./update-llama-cpp.sh                                # auto-detect latest version and host architecture
 ./update-llama-cpp.sh --version=b8797                # install specific version
 ./update-llama-cpp.sh --version=b8797 --arch=arm64   # specify both version and architecture
+./update-llama-cpp.sh --app=/path/to/Enoch.app       # name the target bundle explicitly
 ```
 
 The script will:
@@ -146,8 +147,10 @@ The script will:
   `AIChat.app/Contents/Support/Llama.cpp/`
 - Update the WebUI (index.html, bundle.js, bundle.css) with AIChat customizations
 
-Note: it picks the app bundle by globbing `*.app` in the repo root and taking the first match, which
-is `AIChat.app`. Use `update-cadabra.sh` for Cadabra - never this script.
+The target bundle is `AIChat.app` when it exists beside the script, otherwise the sole `*.app` there
+(single-app repos such as Enoch); `--app=PATH` names one explicitly, and two candidates with no
+`AIChat.app` is an error rather than a guess. `Cadabra.app` is refused outright - use
+`update-cadabra.sh` for it.
 
 ### Framework and executable (AppletBuilder.app)
 

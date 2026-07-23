@@ -2,7 +2,12 @@
 # update-llama-cpp.sh
 # Downloads and installs the latest (or specified) llama.cpp release into the app bundle.
 # Supports arm64 and x86_64 — matching the separate per-arch app releases.
-# Works for any single-app repo (AIChat, Enoch, etc.): the .app bundle is auto-detected.
+#
+# Target bundle: this script serves the WebUI-based apps — the V1 AIChat.app in this repo,
+# and single-app repos like Enoch. It is NOT for Cadabra.app, which has a native chat UI and
+# its own ./update-cadabra.sh; a llama.cpp drop here would also try to patch a WebUI dir
+# Cadabra does not have. Since this repo root holds both bundles, AIChat.app is named
+# explicitly rather than globbed — see resolve_app_bundle().
 
 set -uo pipefail
 
@@ -13,6 +18,11 @@ RESET=$(printf '\033[0m')
 VERSION="auto"
 ARCH="auto"
 SIGNING_IDENTITY="-"
+APP_BUNDLE=""   # empty = resolve from SCRIPT_DIR; --app=PATH overrides
+
+# The bundle this script owns in a multi-app repo. Cadabra.app is deliberately not a
+# candidate: it is native-chat and belongs to ./update-cadabra.sh.
+PREFERRED_APP_NAME="AIChat.app"
 
 # Set by prepare()
 ASSET_NAME=""
@@ -26,40 +36,81 @@ WEBUI_STATUS=""   # "ok", "patched-with-warnings", "download-failed", "skipped"
 
 SCRIPT_DIR="$(cd "$(/usr/bin/dirname "$0")" >/dev/null 2>&1 && pwd)"
 
-# Auto-detect the single .app bundle in the repo root
-APP_BUNDLE=""
-for _candidate in "$SCRIPT_DIR"/*.app; do
-    [ -d "$_candidate" ] || continue
-    APP_BUNDLE="$_candidate"
-    break
-done
-if [ -z "$APP_BUNDLE" ]; then
-    echo "No .app bundle found in $SCRIPT_DIR"
-    exit 1
-fi
-
-INSTALL_DIR="$APP_BUNDLE/Contents/Support/Llama.cpp"
-WEBUI_DIR="$APP_BUNDLE/Contents/Resources/WebUI"
 WEBUI_SED_DIR="$SCRIPT_DIR/WebUI"
+
+# Picks the bundle to update, in priority order:
+#   1. --app=PATH, if the caller named one
+#   2. $SCRIPT_DIR/$PREFERRED_APP_NAME, if present (this repo: AIChat.app, never Cadabra.app)
+#   3. the sole *.app in SCRIPT_DIR (single-app repos such as Enoch)
+# More than one candidate with no preferred name and no --app is an error, not a coin flip:
+# the old code globbed and took the first match, which only picked AIChat.app over
+# Cadabra.app because "A" sorts before "C".
+resolve_app_bundle() {
+    if [ -n "$APP_BUNDLE" ]; then
+        APP_BUNDLE="${APP_BUNDLE%/}"
+        [ -d "$APP_BUNDLE" ] || { echo "${RED}--app bundle not found: $APP_BUNDLE${RESET}" >&2; exit 1; }
+        return 0
+    fi
+
+    if [ -d "$SCRIPT_DIR/$PREFERRED_APP_NAME" ]; then
+        APP_BUNDLE="$SCRIPT_DIR/$PREFERRED_APP_NAME"
+        return 0
+    fi
+
+    local candidates=()
+    local _candidate
+    for _candidate in "$SCRIPT_DIR"/*.app; do
+        [ -d "$_candidate" ] || continue
+        candidates+=("$_candidate")
+    done
+
+    case "${#candidates[@]}" in
+        0) echo "${RED}No .app bundle found in $SCRIPT_DIR${RESET}" >&2; exit 1 ;;
+        1) APP_BUNDLE="${candidates[0]}" ;;
+        *)
+            echo "${RED}Multiple .app bundles in $SCRIPT_DIR and no $PREFERRED_APP_NAME to pin to:${RESET}" >&2
+            for _candidate in "${candidates[@]}"; do
+                echo "  $(/usr/bin/basename "$_candidate")" >&2
+            done
+            echo "Pass --app=PATH to name the target explicitly." >&2
+            exit 1
+            ;;
+    esac
+}
+
+# Cadabra.app has no Contents/Resources/WebUI — update_webui() would patch nothing and the
+# app would keep running whatever llama.cpp build update-cadabra.sh put there. Refuse rather
+# than half-update it, however the bundle was chosen.
+reject_native_chat_bundle() {
+    [ "$(/usr/bin/basename "$APP_BUNDLE")" = "Cadabra.app" ] || return 0
+    echo "${RED}$(/usr/bin/basename "$APP_BUNDLE") is the native-chat app and is not served by this script.${RESET}" >&2
+    echo "Use ./update-cadabra.sh instead (it installs llama.cpp, mlx-agent and pdfutil)." >&2
+    exit 1
+}
 
 show_help() {
     cat <<EOF
 Usage: $0 [OPTIONS]
 
 Downloads the specified (or latest) llama.cpp macOS release and installs it
-into <AppName>.app/Contents/Support/Llama.cpp/. The .app bundle is auto-detected
-from the directory containing this script.
+into <AppName>.app/Contents/Support/Llama.cpp/, then patches the app's WebUI.
+
+Target bundle: $PREFERRED_APP_NAME in the directory containing this script, if present;
+otherwise the sole *.app there. Cadabra.app is never a target - it has a native chat
+UI and its own ./update-cadabra.sh.
 
 Options:
   --version=VERSION   llama.cpp build tag to install (e.g. b8797, default: auto-detect latest)
   --arch=ARCH         Architecture: arm64 or x86_64 (default: auto-detect from host)
   --identity=CERT     Signing identity for codesign (default: - for ad-hoc)
+  --app=PATH          App bundle to update (default: $PREFERRED_APP_NAME beside this script)
   --help              Show this help message
 
 Examples:
   ./update-llama-cpp.sh
   ./update-llama-cpp.sh --version=b8797 --arch=arm64
   ./update-llama-cpp.sh --version=b8797 --arch=x86_64
+  ./update-llama-cpp.sh --app=/path/to/Enoch.app
 EOF
     exit 0
 }
@@ -73,10 +124,19 @@ while [ $# -gt 0 ]; do
         --arch) shift; ARCH="$1" ;;
         --identity=*) SIGNING_IDENTITY="${1#*=}" ;;
         --identity) shift; SIGNING_IDENTITY="$1" ;;
+        --app=*) APP_BUNDLE="${1#*=}" ;;
+        --app) shift; APP_BUNDLE="$1" ;;
         *) echo "Unknown option: $1"; show_help ;;
     esac
     shift
 done
+
+resolve_app_bundle
+reject_native_chat_bundle
+echo "Target app bundle: $APP_BUNDLE"
+
+INSTALL_DIR="$APP_BUNDLE/Contents/Support/Llama.cpp"
+WEBUI_DIR="$APP_BUNDLE/Contents/Resources/WebUI"
 
 detect_arch() {
     local host_arch
