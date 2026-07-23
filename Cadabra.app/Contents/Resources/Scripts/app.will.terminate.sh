@@ -58,9 +58,6 @@ while read -r host_pid; do
 					echo "kill -TERM $server_pid"
 					kill -TERM "$server_pid"
 				fi
-				# Kill associated mcp-proxy if it was registered for this server
-				mcp_pid=$("$plister" get string "$prefs" "/server-info/$server_pid/mcp-proxy-pid" 2>/dev/null)
-				kill_mcp_proxy "$mcp_pid"
 				"$plister" delete "$prefs" "/server-info/$server_pid" 2>/dev/null
     		fi
 		done <<< "$server_pids"
@@ -83,8 +80,6 @@ while read -r host_pid; do
 						echo "kill -TERM $server_pid"
 						kill -TERM "$server_pid"
     				fi
-    				mcp_pid=$("$plister" get string "$prefs" "/server-info/$server_pid/mcp-proxy-pid" 2>/dev/null)
-    				kill_mcp_proxy "$mcp_pid"
     				"$plister" delete "$prefs" "/server-info/$server_pid" 2>/dev/null
     			fi
 			done <<< "$server_pids"
@@ -126,10 +121,10 @@ if [ -n "$mcp_app_support" ] && [ -d "$mcp_app_support/Sessions" ]; then
 fi
 
 # Safety net: after the registry teardown above, sweep any of this bundle's llama-server
-# / mcp-proxy / replay / mlx-agent processes still orphaned on launchd — children stranded
-# when a proxy had already died (kill_mcp_proxy can't pgrep -P a dead proxy) and any leftovers
-# from a crashed session. A still-running app instance's server and proxies stay
-# registered under a live host, so they are protected and left running.
+# / MCP server (bundled python, replay) / mlx-agent processes still orphaned on launchd —
+# children stranded by an agent that died without tearing them down, and any leftovers
+# from a crashed session. A still-running app instance's servers stay registered under a
+# live host, so they are protected and left running.
 reap_orphaned_bundle_processes
 
 srvlog "TERMINATE exit hosts_after=[$(srvlog_hosts)] v2_servers_after=[$(srvlog_servers)]"

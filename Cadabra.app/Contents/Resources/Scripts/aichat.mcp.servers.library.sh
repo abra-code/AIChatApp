@@ -1,9 +1,10 @@
 #!/bin/sh
 # aichat.mcp.servers.library.sh
 # MCP server preferences (the com.abracode.Cadabra-mcp plist): read/written by the
-# aichat.mcp.servers.* dialog handlers and read by the launch flow. Sourced by those
-# handlers and — transitively — by aichat.server.library.sh, whose generate_mcp_configs
-# and any_mcp_server_enabled read these prefs. Sources the base library for $plister/$dialog.
+# aichat.mcp.servers.* dialog handlers and read by the launch flow
+# (generate_stdio_mcp_config / aichat_acp_transport_json below). Sourced by those
+# handlers, by the MCP inspector, and — transitively — by aichat.server.library.sh.
+# Sources the base library for $plister/$dialog.
 [ -n "${__AICHAT_MCP_SERVERS_LIB:-}" ] && return 0
 __AICHAT_MCP_SERVERS_LIB=1
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.library.sh"
@@ -236,16 +237,9 @@ generate_stdio_mcp_config() {
     local out_dir="$(/usr/bin/dirname "$out_json")"
     /bin/mkdir -p "$out_dir" 2>/dev/null
 
-    # --stdio-direct makes the generator write the mlx-agent config to <out_json> (and the
-    # replay sandbox profile next to the <proxy_json> positional) and exit BEFORE the
-    # mcp-proxy/port machinery. The proxy port + proxy/webui json outputs are unused on this
-    # path but the positional slots must be present: <bundle> <port> <proxy_json>
-    # <webui_json> <tz> <prefs>. We point <proxy_json> into the same session dir so the
-    # sandbox profile lands beside the config.
-    "$python3" "$script" --stdio-direct "$out_json" \
-        "$OMC_APP_BUNDLE_PATH" 8101 \
-        "$out_dir/mcp-proxy.json" "$out_dir/mcp-webui.json" \
-        "$tz" "$mcp_prefs"
+    # The generator writes the mlx-agent config to <out_json> and the replay sandbox
+    # profile beside it in the same session dir.
+    "$python3" "$script" "$out_json" "$OMC_APP_BUNDLE_PATH" "$tz" "$mcp_prefs"
 }
 
 # aichat_acp_transport_json <agent_bin> <engine> <target> <window_uuid> [use_tools]

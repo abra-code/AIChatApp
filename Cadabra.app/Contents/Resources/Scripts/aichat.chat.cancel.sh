@@ -26,11 +26,9 @@ if [ -f "$prefs" ]; then
             if [ "$stored_dialog" = "$OMC_ACTIONUI_WINDOW_UUID" ]; then
                 echo "Stopping server pid=$server_pid for window $OMC_ACTIONUI_WINDOW_UUID"
                 srvlog "WINDOW-CANCEL killing server=$server_pid host=$host_pid win=$OMC_ACTIONUI_WINDOW_UUID"
-                mcp_pid=$("$plister" get string "$prefs" "/server-info/$server_pid/mcp-proxy-pid" 2>/dev/null)
                 if kill -0 "$server_pid" 2>/dev/null; then
                     kill -TERM "$server_pid"
                 fi
-                kill_mcp_proxy "$mcp_pid"
                 "$plister" delete "$prefs" "/server-hosts/$host_pid/$server_pid" 2>/dev/null
                 "$plister" delete "$prefs" "/server-info/$server_pid" 2>/dev/null
                 found=1
@@ -43,9 +41,9 @@ if [ -f "$prefs" ]; then
     [ "$found" = 0 ] && { echo "No server found for window $OMC_ACTIONUI_WINDOW_UUID"; srvlog "WINDOW-CANCEL no server matched win=$OMC_ACTIONUI_WINDOW_UUID"; }
 fi
 
-# Safety net: reap any of this bundle's llama-server / mcp-proxy / replay processes
-# left orphaned on launchd — children stranded when the proxy above had already died
-# (kill_mcp_proxy can't pgrep -P a dead proxy), or leftovers from an earlier crash.
+# Safety net: reap any of this bundle's llama-server / MCP server (bundled python,
+# replay) / mlx-agent processes left orphaned on launchd — children stranded by an
+# agent that died without tearing them down, or leftovers from an earlier crash.
 # Other windows' servers stay registered to a live host, so they are protected and
 # left running.
 reap_orphaned_bundle_processes

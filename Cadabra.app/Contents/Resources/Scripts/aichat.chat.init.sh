@@ -175,7 +175,7 @@ esac
 
 stop_orphaned_servers
 
-# Safety net: kill any of this bundle's llama-server / mcp-proxy / replay processes that a
+# Safety net: kill any of this bundle's llama-server / MCP server / mlx-agent processes that a
 # previous session orphaned onto launchd. Pairs with the registry-based stop_orphaned_servers
 # above, and runs before this session launches its server for a clean slate.
 reap_orphaned_bundle_processes

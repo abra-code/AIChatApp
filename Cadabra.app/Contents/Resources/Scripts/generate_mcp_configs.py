@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 # generate_mcp_configs.py
-# Writes mcp-proxy.json and llama-ui-mcp.json for the current session.
-# Called by generate_mcp_configs() in aichat.library.sh.
+# Writes the session's mlx-agent --mcp-config JSON - {"servers":[{name,command,args,
+# env?,gatedTools?}]} - plus the replay sandbox profile it references, both into the
+# session dir. mlx-agent speaks MCP stdio directly, spawning each server with its
+# command+args (the mcp-proxy HTTP shim of the WebUI era is gone from this app).
+# Called by generate_stdio_mcp_config() in aichat.mcp.servers.library.sh.
 #
 # Usage: python3 generate_mcp_configs.py \
-#            <app_bundle> <proxy_port> <out_proxy_json> <out_llama_ui_json> <tz> [<mcp_prefs_plist>]
+#            <out_json> <app_bundle> <tz> [<mcp_prefs_plist>]
 #
 # Almost all sandbox paths come from <mcp_prefs_plist>: the allow-network master
 # gate, per-server enabled flags, the prominent project workspace, and the
@@ -31,25 +34,13 @@ import os
 import plistlib
 import sys
 
-# ── stdio-direct emitter mode (B3) ────────────────────────────────────────────
-# `--stdio-direct <out.json>` makes this script ALSO emit the mlx-agent --mcp-config
-# schema - {"servers":[{name,command,args,env?,gatedTools?}]} - built from the SAME
-# per-session server construction as the v1 proxy configs, then exit before the
-# proxy/port machinery. The mcp-proxy HTTP shim is dropped on this path: mlx-agent
-# speaks MCP stdio directly, spawning each server with its command+args. The v1 proxy
-# emitter (used by AIChat WebUI) is untouched when this flag is absent.
-_stdio_direct_out = None
-if "--stdio-direct" in sys.argv:
-    _i = sys.argv.index("--stdio-direct")
-    _stdio_direct_out = sys.argv[_i + 1]
-    del sys.argv[_i:_i + 2]
+out_json        = sys.argv[1]
+app_bundle      = sys.argv[2]
+tz              = sys.argv[3]
+mcp_prefs_plist = sys.argv[4] if len(sys.argv) > 4 else ""
 
-app_bundle        = sys.argv[1]
-proxy_port        = int(sys.argv[2])
-out_proxy_json    = sys.argv[3]
-out_llama_ui_json = sys.argv[4]
-tz                = sys.argv[5]
-mcp_prefs_plist   = sys.argv[6] if len(sys.argv) > 6 else ""
+# Everything (the config and the replay sandbox profile) lands in the session dir.
+session_dir = os.path.dirname(os.path.abspath(out_json))
 
 packages_dir = f"{app_bundle}/Contents/Library/Packages"
 python3_bin  = f"{app_bundle}/Contents/Library/Python/bin/python3"
@@ -71,10 +62,9 @@ def srv_enabled(name: str) -> bool:
 # not started and the local (replay) server runs with --deny-network.
 allow_network = prefs.get("allow-network", True)
 
-# ── Build the per-server config tables, honoring enabled flags ────────────────
-proxy_servers = {}
-llama_servers = []
-server_order = []      # short names in launch order; parallels llama_servers
+# ── Build the per-server config table, honoring enabled flags ─────────────────
+servers = {}           # short name -> {command, args, env?}
+server_order = []      # short names in launch order
 user_project = ""      # set in the local block; pre-init so it's always defined
 
 if srv_enabled("local"):
@@ -136,7 +126,7 @@ if srv_enabled("local"):
     if user_project:
         replay_args += ["--allow-write", user_project]
 
-    # Write the sandbox profile next to the proxy configs and point replay at it.
+    # Write the sandbox profile next to the config and point replay at it.
     # allow_network is intentionally omitted from the JSON: in MCP mode the CLI
     # --deny-network gate is authoritative (replay overrides the profile's network
     # setting), and import_baseline / allow_exec / allow_fork keep their permissive
@@ -144,7 +134,6 @@ if srv_enabled("local"):
     # replay reads this file at startup, before it self-sandboxes, so it does not
     # need to be inside any granted directory.
     if profile_read_only or profile_read_write:
-        session_dir = os.path.dirname(os.path.abspath(out_proxy_json))
         os.makedirs(session_dir, exist_ok=True)
         sandbox_profile_path = os.path.join(session_dir, "mcp-replay-sandbox.json")
         sandbox_profile = {}
@@ -156,22 +145,10 @@ if srv_enabled("local"):
             json.dump(sandbox_profile, profile_file, indent=2)
         replay_args += ["--sandbox-profile", sandbox_profile_path]
 
-    proxy_servers["local"] = {
+    servers["local"] = {
         "command": replay_bin,
         "args": replay_args,
-        "enabled": True,
     }
-    llama_servers.append({
-        # Stable id so the WebUI's per-server enable/disable state (keyed by id in
-        # LlamaUi.mcpDefaultEnabled) survives across launches. Without an explicit
-        # id the WebUI falls back to a positional id (LlamaUI-MCP-Server-N) that
-        # shifts whenever a server is omitted (e.g. network off drops time+search),
-        # mis-binding the saved enable flags. Keep these in sync with mcp-seed.js.
-        "id": "aichatv2-local",
-        "url": f"http://127.0.0.1:{proxy_port}/servers/local/mcp",
-        "name": "Local (Files & Shell)",
-        "enabled": True,
-    })
     server_order.append("local")
 
 if srv_enabled("pdf"):
@@ -219,138 +196,57 @@ if srv_enabled("pdf"):
         pdf_args = ["mcp"]
         for root in pdf_roots:
             pdf_args += ["--root", root]
-        proxy_servers["pdf"] = {
+        servers["pdf"] = {
             "command": pdfutil_bin,
             "args": pdf_args,
-            "enabled": True,
         }
-        llama_servers.append({
-            "id": "aichatv2-pdf",
-            "url": f"http://127.0.0.1:{proxy_port}/servers/pdf/mcp",
-            "name": "PDF Tools",
-            "enabled": True,
-        })
         server_order.append("pdf")
     else:
         print("  pdf server enabled but no readable sandbox paths configured; omitting it")
 
 if allow_network and srv_enabled("time"):
-    proxy_servers["time"] = {
+    servers["time"] = {
         "command": python3_bin,
         "args": ["-m", "mcp_server_time", "--local-timezone", tz],
         "env": {"PYTHONPATH": packages_dir},
-        "enabled": True,
     }
-    llama_servers.append({
-        "id": "aichatv2-time",
-        "url": f"http://127.0.0.1:{proxy_port}/servers/time/mcp",
-        "name": "Time",
-        "enabled": True,
-    })
     server_order.append("time")
 
 if allow_network and srv_enabled("search"):
-    proxy_servers["search"] = {
+    servers["search"] = {
         "command": python3_bin,
         "args": ["-m", "duckduckgo_mcp_server.server"],
         "env": {"PYTHONPATH": packages_dir},
-        "enabled": True,
     }
-    llama_servers.append({
-        "id": "aichatv2-search",
-        "url": f"http://127.0.0.1:{proxy_port}/servers/search/mcp",
-        "name": "Web Search (DuckDuckGo)",
-        "enabled": True,
-    })
     server_order.append("search")
 
-# ── stdio-direct emitter (B3): the mlx-agent --mcp-config contract ────────────
-# Emit {"servers":[{name,command,args,env?,gatedTools?}]} from the servers already
-# constructed above (same replay sandbox flags, same time/search invocations), then
-# exit BEFORE the mcp-proxy per-port machinery below (which mlx-agent does not use).
-# gatedTools lists the tools that require a session/request_permission round-trip
-# before dispatch - replay's mutating + shell operations (verified against replay's
-# tools/list). Read-only tools (read_file, list_directory, grep_files, ...) are not
-# gated. time/search expose no mutating tools.
-if _stdio_direct_out:
-    gated_by_server = {
-        "local": ["write_file", "edit_file", "edit_files", "execute_command",
-                  "create_directory", "move_file", "delete_file"],
-    }
-    stdio_servers = []
-    for name in server_order:
-        spec = proxy_servers[name]
-        entry = {"name": name, "command": spec["command"], "args": list(spec.get("args") or [])}
-        if spec.get("env"):
-            entry["env"] = spec["env"]
-        if name in gated_by_server:
-            entry["gatedTools"] = gated_by_server[name]
-        stdio_servers.append(entry)
-    out_abs = os.path.abspath(_stdio_direct_out)
-    os.makedirs(os.path.dirname(out_abs), exist_ok=True)
-    # Remove any prior config first so a failure below degrades to "no config found" (the
-    # transport builder then falls back to chat mode) instead of silently reusing a stale one.
-    if os.path.exists(out_abs):
-        os.remove(out_abs)
-    with open(out_abs, "w") as fh:
-        json.dump({"servers": stdio_servers}, fh, indent=2)
-    print(f"  wrote stdio-direct config {_stdio_direct_out} ({len(stdio_servers)} server(s))")
-    sys.exit(0)
-
-proxy_config    = {"mcpServers": proxy_servers}
-llama_ui_config = {"mcpServers": llama_servers}
-
-# ── Per-server ports ──────────────────────────────────────────────────────────
-# The WebUI holds one long-lived SSE GET stream per server. With every server
-# behind a single host:port they shared WKWebView's ~6-connections-per-host limit,
-# and once enough streams were open the tools/list POSTs were starved (60s timeout
-# → "connected, 0 tools" → the model got no tools). Giving each server its own
-# 127.0.0.1 port gives each its own connection budget. We launch one mcp-proxy
-# instance per server (it has no native multi-port mode) — see launch_mcp_proxy()
-# in aichat.library.sh and Private/mcp-tools-debugging-postmortem.md (Incident 3).
-import socket
-
-def _free_port(start, span=80):
-    for p in range(start, start + span):
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            try:
-                s.bind(("127.0.0.1", p))
-                return p
-            except OSError:
-                continue
-    return start  # nothing free in range; let the proxy surface the bind error
-
-out_dir = os.path.dirname(out_proxy_json)
-os.makedirs(out_dir, exist_ok=True)
-manifest_lines = []
-next_port = proxy_port
-for name, llama_entry in zip(server_order, llama_servers):
-    port = _free_port(next_port)
-    next_port = port + 1
-    # Rewrite the WebUI URL to this server's own port (overrides the base-port
-    # placeholder set above).
-    llama_entry["url"] = f"http://127.0.0.1:{port}/servers/{name}/mcp"
-    # One single-server proxy config per instance.
-    per_path = os.path.join(out_dir, f"mcp-proxy-{name}.json")
-    with open(per_path, "w") as fh:
-        json.dump({"mcpServers": {name: proxy_servers[name]}}, fh, indent=2)
-    manifest_lines.append(f"{name} {port}")
-
-# Manifest read by launch_mcp_proxy(): one "<name> <port>" line per instance to
-# start (the per-instance config path is derived by convention from <name>).
-manifest_path = os.path.join(out_dir, "mcp-proxy-instances.txt")
-with open(manifest_path, "w") as fh:
-    fh.write("".join(line + "\n" for line in manifest_lines))
-
-# out_proxy_json (combined) is kept for reference/debug; out_llama_ui_json now
-# carries the per-server-port URLs and is the WebUI's --ui-config-file.
-for path, config in [(out_proxy_json, proxy_config), (out_llama_ui_json, llama_ui_config)]:
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as fh:
-        json.dump(config, fh, indent=2)
-    print(f"  wrote {path}")
-
-for line in manifest_lines:
-    print(f"  instance {line}")
+# ── Emit the mlx-agent --mcp-config JSON ──────────────────────────────────────
+# {"servers":[{name,command,args,env?,gatedTools?}]} from the servers constructed
+# above. gatedTools lists the tools that require a session/request_permission
+# round-trip before dispatch - replay's mutating + shell operations (verified against
+# replay's tools/list). Read-only tools (read_file, list_directory, grep_files, ...)
+# are not gated. time/search expose no mutating tools.
+gated_by_server = {
+    "local": ["write_file", "edit_file", "edit_files", "execute_command",
+              "create_directory", "move_file", "delete_file"],
+}
+stdio_servers = []
+for name in server_order:
+    spec = servers[name]
+    entry = {"name": name, "command": spec["command"], "args": list(spec.get("args") or [])}
+    if spec.get("env"):
+        entry["env"] = spec["env"]
+    if name in gated_by_server:
+        entry["gatedTools"] = gated_by_server[name]
+    stdio_servers.append(entry)
+out_abs = os.path.abspath(out_json)
+os.makedirs(os.path.dirname(out_abs), exist_ok=True)
+# Remove any prior config first so a failure below degrades to "no config found" (the
+# transport builder then falls back to chat mode) instead of silently reusing a stale one.
+if os.path.exists(out_abs):
+    os.remove(out_abs)
+with open(out_abs, "w") as fh:
+    json.dump({"servers": stdio_servers}, fh, indent=2)
+print(f"  wrote mcp config {out_json} ({len(stdio_servers)} server(s))")
 if user_project:
     print(f"  project workspace: {user_project}")
