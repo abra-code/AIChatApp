@@ -40,6 +40,18 @@ SCRIPT_DIR="$(cd "$(/usr/bin/dirname "$0")" >/dev/null 2>&1 && pwd)"
 
 fail() { echo "${RED}$*${RESET}" >&2; cleanup; exit 1; }
 
+# A dependency repo is missing: offer to git-clone it into the sibling location and continue.
+# Interactive runs only - without a TTY (CI, piped stdin) this declines silently and the
+# caller's fail() fires with the manual instructions. $1 = repo URL, $2 = destination dir.
+offer_clone() {
+    [ -t 0 ] || return 1
+    printf "%s  %s not found. Clone %s\n  into %s now? [y/N] %s" \
+        "$YELLOW" "$(/usr/bin/basename "$2")" "$1" "$2" "$RESET"
+    IFS= read -r _ans
+    case "$_ans" in [yY]|[yY][eE][sS]) ;; *) return 1 ;; esac
+    /usr/bin/git clone "$1" "$2"
+}
+
 # Auto-detect the single .app bundle next to this script.
 APP_BUNDLE=""
 for _candidate in "$SCRIPT_DIR"/*.app; do
@@ -64,7 +76,7 @@ Options:
   --version=VERSION   llama.cpp build tag (e.g. b8797, default: auto-detect latest)
   --arch=ARCH         arm64 or x86_64 (default: host). x86_64 requires --skip-agent.
   --identity=CERT     codesign identity (default: - for ad-hoc)
-  --agent-repo=PATH   mlx-agent repo (default: ../mlx-agent, then ~/Development/mlx-agent)
+  --agent-repo=PATH   mlx-agent repo (default: ../../mlx-agent sibling checkout)
   --skip-llama        leave llama.cpp untouched
   --skip-agent        leave mlx-agent untouched
   --skip-build        deploy the agent's existing build products without rebuilding
@@ -159,15 +171,22 @@ prepare() {
     fi
 
     if [ "$DO_AGENT" = "yes" ]; then
-        # Locate the mlx-agent repo by its Xcode PROJECT: the repo has no Package.swift since
-        # it moved to an XcodeGen-generated project (Metal shaders force xcodebuild anyway).
+        # Locate the mlx-agent repo (github.com/abra-code/mlx-agent, Apache 2.0) by its Xcode
+        # PROJECT: the repo has no Package.swift since it moved to an XcodeGen-generated
+        # project (Metal shaders force xcodebuild anyway). When missing, offer to clone it
+        # into the sibling location and continue.
         if [ -z "$AGENT_REPO" ]; then
-            for _cand in "$SCRIPT_DIR/../../mlx-agent" "$HOME/Development/mlx-agent"; do
+            for _cand in "$SCRIPT_DIR/../../mlx-agent"; do
                 [ -d "$_cand/mlx-agent.xcodeproj" ] && { AGENT_REPO="$(cd "$_cand" && pwd)"; break; }
             done
         fi
+        if [ -z "$AGENT_REPO" ]; then
+            offer_clone "https://github.com/abra-code/mlx-agent" "$(cd "$SCRIPT_DIR/../.." && pwd)/mlx-agent" \
+                && [ -d "$SCRIPT_DIR/../../mlx-agent/mlx-agent.xcodeproj" ] \
+                && AGENT_REPO="$(cd "$SCRIPT_DIR/../../mlx-agent" && pwd)"
+        fi
         [ -n "$AGENT_REPO" ] && [ -d "$AGENT_REPO/mlx-agent.xcodeproj" ] \
-            || fail "mlx-agent repo not found (looked for mlx-agent.xcodeproj). Pass --agent-repo=PATH."
+            || fail "mlx-agent repo not found (looked for mlx-agent.xcodeproj); clone github.com/abra-code/mlx-agent or pass --agent-repo=PATH."
         # Debug config: what the repo's own scheme ships (see mlx-agent/project.yml).
         AGENT_BUILD_DIR="$AGENT_REPO/build/Build/Products/Debug"
     fi
@@ -307,6 +326,7 @@ update_agent() {
     done
     [ -f "$MLX_DIR/$required_bundle/Contents/Resources/default.metallib" ] \
         || fail "default.metallib not found after copy."
+    [ -f "$AGENT_REPO/LICENSE" ] && /bin/cp -f "$AGENT_REPO/LICENSE" "$MLX_DIR/mlx-agent.LICENSE"
 
     AGENT_STATUS="deployed"
     echo "  ${GREEN}Deployed${RESET} mlx-agent + metallib"
