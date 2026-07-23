@@ -1,6 +1,6 @@
 #!/bin/sh
 # aichat.mcp.servers.library.sh
-# MCP server preferences (the com.abracode.AIChatV2-mcp plist): read/written by the
+# MCP server preferences (the com.abracode.Cadabra-mcp plist): read/written by the
 # aichat.mcp.servers.* dialog handlers and read by the launch flow. Sourced by those
 # handlers and — transitively — by aichat.server.library.sh, whose generate_mcp_configs
 # and any_mcp_server_enabled read these prefs. Sources the base library for $plister/$dialog.
@@ -40,7 +40,7 @@ source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.library.sh"
 # server has no playlist to re-read, so nothing under it is read once the sandbox is
 # live. No private user dirs (Documents/Desktop/Downloads) are added by default.
 
-mcp_prefs="/Users/$USER/Library/Preferences/com.abracode.AIChatV2-mcp.plist"
+mcp_prefs="/Users/$USER/Library/Preferences/com.abracode.Cadabra-mcp.plist"
 
 # mcp_prefs_write_defaults
 # Overwrites the MCP prefs plist with built-in defaults.
@@ -88,7 +88,7 @@ mcp_prefs_write_defaults() {
     # (/usr/lib, /System/Library) are granted automatically by the sandbox baseline
     # and are intentionally NOT listed here. The app bundle is NOT listed either:
     # replay self-sandboxes at startup (its binary and dylibs are already mapped) and
-    # the local server has no playlist to re-read, so nothing under AIChatV2.app is
+    # the local server has no playlist to re-read, so nothing under Cadabra.app is
     # read once the sandbox is live. (Only if a sandboxed child had to run the
     # *bundled* python3 would Contents/Library be needed — not a current case, and
     # system /usr/bin/python3 is already reachable.) Only paths that exist on this

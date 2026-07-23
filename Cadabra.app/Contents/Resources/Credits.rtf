@@ -1,0 +1,62 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2870
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;\f1\fnil\fcharset0 HelveticaNeue-Italic;}
+{\colortbl;\red255\green255\blue255;\red0\green0\blue0;}
+{\*\expandedcolortbl;;\cssrgb\c0\c0\c0\cname textColor;}
+\margl1440\margr1440\vieww18120\viewh11760\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\qc\partightenfactor0
+
+\f0\fs24 \cf0 Cadabra - macOS applet to run large language models locally \
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\qc\partightenfactor0
+{\field{\*\fldinst{HYPERLINK "https://github.com/abra-code/AIChatApp"}}{\fldrslt \cf2 https://github.com/abra-code/AIChatApp}}\cf2 \
+\
+Cadabra is built with OMC engine:\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\qc\partightenfactor0
+{\field{\*\fldinst{HYPERLINK "https://github.com/abra-code/OMC"}}{\fldrslt \cf2 https://github.com/abra-code/OMC}}\
+\pard\pardeftab720\sa320\qc\partightenfactor0
+
+\f1\i\fs22 \cf0 \expnd0\expndtw0\kerning0
+OMC is a low-code app builder for macOS
+\f0\i0\fs24 \kerning1\expnd0\expndtw0 \
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\qc\partightenfactor0
+\cf2 Cadabra uses\cf0  llama-server from Llama.cpp:\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\qc\partightenfactor0
+{\field{\*\fldinst{HYPERLINK "https://github.com/ggml-org/llama.cpp/"}}{\fldrslt \cf0 https://github.com/ggml-org/llama.cpp/}}\
+\pard\pardeftab720\sa320\qc\partightenfactor0
+
+\f1\i \cf0 \expnd0\expndtw0\kerning0
+llama.cpp enables local LLM inference\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\qc\partightenfactor0
+
+\f0\i0 \cf2 \kerning1\expnd0\expndtw0 Cadabra runs MLX models with mlx-agent:\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\qc\partightenfactor0
+{\field{\*\fldinst{HYPERLINK "https://github.com/abra-code/mlx-agent"}}{\fldrslt \cf0 https://github.com/abra-code/mlx-agent}}\
+\pard\pardeftab720\sa320\qc\partightenfactor0
+
+\f1\i \cf0 \expnd0\expndtw0\kerning0
+native Swift LLM agent built on Apple's MLX stack\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\qc\partightenfactor0
+
+\f0\i0 \cf2 \kerning1\expnd0\expndtw0 mlx-agent is built with:\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\qc\partightenfactor0
+{\field{\*\fldinst{HYPERLINK "https://github.com/ml-explore/mlx-swift-lm"}}{\fldrslt \cf2 mlx-swift-lm}} - language models on MLX for Swift\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\qc\partightenfactor0
+{\field{\*\fldinst{HYPERLINK "https://github.com/ml-explore/mlx-swift"}}{\fldrslt \cf2 mlx-swift}} - Swift API for the MLX array framework\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\qc\partightenfactor0
+{\field{\*\fldinst{HYPERLINK "https://github.com/huggingface/swift-transformers"}}{\fldrslt \cf2 swift-transformers}} - Hugging Face Hub and tokenizers in Swift\
+{\field{\*\fldinst{HYPERLINK "https://github.com/huggingface/swift-jinja"}}{\fldrslt swift-jinja}} - Jinja chat template engine\
+{\field{\*\fldinst{HYPERLINK "https://github.com/modelcontextprotocol/swift-sdk"}}{\fldrslt swift-sdk}} - Model Context Protocol SDK for Swift\
+{\field{\*\fldinst{HYPERLINK "https://github.com/apple/swift-crypto"}}{\fldrslt swift-crypto}} - cryptographic primitives\
+\
+MCP Servers:\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\qc\partightenfactor0
+{\field{\*\fldinst{HYPERLINK "https://github.com/abra-code/replay"}}{\fldrslt \cf2 replay}} - file system server with sandbox\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\qc\partightenfactor0
+{\field{\*\fldinst{HYPERLINK "https://github.com/modelcontextprotocol/servers/tree/main/src/time"}}{\fldrslt \cf2 mcp-server-time}} - time server\
+{\field{\*\fldinst{HYPERLINK "https://github.com/nickclyde/duckduckgo-mcp-server"}}{\fldrslt duckduckgo-mcp-server}} - search and web fetch\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\qc\partightenfactor0
+{\field{\*\fldinst{HYPERLINK "https://github.com/abra-code/pdfutil"}}{\fldrslt \cf2 pdfutil}} - PDF server\cf0 \
+\
+\cf2 Cadabra embeds Python to run MCP servers:\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\qc\partightenfactor0
+{\field{\*\fldinst{HYPERLINK "https://www.python.org"}}{\fldrslt \cf2 https://www.python.org}}\cf0 \
+}

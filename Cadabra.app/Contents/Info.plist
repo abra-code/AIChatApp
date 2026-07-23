@@ -20,17 +20,17 @@
 		</dict>
 	</array>
 	<key>CFBundleExecutable</key>
-	<string>AIChatV2</string>
+	<string>Cadabra</string>
 	<key>CFBundleIconFile</key>
 	<string>Sparkle</string>
 	<key>CFBundleIconName</key>
 	<string>Sparkle</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.abracode.AIChatV2</string>
+	<string>com.abracode.Cadabra</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>AIChat</string>
+	<string>Cadabra</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleSignature</key>
@@ -43,10 +43,10 @@
 	<array>
 		<dict>
 			<key>CFBundleURLName</key>
-			<string>AIChatV2</string>
+			<string>Cadabra</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>aichatv2</string>
+				<string>cadabra</string>
 			</array>
 		</dict>
 	</array>
@@ -55,7 +55,7 @@
 	<key>LSMinimumSystemVersion</key>
 	<string>14.6</string>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>AIChat sends AppleEvents to other apps to provide functionality unique to this applet.</string>
+	<string>Cadabra sends AppleEvents to other apps to provide functionality unique to this applet.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 </dict>

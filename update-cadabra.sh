@@ -1,23 +1,25 @@
 #!/bin/bash
-# update-aichat.sh
-# Updates the git-excluded runtime engines inside V2's AIChat.app:
+# update-cadabra.sh
+# Updates the git-excluded runtime engines inside Cadabra.app (the native-chat V2,
+# rebranded from V2/AIChat.app):
 #   1. llama.cpp  - llama-server + its dylibs, from a GitHub release (the GGUF engine)
 #   2. mlx-agent  - built from source with xcodebuild (the ACP agent + MLX engine)
 #   3. pdfutil    - built from source with ./build.sh (the read-only PDF MCP server)
 # then codesigns the bundle and verifies the engines actually launch.
 #
-# Relationship to ../update-llama-cpp.sh: that script serves the V1 app (and Enoch), which
+# Relationship to ./update-llama-cpp.sh: that script serves the V1 app (and Enoch), which
 # renders its UI from llama.cpp's WebUI and therefore has to download and sed-patch
-# bundle.js/bundle.css/index.html on every update. V2 has NO Contents/Resources/WebUI - the
-# chat UI is native (ActionUI Chat element over ACP) - so ALL of that machinery is dead
-# weight here and is deliberately absent rather than skipped by a flag. V2 also embeds
+# bundle.js/bundle.css/index.html on every update. Cadabra has NO Contents/Resources/WebUI -
+# the chat UI is native (ActionUI Chat element over ACP) - so ALL of that machinery is dead
+# weight here and is deliberately absent rather than skipped by a flag. Cadabra also embeds
 # mlx-agent, which V1 does not, so the two scripts do not converge.
 #
 # arm64 only for the agent: mlx-agent is Metal/MLX and does not build for x86_64. The
 # llama.cpp half still accepts --arch=x86_64 (pass --skip-agent with it). pdfutil builds
 # for either arch, so it is deployed on both the arm64 and x86_64 paths.
 #
-# The .app bundle is auto-detected from this script's directory.
+# The bundle is Cadabra.app next to this script - NOT auto-globbed: the repo root also
+# holds the V1 AIChat.app, which this script must never touch.
 
 set -uo pipefail
 
@@ -57,14 +59,10 @@ offer_clone() {
     /usr/bin/git clone "$1" "$2"
 }
 
-# Auto-detect the single .app bundle next to this script.
-APP_BUNDLE=""
-for _candidate in "$SCRIPT_DIR"/*.app; do
-    [ -d "$_candidate" ] || continue
-    APP_BUNDLE="$_candidate"
-    break
-done
-[ -n "$APP_BUNDLE" ] || { echo "${RED}No .app bundle found in $SCRIPT_DIR${RESET}"; exit 1; }
+# Pinned to Cadabra.app: the repo root also holds the V1 AIChat.app, so a *.app glob
+# would grab the wrong bundle.
+APP_BUNDLE="$SCRIPT_DIR/Cadabra.app"
+[ -d "$APP_BUNDLE" ] || { echo "${RED}No Cadabra.app found in $SCRIPT_DIR${RESET}"; exit 1; }
 
 INSTALL_DIR="$APP_BUNDLE/Contents/Support/Llama.cpp"
 MLX_DIR="$APP_BUNDLE/Contents/Support/MLX"
@@ -75,7 +73,7 @@ show_help() {
 Usage: $0 [OPTIONS]
 
 Updates the runtime engines in $(/usr/bin/basename "$APP_BUNDLE"):
-  llama.cpp -> Contents/Support/Llama.cpp/   (downloaded release, no WebUI - V2 is native)
+  llama.cpp -> Contents/Support/Llama.cpp/   (downloaded release, no WebUI - Cadabra is native)
   mlx-agent -> Contents/Support/MLX/         (built from source with xcodebuild)
   pdfutil   -> Contents/Support/pdfutil      (built from source with ./build.sh)
 
@@ -93,11 +91,11 @@ Options:
   --help              show this message
 
 Examples:
-  ./update-aichat.sh
-  ./update-aichat.sh --version=b8797
-  ./update-aichat.sh --skip-llama                 # rebuild + redeploy just the agent + pdfutil
-  ./update-aichat.sh --skip-agent                 # refresh llama.cpp + pdfutil
-  ./update-aichat.sh --skip-llama --skip-agent    # rebuild + redeploy just pdfutil
+  ./update-cadabra.sh
+  ./update-cadabra.sh --version=b8797
+  ./update-cadabra.sh --skip-llama                 # rebuild + redeploy just the agent + pdfutil
+  ./update-cadabra.sh --skip-agent                 # refresh llama.cpp + pdfutil
+  ./update-cadabra.sh --skip-llama --skip-agent    # rebuild + redeploy just pdfutil
 EOF
     exit 0
 }
@@ -154,7 +152,7 @@ detect_latest_version() {
 # ── 0. Prepare ────────────────────────────────────────────────────────────────
 prepare() {
     echo
-    echo "==== Updating $(/usr/bin/basename "$APP_BUNDLE") (V2) ===="
+    echo "==== Updating $(/usr/bin/basename "$APP_BUNDLE") ===="
     echo
 
     [ "$ARCH" = "auto" ] && ARCH=$(/usr/bin/uname -m)

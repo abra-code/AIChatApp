@@ -1,6 +1,6 @@
 #!/bin/sh
 # aichat.model.help.init.sh
-# INIT_SUBCOMMAND for the Model Guide help window (NIB_NAME AIChatV2Help).
+# INIT_SUBCOMMAND for the Model Guide help window (JSON_NAME aichat.model.help).
 # Loads the bundled guide into the viewer's OMCWebKitView (tag 2).
 
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.library.sh"

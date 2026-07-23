@@ -40,7 +40,7 @@
     "properties": { "placement": "replacing", "placementTarget": "help" },
     "children": [
       { "type": "Button", "properties": {
-          "title": "AIChat Help",
+          "title": "Cadabra Help",
           "actionID": "aichat.model.help",
           "keyboardShortcut": { "key": "?" }
       } }

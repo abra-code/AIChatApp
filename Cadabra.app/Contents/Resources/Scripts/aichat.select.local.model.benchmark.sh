@@ -46,7 +46,7 @@ trap 'pb_set "$running_key" ""; launch_lock_release' EXIT
 
 engine=$(model_engine "$selected_path")
 label=$(model_display_label "$selected_path")
-db="$HOME/Library/Application Support/AIChatV2/benchmarks.json"
+db="$HOME/Library/Application Support/Cadabra/benchmarks.json"
 py="$OMC_APP_BUNDLE_PATH/Contents/Library/Python/bin/python3"
 helper="$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.bench.py"
 

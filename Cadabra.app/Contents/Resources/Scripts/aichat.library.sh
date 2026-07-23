@@ -187,7 +187,7 @@ AICHAT_MODEL_PATH=""
 # when a model is bundled with the app:
 # AICHAT_MODEL_PATH="$OMC_APP_BUNDLE_PATH/Contents/Resources/LFM2-1.2B-F16.gguf"
 
-prefs="/Users/$USER/Library/Preferences/com.abracode.AIChatV2-servers.plist"
+prefs="/Users/$USER/Library/Preferences/com.abracode.Cadabra-servers.plist"
 # Multi-model: each gguf chat window runs its OWN llama-server on its OWN port, so several
 # models can be loaded at once (RAM permitting - see warn_ram_pressure_for_new_model). A free
 # port is claimed from this range at window init (find_free_port_in) and stashed per-window
@@ -197,7 +197,7 @@ prefs="/Users/$USER/Library/Preferences/com.abracode.AIChatV2-servers.plist"
 # merged app coexist. (Was a single pinned 8099 in S1 - one active model at a time.)
 LLAMA_PORT_RANGE_START="8150"
 LLAMA_PORT_RANGE_END="8189"
-mcp_app_support="$HOME/Library/Application Support/AIChatV2"
+mcp_app_support="$HOME/Library/Application Support/Cadabra"
 # Chat history store root (per-session dirs; see aichat.history.library.sh + history_store.py).
 history_root="$mcp_app_support/History"
 

@@ -68,7 +68,7 @@ add_row() {
 # costs one find that returns nothing, which is cheaper than maintaining two root lists
 # that would drift.
 for root in \
-	"$HOME/Library/Application Support/AIChatV2/Models" \
+	"$HOME/Library/Application Support/Cadabra/Models" \
 	"$HOME/.cache/huggingface/hub" \
 	"$HOME/.lmstudio/models" \
 	"$HOME/.ollama/models" \
@@ -104,7 +104,7 @@ done
 # from outside the standard caches, so they are the only way those models are listed at all.
 # No -f/-d test here: model_engine already answers "is this still a loadable model", and it
 # is the one that knows a GGUF is a file while an MLX model is a directory.
-PREFS_DOMAIN="com.abracode.AIChatV2"
+PREFS_DOMAIN="com.abracode.Cadabra"
 PREFS_KEY="recentModelPaths"
 recent_paths=$(/usr/bin/defaults read "$PREFS_DOMAIN" "$PREFS_KEY" 2>/dev/null | \
 	/usr/bin/grep -E '^\s+"' | \

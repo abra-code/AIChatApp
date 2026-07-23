@@ -54,7 +54,7 @@ if [ -n "$selected_path" ]; then
 
     # Detect cache source
     case "$selected_path" in
-        */Library/Application\ Support/AIChatV2/Models/*) source_label="Downloaded" ;;
+        */Library/Application\ Support/Cadabra/Models/*) source_label="Downloaded" ;;
         */.cache/huggingface/*)                         source_label="Hugging Face" ;;
         */.lmstudio/*)                                  source_label="LM Studio" ;;
         */.ollama/*)                                    source_label="Ollama" ;;
@@ -101,7 +101,7 @@ ${glossary}"
     # Remember the selection so the benchmark handler only repaints the pane if the user
     # is still looking at the model it measured (runs take minutes).
     pb_set "aichatv2_selected_model_${window_uuid}" "$selected_path"
-    bench_db="$HOME/Library/Application Support/AIChatV2/benchmarks.json"
+    bench_db="$HOME/Library/Application Support/Cadabra/benchmarks.json"
     bench_text=""
     if [ -f "$bench_db" ]; then
         bench_text=$("$OMC_APP_BUNDLE_PATH/Contents/Library/Python/bin/python3" \

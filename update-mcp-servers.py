@@ -14,8 +14,10 @@ from pathlib import Path
 
 # ── MCP Python packages ───────────────────────────────────────────────────────
 # Add / uncomment one package at a time, then re-run this script to test.
+# mcp-proxy was dropped 2026-07: Cadabra talks to MCP servers directly over stdio
+# (mlx-agent), so the WebUI-era HTTP proxy is dead weight here. The V1 AIChat.app
+# WebUI still needs it, but this script no longer targets that bundle.
 MCP_PACKAGES = [
-    "mcp-proxy",
     "mcp-server-time",
     # "mcp-server-fetch",
     "duckduckgo-mcp-server",
@@ -33,10 +35,12 @@ def die(msg: str) -> None:
 
 
 def find_app_bundle(script_dir: Path) -> Path:
-    for candidate in sorted(script_dir.glob("*.app")):
-        if candidate.is_dir():
-            return candidate
-    die(f"No .app bundle found in {script_dir}")
+    # Pinned to Cadabra.app: the repo root also holds the V1 AIChat.app, so a *.app
+    # glob would grab the wrong bundle (sorted() puts AIChat.app first).
+    candidate = script_dir / "Cadabra.app"
+    if candidate.is_dir():
+        return candidate
+    die(f"No Cadabra.app found in {script_dir}")
 
 
 def prepare(packages_dir: Path, python3: Path) -> None:
@@ -103,7 +107,7 @@ def verify(python3: Path, packages_dir: Path) -> None:
     print()
     env = {**os.environ, "PYTHONPATH": str(packages_dir)}
     failed = []
-    for module in ["mcp_proxy"]:
+    for module in ["mcp_server_time", "duckduckgo_mcp_server"]:
         r = subprocess.run(
             [str(python3), "-c", f"import {module}"],
             env=env, capture_output=True,
@@ -133,7 +137,7 @@ def print_summary(python3: Path, packages_dir: Path) -> None:
                 print(f"  {GREEN}{pkg} {ver}{RESET} → {packages_dir}")
                 break
     print()
-    print("  Next: launch AIChat.app — mcp-proxy starts automatically.")
+    print("  Next: launch Cadabra.app — MCP servers are spawned on demand per session.")
     print()
 
 

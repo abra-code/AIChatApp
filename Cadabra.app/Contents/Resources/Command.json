@@ -2,7 +2,7 @@
   "COMMAND_LIST" : [
     {
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat",
+      "NAME" : "Cadabra",
       "REQUIRED_MAC_OS_MIN_VERSION" : "14.6",
       "REQUIRED_OMC_VERSION" : "5.1"
     },
@@ -12,31 +12,31 @@
         "INIT_SUBCOMMAND_ID" : "aichat.select.local.model.init",
         "IS_BLOCKING" : false,
         "JSON_NAME" : "aichat.select.local.model",
-        "WINDOW_TITLE" : "AIChat — Select Model"
+        "WINDOW_TITLE" : "Cadabra — Select Model"
       },
       "COMMAND_ID" : "aichat.select.local.model",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.select.local.model.init",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.select.local.model.selection.changed",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.select.local.model.ok",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.select.local.model.cancel",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.select.local.model.reveal",
@@ -44,7 +44,7 @@
         "OMC_ACTIONUI_TABLE_10_COLUMN_3_VALUE" : ""
       },
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.select.local.model.benchmark",
@@ -52,17 +52,17 @@
         "OMC_ACTIONUI_TABLE_10_COLUMN_3_VALUE" : ""
       },
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.select.local.model.reload",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.select.local.model.browse",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "ACTIONUI_WINDOW" : {
@@ -70,11 +70,11 @@
         "INIT_SUBCOMMAND_ID" : "aichat.chat.init",
         "IS_BLOCKING" : false,
         "JSON_NAME" : "aichat.chat",
-        "WINDOW_TITLE" : "AIChat V2"
+        "WINDOW_TITLE" : "Cadabra"
       },
       "COMMAND_ID" : "aichat.chat",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.chat.cancel",
@@ -82,7 +82,7 @@
         "OMC_FRONT_PROCESS_ID" : ""
       },
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.chat.init",
@@ -90,17 +90,17 @@
         "OMC_FRONT_PROCESS_ID" : ""
       },
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.chat.entry",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.chat.error",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "CHOOSE_FILE_DIALOG" : {
@@ -112,12 +112,12 @@
       ],
       "COMMAND_ID" : "aichat.open.from.file.browser",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.select.local.model.hf",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "ACTIONUI_WINDOW" : {
@@ -125,31 +125,31 @@
         "INIT_SUBCOMMAND_ID" : "aichat.hf.browse.init",
         "IS_BLOCKING" : false,
         "JSON_NAME" : "aichat.hf.browse",
-        "WINDOW_TITLE" : "AIChat — Browse Hugging Face Models"
+        "WINDOW_TITLE" : "Cadabra — Browse Hugging Face Models"
       },
       "COMMAND_ID" : "aichat.hf.browse",
       "EXECUTION_MODE" : "exe_shell_script",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.hf.browse.init",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.hf.browse.search",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.hf.browse.sort.changed",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.hf.browse.source.changed",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.hf.browse.model.selection.changed",
@@ -157,7 +157,7 @@
         "OMC_ACTIONUI_TABLE_202_COLUMN_3_VALUE" : ""
       },
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.hf.browse.quant.selection.changed",
@@ -165,7 +165,7 @@
         "OMC_ACTIONUI_TABLE_213_COLUMN_3_VALUE" : ""
       },
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.hf.browse.download",
@@ -174,12 +174,12 @@
         "OMC_ACTIONUI_TABLE_213_COLUMN_3_VALUE" : ""
       },
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.hf.browse.cancel",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat",
+      "NAME" : "Cadabra",
       "WAIT_FOR_TASK_COMPLETION" : true
     },
     {
@@ -188,26 +188,26 @@
         "INIT_SUBCOMMAND_ID" : "aichat.mcp.servers.init",
         "IS_BLOCKING" : false,
         "JSON_NAME" : "aichat.mcp.servers",
-        "WINDOW_TITLE" : "AIChat — Agentic Session Tools"
+        "WINDOW_TITLE" : "Cadabra — Agentic Session Tools"
       },
       "COMMAND_ID" : "aichat.mcp.servers",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.mcp.servers.init",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.mcp.servers.start",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.mcp.servers.cancel",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "CHOOSE_FOLDER_DIALOG" : {
@@ -216,7 +216,7 @@
       },
       "COMMAND_ID" : "aichat.mcp.servers.project.browse",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "CHOOSE_OBJECT_DIALOG" : {
@@ -225,17 +225,17 @@
       },
       "COMMAND_ID" : "aichat.mcp.servers.rw.add",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.mcp.servers.rw.remove",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.mcp.servers.rw.selection.changed",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "CHOOSE_OBJECT_DIALOG" : {
@@ -244,48 +244,48 @@
       },
       "COMMAND_ID" : "aichat.mcp.servers.ro.add",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.mcp.servers.ro.remove",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.mcp.servers.ro.selection.changed",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.mcp.servers.reset",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.mcp.servers.toggle.network",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "ACTIONUI_WINDOW" : {
         "INIT_SUBCOMMAND_ID" : "aichat.mcp.inspect.init",
         "IS_BLOCKING" : false,
         "JSON_NAME" : "aichat.mcp.inspect",
-        "WINDOW_TITLE" : "AIChat — MCP Servers"
+        "WINDOW_TITLE" : "Cadabra — MCP Servers"
       },
       "COMMAND_ID" : "aichat.mcp.inspect",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.mcp.inspect.init",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.mcp.inspect.refresh",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.mcp.inspect.server.selection.changed",
@@ -294,7 +294,7 @@
         "OMC_ACTIONUI_TABLE_200_COLUMN_3_VALUE" : ""
       },
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.mcp.inspect.tool.selection.changed",
@@ -303,28 +303,28 @@
         "OMC_ACTIONUI_TABLE_300_COLUMN_2_VALUE" : ""
       },
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.model.help",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "ACTIONUI_WINDOW" : {
         "INIT_SUBCOMMAND_ID" : "aichat.model.help.init",
         "IS_BLOCKING" : false,
         "JSON_NAME" : "aichat.model.help",
-        "WINDOW_TITLE" : "AIChat Help"
+        "WINDOW_TITLE" : "Cadabra Help"
       },
       "COMMAND_ID" : "aichat.model.help.dialog",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.model.help.init",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.history.selection.changed",
@@ -332,7 +332,7 @@
         "OMC_ACTIONUI_TABLE_510_COLUMN_2_VALUE" : ""
       },
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.history.rename",
@@ -340,7 +340,7 @@
         "OMC_ACTIONUI_TABLE_510_COLUMN_2_VALUE" : ""
       },
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.history.delete",
@@ -348,7 +348,7 @@
         "OMC_ACTIONUI_TABLE_510_COLUMN_2_VALUE" : ""
       },
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.history.reveal",
@@ -356,27 +356,27 @@
         "OMC_ACTIONUI_TABLE_510_COLUMN_2_VALUE" : ""
       },
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.history.refresh",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.chat.new",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.chat.info.toggle",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.model.switch",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "aichat.chat.switch.model",
@@ -384,12 +384,12 @@
         "OMC_FRONT_PROCESS_ID" : ""
       },
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "app.did.launch",
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat"
+      "NAME" : "Cadabra"
     },
     {
       "COMMAND_ID" : "app.will.terminate",
@@ -397,7 +397,7 @@
         "OMC_FRONT_PROCESS_ID" : ""
       },
       "EXECUTION_MODE" : "exe_script_file",
-      "NAME" : "AIChat",
+      "NAME" : "Cadabra",
       "WAIT_FOR_TASK_COMPLETION" : true
     }
   ],

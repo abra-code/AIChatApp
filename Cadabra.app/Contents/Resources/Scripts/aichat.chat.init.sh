@@ -137,13 +137,13 @@ pb_set "aichatv2_modelpath_${chat_window_uuid}" "$AICHAT_MODEL_PATH"
 # Persist model path as a recent if it lives outside the standard caches.
 # The model selector init script reads this list and deduplicates against cache results.
 case "$AICHAT_MODEL_PATH" in
-	"$HOME/Library/Application Support/AIChatV2/Models/"*|\
+	"$HOME/Library/Application Support/Cadabra/Models/"*|\
 	"$HOME/.cache/huggingface/"*|"$HOME/.lmstudio/"*|\
 	"$HOME/.ollama/"*|"$HOME/.localai/"*|\
 	"$HOME/Library/Application Support/Jan/"*|\
 	"$HOME/Library/Application Support/nomic.ai/"*) ;;
 	*)
-		_prefs_domain="com.abracode.AIChatV2"
+		_prefs_domain="com.abracode.Cadabra"
 		_prefs_key="recentModelPaths"
 		_existing=$(/usr/bin/defaults read "$_prefs_domain" "$_prefs_key" 2>/dev/null | \
 			/usr/bin/grep -E '^\s+"' | \
