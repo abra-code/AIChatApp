@@ -19,7 +19,8 @@ source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.library.sh"
 #   /allow-network                : bool  (session-wide network master gate)
 #   /servers/time/enabled         : bool
 #   /servers/search/enabled       : bool
-#   /servers/pdf/enabled          : bool  (pdfutil - read-only PDF tools, no network)
+#   /servers/pdf/enabled          : bool  (pdfutil - PDF tools, no network)
+#   /servers/pdf/writable         : bool  (also serve pdfutil's mutating tools)
 #   /servers/local/enabled        : bool
 #   /servers/local/project        : string  (primary read-write workspace)
 #   /servers/local/allowed-write  : array<string>  (additional RW paths)
@@ -56,6 +57,12 @@ mcp_prefs_write_defaults() {
     "$plister" insert "enabled" bool true "$mcp_prefs" /servers/search
     "$plister" insert "pdf"    dict "$mcp_prefs" /servers
     "$plister" insert "enabled" bool true "$mcp_prefs" /servers/pdf
+    # Serve pdfutil's mutating tools (merge/extract/delete/rotate/metadata/forms-fill/
+    # watermark/reduce) too. On by default: their outputs are create-only - a NEW file
+    # under one of the granted paths, refused if anything already exists there, with no
+    # overwrite option - so they can add a PDF but never modify or destroy an existing
+    # file, and each call still asks for permission (they travel as gatedTools).
+    "$plister" insert "writable" bool true "$mcp_prefs" /servers/pdf
     "$plister" insert "local"  dict "$mcp_prefs" /servers
     "$plister" insert "enabled" bool true "$mcp_prefs" /servers/local
     "$plister" insert "project" string "" "$mcp_prefs" /servers/local

@@ -13,9 +13,9 @@
 # gate, per-server enabled flags, the prominent project workspace, and the
 # allowed-read / allowed-write lists shown and edited in the MCP servers dialog. When
 # allow-network is false, the time and search servers are omitted and replay gets
-# --deny-network. The bundled pdf server (pdfutil) is read-only and network-free, so
-# it honors only its own enabled flag and reuses the local sandbox's readable dirs as
-# its --root confinement (see the pdf block below). That plist is seeded with Homebrew, nvm, temp, third-party tool/data
+# --deny-network. The bundled pdf server (pdfutil) is network-free, so it honors only its
+# own enabled flag (plus its own writable flag) and reuses the local sandbox's readable
+# dirs as its --root confinement (see the pdf block below). That plist is seeded with Homebrew, nvm, temp, third-party tool/data
 # dirs, and the app bundle by mcp_prefs_write_defaults() in aichat.library.sh, so
 # nothing is granted to the sandbox invisibly here. (The system executable dirs and
 # macOS system libraries are granted by replay's sandbox baseline and are deliberately
@@ -58,12 +58,21 @@ if mcp_prefs_plist and os.path.isfile(mcp_prefs_plist):
 def srv_enabled(name: str) -> bool:
     return prefs.get("servers", {}).get(name, {}).get("enabled", True)
 
+def srv_flag(name: str, key: str, default: bool = True) -> bool:
+    return prefs.get("servers", {}).get(name, {}).get(key, default)
+
 # Master network gate. When false, the network-dependent servers (time, search) are
 # not started and the local (replay) server runs with --deny-network.
 allow_network = prefs.get("allow-network", True)
 
+# pdfutil's mutating tier, served only when the pdf server is started --writable
+# (verified against `pdfutil mcp --help`). Every one of them takes an explicit `output`
+# path and writes a new file there; they are gated so the user confirms each write.
+PDF_MUTATING_TOOLS = ["pdf_merge", "pdf_extract_pages", "pdf_delete_pages", "pdf_rotate",
+                      "pdf_metadata_set", "pdf_forms_fill", "pdf_watermark", "pdf_reduce"]
+
 # ── Build the per-server config table, honoring enabled flags ─────────────────
-servers = {}           # short name -> {command, args, env?}
+servers = {}           # short name -> {command, args, env?, gatedTools?}
 server_order = []      # short names in launch order
 user_project = ""      # set in the local block; pre-init so it's always defined
 
@@ -152,17 +161,25 @@ if srv_enabled("local"):
     server_order.append("local")
 
 if srv_enabled("pdf"):
-    # pdfutil (github.com/abra-code/pdfutil, Apache 2.0): a read-only, network-free
-    # PDF inspection server exposing pdf_info / pdf_text / pdf_search / pdf_outline /
-    # pdf_render / pdf_ocr / pdf_forms_list over MCP stdio. It confines every tool to
-    # its --root directories and requires at least one, so it is granted the SAME
-    # directory set the local (replay) sandbox may touch: the project workspace, the
-    # user's extra read/write paths, and the login-session $TMPDIR. Those are read from
-    # the local prefs directly so PDF access does not depend on the "local" server being
-    # enabled. pdfutil has no network, so it is NOT gated by allow-network; and all its
-    # tools are read-only, so it exposes no gatedTools below.
+    # pdfutil (github.com/abra-code/pdfutil, Apache 2.0): a network-free PDF server
+    # exposing pdf_info / pdf_text / pdf_search / pdf_outline / pdf_render / pdf_ocr /
+    # pdf_forms_list / pdf_list over MCP stdio, plus the mutating tier below when
+    # writable. It confines every tool to its --root directories and requires at least
+    # one, so it is granted the SAME directory set the local (replay) sandbox may touch:
+    # the project workspace, the user's extra read/write paths, and the login-session
+    # $TMPDIR. Those are read from the local prefs directly so PDF access does not depend
+    # on the "local" server being enabled. pdfutil has no network, so it is NOT gated by
+    # allow-network.
     pdfutil_bin = f"{app_bundle}/Contents/Support/pdfutil"
     pdf_local_prefs = prefs.get("servers", {}).get("local", {})
+    # servers/pdf/writable adds --writable, which serves the eight mutating tools listed
+    # in PDF_MUTATING_TOOLS. Default on, matching the other bundled servers (and strictly
+    # milder than what the Local server already grants by default: pdfutil's outputs are
+    # CREATE-ONLY - a new file under a --root, refused if anything already exists there,
+    # with no overwrite parameter - so a mutating call can add a PDF but can never modify
+    # or destroy an existing file, in either the read-write or the read-only path list).
+    # The tools are still listed as gatedTools so each write costs a permission prompt.
+    pdf_writable = srv_flag("pdf", "writable", True)
     pdf_roots = []
 
     def _add_pdf_root(directory):
@@ -196,10 +213,14 @@ if srv_enabled("pdf"):
         pdf_args = ["mcp"]
         for root in pdf_roots:
             pdf_args += ["--root", root]
+        if pdf_writable:
+            pdf_args.append("--writable")
         servers["pdf"] = {
             "command": pdfutil_bin,
             "args": pdf_args,
         }
+        if pdf_writable:
+            servers["pdf"]["gatedTools"] = PDF_MUTATING_TOOLS
         server_order.append("pdf")
     else:
         print("  pdf server enabled but no readable sandbox paths configured; omitting it")
@@ -225,7 +246,8 @@ if allow_network and srv_enabled("search"):
 # above. gatedTools lists the tools that require a session/request_permission
 # round-trip before dispatch - replay's mutating + shell operations (verified against
 # replay's tools/list). Read-only tools (read_file, list_directory, grep_files, ...)
-# are not gated. time/search expose no mutating tools.
+# are not gated. time/search expose no mutating tools. The pdf server sets its own
+# gatedTools in its block above (only when --writable), so it is absent here.
 gated_by_server = {
     "local": ["write_file", "edit_file", "edit_files", "execute_command",
               "create_directory", "move_file", "delete_file"],
@@ -236,8 +258,9 @@ for name in server_order:
     entry = {"name": name, "command": spec["command"], "args": list(spec.get("args") or [])}
     if spec.get("env"):
         entry["env"] = spec["env"]
-    if name in gated_by_server:
-        entry["gatedTools"] = gated_by_server[name]
+    gated = spec.get("gatedTools") or gated_by_server.get(name)
+    if gated:
+        entry["gatedTools"] = list(gated)
     stdio_servers.append(entry)
 out_abs = os.path.abspath(out_json)
 os.makedirs(os.path.dirname(out_abs), exist_ok=True)

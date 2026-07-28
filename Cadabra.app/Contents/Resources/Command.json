@@ -267,6 +267,11 @@
       "NAME" : "Cadabra"
     },
     {
+      "COMMAND_ID" : "aichat.mcp.servers.toggle.pdf",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "Cadabra"
+    },
+    {
       "ACTIONUI_WINDOW" : {
         "INIT_SUBCOMMAND_ID" : "aichat.mcp.inspect.init",
         "IS_BLOCKING" : false,

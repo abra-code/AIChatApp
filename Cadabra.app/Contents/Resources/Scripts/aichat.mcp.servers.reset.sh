@@ -18,6 +18,7 @@ SEARCH_TOGGLE_ID=220
 LOCAL_TOGGLE_ID=230
 NETWORK_TOGGLE_ID=240
 PDF_TOGGLE_ID=260
+PDF_WRITABLE_TOGGLE_ID=261
 PROJECT_FIELD_ID=310
 RW_TABLE_ID=320
 RW_REMOVE_BTN_ID=322
@@ -31,11 +32,14 @@ mcp_prefs_write_defaults
 "$dialog" "$window_uuid" $LOCAL_TOGGLE_ID   true
 "$dialog" "$window_uuid" $NETWORK_TOGGLE_ID true
 "$dialog" "$window_uuid" $PDF_TOGGLE_ID     true
+"$dialog" "$window_uuid" $PDF_WRITABLE_TOGGLE_ID true
 "$dialog" "$window_uuid" $PROJECT_FIELD_ID  ""
 
-# Defaults allow network, so the network-dependent toggles are interactive again.
+# Defaults allow network, so the network-dependent toggles are interactive again; and
+# the PDF server is on, so its nested editing toggle is interactive too.
 "$dialog" "$window_uuid" $TIME_TOGGLE_ID   omc_enable
 "$dialog" "$window_uuid" $SEARCH_TOGGLE_ID omc_enable
+"$dialog" "$window_uuid" $PDF_WRITABLE_TOGGLE_ID omc_enable
 
 mcp_refresh_rw_table "$window_uuid" $RW_TABLE_ID
 mcp_refresh_path_table "$window_uuid" $RO_TABLE_ID servers/local/allowed-read

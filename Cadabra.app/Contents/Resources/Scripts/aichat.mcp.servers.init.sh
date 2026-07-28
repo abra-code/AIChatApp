@@ -13,6 +13,7 @@ SEARCH_TOGGLE_ID=220
 LOCAL_TOGGLE_ID=230
 NETWORK_TOGGLE_ID=240
 PDF_TOGGLE_ID=260
+PDF_WRITABLE_TOGGLE_ID=261
 PROJECT_FIELD_ID=310
 RW_TABLE_ID=320
 RW_REMOVE_BTN_ID=322
@@ -25,8 +26,17 @@ mcp_prefs_init_if_missing
 "$dialog" "$window_uuid" $TIME_TOGGLE_ID   "$(mcp_prefs_get_bool servers/time/enabled)"
 "$dialog" "$window_uuid" $SEARCH_TOGGLE_ID "$(mcp_prefs_get_bool servers/search/enabled)"
 "$dialog" "$window_uuid" $LOCAL_TOGGLE_ID  "$(mcp_prefs_get_bool servers/local/enabled)"
-# PDF (pdfutil): read-only, no network - not gated by the Allow Network switch below.
-"$dialog" "$window_uuid" $PDF_TOGGLE_ID    "$(mcp_prefs_get_bool servers/pdf/enabled)"
+# PDF (pdfutil): no network - not gated by the Allow Network switch below. Its nested
+# "Allow PDF editing" toggle serves pdfutil's mutating tools (create-only outputs, each
+# one permission-gated) and is only interactive while the PDF server itself is on.
+pdf_enabled=$(mcp_prefs_get_bool servers/pdf/enabled)
+"$dialog" "$window_uuid" $PDF_TOGGLE_ID          "$pdf_enabled"
+"$dialog" "$window_uuid" $PDF_WRITABLE_TOGGLE_ID "$(mcp_prefs_get_bool servers/pdf/writable)"
+if [ "$pdf_enabled" = "true" ]; then
+    "$dialog" "$window_uuid" $PDF_WRITABLE_TOGGLE_ID omc_enable
+else
+    "$dialog" "$window_uuid" $PDF_WRITABLE_TOGGLE_ID omc_disable
+fi
 
 # Allow Network master gate. When off, the network-dependent server toggles are
 # greyed out (their stored values are kept and restored when network is re-enabled).

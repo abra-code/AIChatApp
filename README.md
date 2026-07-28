@@ -51,7 +51,7 @@ MLX - so both formats sit side by side in the same model list.
 - **MCP tool support** over stdio, owned by `mlx-agent`, with a servers dialog and an inspector:
   - Time (`mcp-server-time`)
   - Web Search & Fetch (`duckduckgo-mcp-server`)
-  - PDF (embedded `pdfutil`, read-only, no network)
+  - PDF (embedded `pdfutil`, no network): inspection always, plus optional editing - merge, page ops, metadata, form fill, watermark, shrink - whose outputs are always new files (never an overwrite) and are permission-gated per call
   - Local files & shell, sandboxed via `replay`, with explicit read-only and read-write path lists
   - a session-wide **Allow Network** master switch that hard-gates the networked servers
 

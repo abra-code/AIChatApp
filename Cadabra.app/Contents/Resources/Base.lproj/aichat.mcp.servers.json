@@ -180,9 +180,10 @@
                             "type": "Toggle",
                             "id": 260,
                             "properties": {
-                              "title": "PDF - read-only document inspection",
+                              "title": "PDF - document inspection & editing",
                               "isOn": true,
-                              "style": "checkbox"
+                              "style": "checkbox",
+                              "actionID": "aichat.mcp.servers.toggle.pdf"
                             }
                           },
                           {
@@ -193,6 +194,34 @@
                               "font": "caption",
                               "padding": { "leading": 22 }
                             }
+                          },
+                          {
+                            "type": "VStack",
+                            "properties": {
+                              "spacing": 2,
+                              "alignment": "leading",
+                              "padding": { "leading": 22, "top": 6 }
+                            },
+                            "children": [
+                              {
+                                "type": "Toggle",
+                                "id": 261,
+                                "properties": {
+                                  "title": "Allow PDF editing",
+                                  "isOn": true,
+                                  "style": "checkbox"
+                                }
+                              },
+                              {
+                                "type": "Text",
+                                "properties": {
+                                  "text": "Merge, extract/delete/rotate pages, set metadata, fill forms, watermark, shrink. Every edit asks first and writes a NEW file in the sandbox paths - existing files are never overwritten or deleted.",
+                                  "foregroundStyle": "secondary",
+                                  "font": "caption",
+                                  "padding": { "leading": 22 }
+                                }
+                              }
+                            ]
                           }
                         ]
                       }

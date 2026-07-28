@@ -4,7 +4,7 @@
 # rebranded from V2/AIChat.app):
 #   1. llama.cpp  - llama-server + its dylibs, from a GitHub release (the GGUF engine)
 #   2. mlx-agent  - built from source with xcodebuild (the ACP agent + MLX engine)
-#   3. pdfutil    - built from source with ./build.sh (the read-only PDF MCP server)
+#   3. pdfutil    - built from source with ./build.sh (the PDF MCP server)
 # then codesigns the bundle and verifies the engines actually launch.
 #
 # Relationship to ./update-llama-cpp.sh: that script serves the V1 app (and Enoch), which
@@ -81,8 +81,8 @@ Options:
   --version=VERSION   llama.cpp build tag (e.g. b8797, default: auto-detect latest)
   --arch=ARCH         arm64 or x86_64 (default: host). x86_64 requires --skip-agent.
   --identity=CERT     codesign identity (default: - for ad-hoc)
-  --agent-repo=PATH   mlx-agent repo (default: ../../mlx-agent sibling checkout)
-  --pdfutil-repo=PATH pdfutil repo (default: ../../pdfutil sibling checkout)
+  --agent-repo=PATH   mlx-agent repo (default: ../mlx-agent sibling checkout)
+  --pdfutil-repo=PATH pdfutil repo (default: ../pdfutil sibling checkout)
   --skip-llama        leave llama.cpp untouched
   --skip-agent        leave mlx-agent untouched
   --skip-pdfutil      leave pdfutil untouched
@@ -186,15 +186,18 @@ prepare() {
         # PROJECT: the repo has no Package.swift since it moved to an XcodeGen-generated
         # project (Metal shaders force xcodebuild anyway). When missing, offer to clone it
         # into the sibling location and continue.
+        # ../mlx-agent is the current sibling layout (this script sits at the repo root
+        # since the Cadabra rebrand); ../../mlx-agent is kept as a fallback for checkouts
+        # still laid out the pre-rebrand way, when this script lived one level deeper.
         if [ -z "$AGENT_REPO" ]; then
-            for _cand in "$SCRIPT_DIR/../../mlx-agent"; do
+            for _cand in "$SCRIPT_DIR/../mlx-agent" "$SCRIPT_DIR/../../mlx-agent"; do
                 [ -d "$_cand/mlx-agent.xcodeproj" ] && { AGENT_REPO="$(cd "$_cand" && pwd)"; break; }
             done
         fi
         if [ -z "$AGENT_REPO" ]; then
-            offer_clone "https://github.com/abra-code/mlx-agent" "$(cd "$SCRIPT_DIR/../.." && pwd)/mlx-agent" \
-                && [ -d "$SCRIPT_DIR/../../mlx-agent/mlx-agent.xcodeproj" ] \
-                && AGENT_REPO="$(cd "$SCRIPT_DIR/../../mlx-agent" && pwd)"
+            offer_clone "https://github.com/abra-code/mlx-agent" "$(cd "$SCRIPT_DIR/.." && pwd)/mlx-agent" \
+                && [ -d "$SCRIPT_DIR/../mlx-agent/mlx-agent.xcodeproj" ] \
+                && AGENT_REPO="$(cd "$SCRIPT_DIR/../mlx-agent" && pwd)"
         fi
         [ -n "$AGENT_REPO" ] && [ -d "$AGENT_REPO/mlx-agent.xcodeproj" ] \
             || fail "mlx-agent repo not found (looked for mlx-agent.xcodeproj); clone github.com/abra-code/mlx-agent or pass --agent-repo=PATH."
@@ -207,15 +210,16 @@ prepare() {
         # build.sh: it is a plain-swiftc build (no Xcode project, no Package.swift), so
         # build.sh is the identifying marker. When missing, offer to clone it into the
         # sibling location and continue.
+        # Same sibling-then-legacy candidate order as mlx-agent above.
         if [ -z "$PDFUTIL_REPO" ]; then
-            for _cand in "$SCRIPT_DIR/../../pdfutil"; do
+            for _cand in "$SCRIPT_DIR/../pdfutil" "$SCRIPT_DIR/../../pdfutil"; do
                 [ -f "$_cand/build.sh" ] && { PDFUTIL_REPO="$(cd "$_cand" && pwd)"; break; }
             done
         fi
         if [ -z "$PDFUTIL_REPO" ]; then
-            offer_clone "https://github.com/abra-code/pdfutil" "$(cd "$SCRIPT_DIR/../.." && pwd)/pdfutil" \
-                && [ -f "$SCRIPT_DIR/../../pdfutil/build.sh" ] \
-                && PDFUTIL_REPO="$(cd "$SCRIPT_DIR/../../pdfutil" && pwd)"
+            offer_clone "https://github.com/abra-code/pdfutil" "$(cd "$SCRIPT_DIR/.." && pwd)/pdfutil" \
+                && [ -f "$SCRIPT_DIR/../pdfutil/build.sh" ] \
+                && PDFUTIL_REPO="$(cd "$SCRIPT_DIR/../pdfutil" && pwd)"
         fi
         [ -n "$PDFUTIL_REPO" ] && [ -f "$PDFUTIL_REPO/build.sh" ] \
             || fail "pdfutil repo not found (looked for build.sh); clone github.com/abra-code/pdfutil or pass --pdfutil-repo=PATH."
@@ -408,7 +412,10 @@ update_pdfutil() {
 codesign_app() {
     echo "==== Codesigning ===="
     echo
-    local codesign_script="$SCRIPT_DIR/../codesign_applet.sh"
+    # Beside this script at the repo root since the Cadabra rebrand; ../ is the
+    # pre-rebrand location, kept as a fallback.
+    local codesign_script="$SCRIPT_DIR/codesign_applet.sh"
+    [ -f "$codesign_script" ] || codesign_script="$SCRIPT_DIR/../codesign_applet.sh"
     [ -f "$codesign_script" ] || fail "codesign_applet.sh not found at $codesign_script"
     "$codesign_script" "$APP_BUNDLE" "$SIGNING_IDENTITY" || fail "Codesigning failed"
     echo
