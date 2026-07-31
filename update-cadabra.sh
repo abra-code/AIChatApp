@@ -3,7 +3,7 @@
 # Updates the git-excluded runtime engines inside Cadabra.app (the native-chat V2,
 # rebranded from V2/AIChat.app):
 #   1. llama.cpp  - llama-server + its dylibs, from a GitHub release (the GGUF engine)
-#   2. mlx-agent  - built from source with xcodebuild (the ACP agent + MLX engine)
+#   2. mlx-agent  - built from source with xcodebuild, Release (the ACP agent + MLX engine)
 #   3. pdfutil    - built from source with ./build.sh (the PDF MCP server)
 #   4. replay     - built from source with xcodebuild (the local files/shell MCP server)
 #   5. packages   - the Python MCP servers, pip-installed into Contents/Library/Packages
@@ -61,6 +61,7 @@ DO_AGENT="yes"
 DO_PDFUTIL="yes"
 DO_REPLAY="yes"
 DO_PACKAGES="yes"
+DO_AGENT_PACKAGE_UPDATE="yes"
 DO_BUILD="yes"
 DO_CODESIGN="yes"
 CLEAN_PACKAGES="no"
@@ -92,6 +93,11 @@ MCP_MODULES=("mcp_server_time" "duckduckgo_mcp_server.server")
 # Set by prepare()
 ASSET_NAME=""; DOWNLOAD_URL=""; WORK_DIR=""; TARBALL=""; EXTRACT_DIR=""
 AGENT_BUILD_DIR=""
+AGENT_RESOLVED=""
+# Set by update_agent_packages while mlx-agent's Package.resolved is moved aside. Globals
+# rather than locals because the INT/TERM trap has to see them (see restore_agent_pins).
+AGENT_PINS_DIR=""
+AGENT_PINS_BACKUP=""
 PDFUTIL_BUILD_BIN=""
 REPLAY_BUILD_BIN=""
 LLAMA_STATUS="skipped"; AGENT_STATUS="skipped"; PDFUTIL_STATUS="skipped"
@@ -153,7 +159,7 @@ Usage: $0 [OPTIONS]
 
 Updates the runtime engines in $(/usr/bin/basename "$APP_BUNDLE"):
   llama.cpp -> Contents/Support/Llama.cpp/   (downloaded release, no WebUI - Cadabra is native)
-  mlx-agent -> Contents/Support/MLX/         (built from source with xcodebuild)
+  mlx-agent -> Contents/Support/MLX/         (built from source, xcodebuild -configuration Release)
   pdfutil   -> Contents/Support/pdfutil      (built from source with ./build.sh)
   replay    -> Contents/Support/replay       (built from source with xcodebuild)
   packages  -> Contents/Library/Packages     (pip install with the bundle's own python3)
@@ -171,6 +177,9 @@ Options:
   --skip-replay       leave replay untouched
   --skip-packages     leave the Python MCP packages untouched
   --clean-packages    wipe Contents/Library/Packages before installing (drops orphans)
+  --skip-agent-package-update
+                      build mlx-agent against its committed Package.resolved instead of
+                      re-resolving its SPM dependencies to the newest allowed versions
   --skip-build        deploy the existing build products without rebuilding
   --skip-codesign     do not codesign
   --help              show this message
@@ -208,6 +217,7 @@ while [ $# -gt 0 ]; do
         --skip-replay) DO_REPLAY="no" ;;
         --skip-packages) DO_PACKAGES="no" ;;
         --clean-packages) CLEAN_PACKAGES="yes" ;;
+        --skip-agent-package-update) DO_AGENT_PACKAGE_UPDATE="no" ;;
         --skip-build) DO_BUILD="no" ;;
         --skip-codesign) DO_CODESIGN="no" ;;
         *) echo "Unknown option: $1"; show_help ;;
@@ -230,6 +240,11 @@ cleanup() {
     # Only ever remove the mktemp dir this run created; never an inherited/empty value.
     if [ -n "$WORK_DIR" ] && [ -d "$WORK_DIR" ]; then
         /bin/rm -rf "$WORK_DIR"
+    fi
+    # The Package.resolved backup + resolve log. Removed last, and only ever after any
+    # restore has already run (the trap restores before calling cleanup).
+    if [ -n "$AGENT_PINS_DIR" ] && [ -d "$AGENT_PINS_DIR" ]; then
+        /bin/rm -rf "$AGENT_PINS_DIR"
     fi
 }
 
@@ -304,8 +319,14 @@ prepare() {
         fi
         [ -n "$AGENT_REPO" ] && [ -d "$AGENT_REPO/mlx-agent.xcodeproj" ] \
             || fail "mlx-agent repo not found (looked for mlx-agent.xcodeproj); clone github.com/abra-code/mlx-agent or pass --agent-repo=PATH."
-        # Debug config: what the repo's own scheme ships (see mlx-agent/project.yml).
-        AGENT_BUILD_DIR="$AGENT_REPO/build/Build/Products/Debug"
+        # Release, not Debug: this is the binary users run, so it is built -O/wholemodule
+        # rather than -Onone. The configuration is passed to xcodebuild explicitly (see
+        # update_agent) instead of relying on the scheme, which keeps run/test on Debug for
+        # development - so this path must match that flag, not the scheme.
+        AGENT_BUILD_DIR="$AGENT_REPO/build/Build/Products/Release"
+        # The SPM pins for the Xcode project live here (there is no Package.swift in that
+        # repo - see the header of mlx-agent/project.yml for why).
+        AGENT_RESOLVED="$AGENT_REPO/mlx-agent.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
     fi
 
     if [ "$DO_PDFUTIL" = "yes" ]; then
@@ -385,7 +406,10 @@ prepare() {
     echo "  App bundle : $APP_BUNDLE"
     echo "  Arch       : $ARCH"
     echo "  llama.cpp  : $([ "$DO_LLAMA" = yes ] && echo "$VERSION" || echo "<skipped>")"
-    echo "  mlx-agent  : $([ "$DO_AGENT" = yes ] && echo "${AGENT_REPO}$([ "$DO_BUILD" = no ] && echo " (no rebuild)")" || echo "<skipped>")"
+    # Spells out the SPM re-resolve: it is on by default, it touches a tracked file in a
+    # DIFFERENT repo, and it goes to the network for minutes - the most surprising thing this
+    # script does by default should be visible before it runs, not only in hindsight.
+    echo "  mlx-agent  : $([ "$DO_AGENT" = yes ] && echo "${AGENT_REPO}$([ "$DO_BUILD" = no ] && echo " (no rebuild)")$([ "$DO_BUILD" = yes ] && [ "$DO_AGENT_PACKAGE_UPDATE" = yes ] && echo " (+ SPM re-resolve)")" || echo "<skipped>")"
     echo "  pdfutil    : $([ "$DO_PDFUTIL" = yes ] && echo "${PDFUTIL_REPO}$([ "$DO_BUILD" = no ] && echo " (no rebuild)")" || echo "<skipped>")"
     echo "  replay     : $([ "$DO_REPLAY" = yes ] && echo "${REPLAY_REPO}$([ "$DO_BUILD" = no ] && echo " (no rebuild)")" || echo "<skipped>")"
     echo "  packages   : $([ "$DO_PACKAGES" = yes ] && echo "${MCP_PACKAGES[*]}$([ "$CLEAN_PACKAGES" = yes ] && echo " (clean install)")" || echo "<skipped>")"
@@ -470,6 +494,150 @@ EOF
 }
 
 # ── 2. mlx-agent ──────────────────────────────────────────────────────────────
+
+# Re-resolve mlx-agent's SPM dependencies to the newest versions its project.yml pins allow,
+# so a shipped build never quietly carries a months-old MLX because Package.resolved froze it.
+#
+# Why the file has to be deleted: there is no `xcodebuild -updatePackages`.
+# -resolvePackageDependencies HONOURS Package.resolved and keeps a stale revision that still
+# satisfies the version rules, and `swift package update` needs a Package.swift, which that
+# repo deliberately does not have (Metal shaders force xcodebuild; see project.yml's header).
+# Resolving with the file absent is the only CLI path that actually upgrades.
+#
+# The old file is copied aside first and restored if resolution fails, so a network outage or
+# a yanked upstream tag leaves the checkout exactly as it was rather than pin-less. On success
+# the update lands as a git diff in the mlx-agent repo - deliberately: Package.resolved is
+# committed there precisely so new versions get reviewed, and this script must not be the
+# thing that quietly changes them without saying so.
+#
+# The backup lives in a TEMP DIR, not beside the original as a .bak, and a signal handler
+# restores it. Both details matter and neither is theoretical: the resolution is
+# network-bound and takes minutes on a cold checkout, so Ctrl-C lands inside the window
+# where the file is deleted. A signal kills bash outright - the failure branches below
+# never run - which would leave the sibling repo showing a DELETED tracked file, and a .bak
+# beside it that mlx-agent's .gitignore does not cover, i.e. one `git add -A` from
+# committing both. (Same reasoning as the packages staging tree further down.)
+
+# One "<identity> <version>" line per pin of a Package.resolved. Anchored on `"version" : "`
+# so the trailing `"version" : 3` format marker at the end of the file (an int, not a string)
+# is not mistaken for a package version. A pin with no version (branch/revision pinned) falls
+# back to its revision, so a revision move is NOT reported as "versions unchanged" - the whole
+# point of the function is answering "did any pin actually move?", which is not the same
+# question as "did the file change": a re-resolution rewrites originHash even when every pin
+# lands on the byte-identical version.
+# The revision is printed in full rather than abbreviated: this output is COMPARED, not just
+# displayed, and two revisions sharing a short prefix would compare equal.
+agent_pin_versions() {
+    /usr/bin/awk -F'"' '
+        function emit() { if (id != "") printf "    %-24s %s\n", id, (ver != "" ? ver : "rev " rev) }
+        /"identity"/ { emit(); id = $4; ver = ""; rev = "" }
+        /"revision"[[:space:]]*:[[:space:]]*"/ { rev = $4 }
+        /"version"[[:space:]]*:[[:space:]]*"/  { ver = $4 }
+        END { emit() }' "$1"
+}
+
+# Put back the pins we moved aside. Returns 0 if they are in place afterwards.
+#
+# It always discards whatever the interrupted/failed resolution wrote, rather than keeping a
+# file that happens to exist: SwiftPM writes Package.resolved in place (no temp-and-rename)
+# and writes it before the checkouts finish, so "the file is there" does not mean "the
+# resolution completed" - a signal can leave it truncated. Re-running a resolution is cheap;
+# telling the user their pins are fine when the file is corrupt is not.
+#
+# The copy lands on a temp name in the same directory and is renamed into place, so the real
+# path is never a partially-written file: a SECOND signal arriving inside this handler (bash
+# does not re-enter for the SAME signal, but does for a different one) would otherwise be able
+# to interrupt the copy mid-write, and the re-entered pass would find a truncated file. The
+# rename is atomic on the same volume, and a re-entered pass simply redoes the whole copy.
+restore_agent_pins() {
+    [ -n "$AGENT_PINS_BACKUP" ] && [ -f "$AGENT_PINS_BACKUP" ] || return 1
+    local staged="$AGENT_RESOLVED.restoring.$$"
+    /bin/cp -f "$AGENT_PINS_BACKUP" "$staged" || return 1
+    /bin/mv -f "$staged" "$AGENT_RESOLVED"
+}
+
+# INT/TERM/HUP/QUIT while the pins are moved aside. HUP and QUIT are in the set deliberately:
+# the window is minutes long on a cold checkout, which is exactly long enough for a terminal
+# to be closed or an ssh session to drop, and those deliver HUP - not INT.
+agent_pins_interrupted() {
+    echo >&2
+    if restore_agent_pins; then
+        echo "${YELLOW}Interrupted - restored mlx-agent Package.resolved (this run's resolution discarded)${RESET}" >&2
+    else
+        echo "${RED}Interrupted - could NOT restore $AGENT_RESOLVED; recover it with: git -C '$AGENT_REPO' checkout -- mlx-agent.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved${RESET}" >&2
+    fi
+    cleanup
+    exit 130
+}
+
+update_agent_packages() {
+    local resolved="$AGENT_RESOLVED"
+
+    echo "  Re-resolving SPM dependencies to the newest versions project.yml allows..."
+
+    AGENT_PINS_DIR="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/update-cadabra-pins.XXXXXX")"
+    [ -d "$AGENT_PINS_DIR" ] || fail "mktemp failed"
+    local resolve_log="$AGENT_PINS_DIR/resolve.log"
+    local backup=""
+
+    if [ -f "$resolved" ]; then
+        backup="$AGENT_PINS_DIR/Package.resolved"
+        /bin/cp -f "$resolved" "$backup" || fail "Could not back up $resolved"
+        # Armed only for the window in which the file is gone; disarmed at the end.
+        AGENT_PINS_BACKUP="$backup"
+        trap agent_pins_interrupted INT TERM HUP QUIT
+        /bin/rm -f "$resolved"
+    fi
+
+    if ! ( cd "$AGENT_REPO" && /usr/bin/xcodebuild \
+            -project mlx-agent.xcodeproj \
+            -scheme mlx-agent \
+            -derivedDataPath build \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
+            -resolvePackageDependencies ) >"$resolve_log" 2>&1; then
+        restore_agent_pins
+        # A version conflict is the informative failure here and the one where project.yml
+        # needs a human, so show what xcodebuild said instead of only that it failed.
+        /usr/bin/tail -20 "$resolve_log" >&2
+        fail "xcodebuild -resolvePackageDependencies failed (Package.resolved restored). Re-run with --skip-agent-package-update to build against the committed pins."
+    fi
+
+    if [ ! -f "$resolved" ]; then
+        restore_agent_pins
+        fail "Resolution wrote no Package.resolved (restored the previous one). Re-run with --skip-agent-package-update."
+    fi
+
+    # Existence is not enough: a resolution that died mid-write leaves a file that parses to
+    # nothing, and an empty pin table would then compare unequal to the old one and be
+    # announced as a perfectly ordinary "VERSIONS changed" - with no versions under it.
+    # Checked while the trap is still armed and the backup still valid, so it can be undone.
+    local new_pins="$(agent_pin_versions "$resolved")"
+    if [ -z "$new_pins" ]; then
+        restore_agent_pins
+        fail "Resolution produced an unreadable Package.resolved - no pins in it (restored the previous one). Re-run, or use --skip-agent-package-update."
+    fi
+
+    trap - INT TERM HUP QUIT
+    AGENT_PINS_BACKUP=""
+
+    printf '%s\n' "$new_pins"
+
+    if [ -z "$backup" ]; then
+        echo "  ${YELLOW}Resolved from scratch (no previous Package.resolved) - review and commit it in $AGENT_REPO${RESET}"
+    elif [ "$new_pins" != "$(agent_pin_versions "$backup")" ]; then
+        echo "  ${YELLOW}Package VERSIONS changed - review and commit Package.resolved in $AGENT_REPO${RESET}"
+    elif ! /usr/bin/cmp -s "$backup" "$resolved"; then
+        # Every pin landed on the same version, but the file is not byte-identical: SwiftPM
+        # rewrote originHash (it hashes the dependency declarations, and a from-scratch
+        # resolution recomputes it). Worth saying out loud, because the git diff that shows
+        # up in the agent repo is otherwise indistinguishable from a real upgrade.
+        echo "  Package versions unchanged (already newest allowed); only Package.resolved metadata was rewritten"
+    else
+        echo "  Package.resolved unchanged (already at the newest allowed versions)"
+    fi
+}
+
 update_agent() {
     echo "==== mlx-agent ===="
     echo
@@ -480,13 +648,28 @@ update_agent() {
         /usr/bin/xcrun --find metal >/dev/null 2>&1 \
             || fail "Metal toolchain missing. Install once: xcodebuild -downloadComponent MetalToolchain"
 
-        echo "  Building (xcodebuild - compiles the Metal shaders; never 'swift build')..."
+        if [ "$DO_AGENT_PACKAGE_UPDATE" = "yes" ]; then
+            update_agent_packages
+        else
+            # Without a Package.resolved the build below resolves from scratch - i.e. performs
+            # exactly the upgrade this flag exists to prevent, and writes a new pin set on the
+            # way past. Refuse rather than print the opposite of what is about to happen.
+            [ -f "$AGENT_RESOLVED" ] \
+                || fail "--skip-agent-package-update was given, but there is no $AGENT_RESOLVED - the build would resolve from scratch and upgrade anyway. Restore it (git -C '$AGENT_REPO' checkout -- mlx-agent.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved) or drop the flag."
+            echo "  --skip-agent-package-update: building against the committed Package.resolved"
+        fi
+
+        # Release, not Debug: this binary ships inside the app, so it is built -O /
+        # wholemodule. The flag is what selects it - the scheme keeps run/test on Debug so
+        # development in Xcode is unaffected - which is why AGENT_BUILD_DIR above must track
+        # this value and not the scheme's.
+        echo "  Building (xcodebuild -configuration Release - compiles the Metal shaders; never 'swift build')..."
         ( cd "$AGENT_REPO" && /usr/bin/xcodebuild \
             -project mlx-agent.xcodeproj \
             -scheme mlx-agent \
             -destination "platform=macOS,arch=$ARCH" \
             -derivedDataPath build \
-            -configuration Debug \
+            -configuration Release \
             -skipPackagePluginValidation \
             -skipMacroValidation \
             build ) 2>&1 | /usr/bin/grep -iE "error:|BUILD (SUCCEEDED|FAILED)" | /usr/bin/tail -10
@@ -496,7 +679,7 @@ update_agent() {
     fi
 
     [ -x "$AGENT_BUILD_DIR/mlx-agent" ] \
-        || fail "No built mlx-agent at $AGENT_BUILD_DIR (build first, or drop --skip-build)."
+        || fail "No built mlx-agent at $AGENT_BUILD_DIR (drop --skip-build, or build it yourself - note this deploys the RELEASE product, so a Debug-only build tree will not do)."
 
     /bin/mkdir -p "$MLX_DIR" || fail "Could not create $MLX_DIR"
     /bin/cp -f "$AGENT_BUILD_DIR/mlx-agent" "$MLX_DIR/mlx-agent"
@@ -522,7 +705,7 @@ update_agent() {
         || fail "default.metallib not found after copy."
     [ -f "$AGENT_REPO/LICENSE" ] && /bin/cp -f "$AGENT_REPO/LICENSE" "$MLX_DIR/mlx-agent.LICENSE"
 
-    AGENT_STATUS="deployed"
+    AGENT_STATUS="deployed (Release)"
     echo "  ${GREEN}Deployed${RESET} mlx-agent + metallib"
     echo
 }
@@ -764,6 +947,22 @@ verify() {
         # Freshness is already proven by the cmp in update_agent, which runs BEFORE signing.
         # What is left to prove here is that the binary still loads once signed - i.e. the
         # signature and the metallib bundle beside it agree.
+        #
+        # --version reports what was actually deployed (the same string the agent puts in its
+        # ACP agentInfo), so the log names a version rather than just "deployed". It answers
+        # before any model, config or MLX work, so anything other than a version means the
+        # process did not get that far - which is exactly what a post-signing probe isolates.
+        #
+        # stderr is DISCARDED, not merged: dyld writes "Library not loaded: ..." there and
+        # exits nonzero, so a `2>&1` capture would be non-empty and a mere -n test would
+        # report a load failure as the version. The answer is matched for shape instead.
+        local agent_version="$( cd "$MLX_DIR" && ./mlx-agent --version 2>/dev/null | /usr/bin/head -1 )"
+        case "$agent_version" in
+            "mlx-agent "*) ;;
+            *) fail "mlx-agent --version did not report a version (got: \"${agent_version:-<no output>}\") - a metallib/dylib load failure, or a broken signature." ;;
+        esac
+        echo "  mlx-agent: $agent_version"
+        # --help additionally exercises the full startup path; only the exit code matters.
         ( cd "$MLX_DIR" && ./mlx-agent --help >/dev/null 2>&1 ) \
             || fail "mlx-agent --help failed - a metallib/dylib load failure, or a broken signature."
         echo "  ${GREEN}OK${RESET} mlx-agent launches (post-signing)"
