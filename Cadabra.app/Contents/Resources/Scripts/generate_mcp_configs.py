@@ -29,10 +29,16 @@
 # would go stale if stored, so only the on/off decision lives in the plist
 # (servers/local/include-session-tmpdir, default on); the path itself is recomputed.
 
+import concurrent.futures
+import fcntl
 import json
 import os
 import plistlib
+import selectors
+import signal
+import subprocess
 import sys
+import time
 
 out_json        = sys.argv[1]
 app_bundle      = sys.argv[2]
@@ -41,6 +47,19 @@ mcp_prefs_plist = sys.argv[4] if len(sys.argv) > 4 else ""
 
 # Everything (the config and the replay sandbox profile) lands in the session dir.
 session_dir = os.path.dirname(os.path.abspath(out_json))
+
+# Remove any prior config HERE, before anything that can raise - not merely before the
+# probe. Everything below is fallible (prefs parsing, makedirs, writing the sandbox
+# profile, then the probe itself), and the shell caller does not check this script's
+# exit code. So an exception at any point must degrade to "no config found" - the
+# transport builder then falls back to chat mode - rather than leaving the previous
+# launch's file in place, carrying the previous launch's roots, --writable state and
+# gated tool list. A stale config is not a cosmetic problem: it would silently outlive
+# every prefs change the user makes, including revoking write access.
+out_abs = os.path.abspath(out_json)
+os.makedirs(os.path.dirname(out_abs), exist_ok=True)
+if os.path.exists(out_abs):
+    os.remove(out_abs)
 
 packages_dir = f"{app_bundle}/Contents/Library/Packages"
 python3_bin  = f"{app_bundle}/Contents/Library/Python/bin/python3"
@@ -65,14 +84,8 @@ def srv_flag(name: str, key: str, default: bool = True) -> bool:
 # not started and the local (replay) server runs with --deny-network.
 allow_network = prefs.get("allow-network", True)
 
-# pdfutil's mutating tier, served only when the pdf server is started --writable
-# (verified against `pdfutil mcp --help`). Every one of them takes an explicit `output`
-# path and writes a new file there; they are gated so the user confirms each write.
-PDF_MUTATING_TOOLS = ["pdf_merge", "pdf_extract_pages", "pdf_delete_pages", "pdf_rotate",
-                      "pdf_metadata_set", "pdf_forms_fill", "pdf_watermark", "pdf_reduce"]
-
 # ── Build the per-server config table, honoring enabled flags ─────────────────
-servers = {}           # short name -> {command, args, env?, gatedTools?}
+servers = {}           # short name -> {command, args, env?}
 server_order = []      # short names in launch order
 user_project = ""      # set in the local block; pre-init so it's always defined
 
@@ -172,13 +185,14 @@ if srv_enabled("pdf"):
     # allow-network.
     pdfutil_bin = f"{app_bundle}/Contents/Support/pdfutil"
     pdf_local_prefs = prefs.get("servers", {}).get("local", {})
-    # servers/pdf/writable adds --writable, which serves the eight mutating tools listed
-    # in PDF_MUTATING_TOOLS. Default on, matching the other bundled servers (and strictly
-    # milder than what the Local server already grants by default: pdfutil's outputs are
-    # CREATE-ONLY - a new file under a --root, refused if anything already exists there,
-    # with no overwrite parameter - so a mutating call can add a PDF but can never modify
-    # or destroy an existing file, in either the read-write or the read-only path list).
-    # The tools are still listed as gatedTools so each write costs a permission prompt.
+    # servers/pdf/writable adds --writable, which serves pdfutil's mutating tier. Default
+    # on, matching the other bundled servers (and strictly milder than what the Local
+    # server already grants by default: pdfutil's outputs are CREATE-ONLY - a new file
+    # under a --root, refused if anything already exists there, with no overwrite
+    # parameter - so a mutating call can add a PDF but can never modify or destroy an
+    # existing file, in either the read-write or the read-only path list). Which of its
+    # tools end up gated is not decided here: pdfutil annotates every tool with
+    # readOnlyHint, and the emit step below reads those hints off the live server.
     pdf_writable = srv_flag("pdf", "writable", True)
     pdf_roots = []
 
@@ -219,8 +233,6 @@ if srv_enabled("pdf"):
             "command": pdfutil_bin,
             "args": pdf_args,
         }
-        if pdf_writable:
-            servers["pdf"]["gatedTools"] = PDF_MUTATING_TOOLS
         server_order.append("pdf")
     else:
         print("  pdf server enabled but no readable sandbox paths configured; omitting it")
@@ -241,33 +253,276 @@ if allow_network and srv_enabled("search"):
     }
     server_order.append("search")
 
+# ── Ask each server which of its tools need a permission prompt ───────────────
+# gatedTools lists the tools that require a session/request_permission round-trip
+# before mlx-agent dispatches them. The list is ASKED OF EACH SERVER, never written
+# down here: a server is started once with the exact command line it will run with,
+# handshaken, and its tools/list reply read. Hardcoding tool names rots silently -
+# a server that gains a mutating tool ships it un-gated until someone remembers to
+# edit this file, which is exactly how pdfutil's pdf_render_to_file went unprompted.
+#
+# The rule is fail-closed: a tool is gated unless it positively declares MCP's
+# readOnlyHint: true. An unannotated server (no hints at all) therefore has every
+# tool gated - "I don't know" is treated as "ask the user", never as "safe". The
+# cost of a server being honest about its read-only tools is one annotation; the
+# cost of guessing wrong is an unprompted write.
+# Probe the servers from the working directory they will actually run in. ChatView
+# launches mlx-agent with the Project workspace as cwd (falling back to $HOME for a
+# value that is not absolute-and-existing) and the servers inherit it; for the two
+# `python3 -m` servers cwd lands on sys.path ahead of PYTHONPATH, so a probe run
+# somewhere else could describe a different module than the one that gets served.
+#
+# Read the pref directly rather than reusing user_project: that one is only set when
+# the LOCAL server is enabled and is .strip()ed, while the launcher reads this pref
+# unconditionally and does not strip it (aichat.mcp.servers.library.sh). Reproducing
+# the launcher's rule exactly is the whole point - a probe that runs somewhere the
+# servers will not is worse than no probe, because it describes the wrong module
+# confidently.
+probe_project = prefs.get("servers", {}).get("local", {}).get("project") or ""
+probe_cwd = probe_project if (probe_project.startswith("/") and os.path.isdir(probe_project)) \
+    else os.path.expanduser("~")
+
+# Everything below decides a security policy from a server's own answer, so the
+# parsing is strict on purpose: anything unexpected fails the probe (and drops the
+# server) rather than producing a half-trusted list. The probe reads until the
+# reply arrives instead of waiting for the process to exit - a server is not
+# obliged to quit when its stdin closes, and one that lingers must not cost a
+# 15-second stall (or, worse, be mistaken for a server that never answered).
+MCP_PROBE_DEADLINE = 10.0     # seconds for the whole handshake, not per read
+MCP_PROBE_MAX_PAGES = 20      # tools/list is paginated; bound the cursor loop
+MCP_PROBE_MAX_CURSOR = 4096   # a pagination cursor is opaque, but it is echoed back
+MCP_PROBE_MAX_BUFFER = 4 << 20
+MCP_PROBE_MAX_TOOLS = 2000
+
+def _probe_fail(name, reason):
+    print(f"  warning: {name} did not describe itself ({reason!r})")
+    return None
+
+def _send(stream, message, deadline):
+    """Write one JSON-RPC message, refusing to outlive the probe deadline.
+
+    A server that never drains its stdin must not be able to wedge the window-launch
+    path, so the write is bounded like every read is.
+
+    The fd MUST be made non-blocking for this to hold, and select() alone is not
+    enough. select() reports a pipe writable when as little as PIPE_BUF is free, but
+    a blocking write(fd, n) only returns once ALL n bytes are gone - so a large-enough
+    write sails past the select() guard and then blocks forever with no deadline to
+    save it. Nor do the size caps save us: MCP_PROBE_MAX_CURSOR * MCP_PROBE_MAX_PAGES
+    is ~84 KB of echoed cursors, comfortably more than a 64 KB pipe, so a server that
+    paginates while refusing to read gets there in about 17 pages. Non-blocking turns
+    that into a partial write plus BlockingIOError, which the loop can time out on.
+    """
+    payload = (json.dumps(message) + "\n").encode("utf-8")
+    fd = stream.fileno()
+    selector = selectors.DefaultSelector()
+    selector.register(stream, selectors.EVENT_WRITE)
+    original_flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+    fcntl.fcntl(fd, fcntl.F_SETFL, original_flags | os.O_NONBLOCK)
+    try:
+        while payload:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not selector.select(remaining):
+                raise TimeoutError("timed out writing to the server")
+            try:
+                payload = payload[os.write(fd, payload):]
+            except BlockingIOError:
+                continue  # select() lied about how much room there was; re-arm
+    finally:
+        # Restore before handing the fd back: the caller may close() it, and leaving
+        # O_NONBLOCK on a shared description is the kind of thing that bites elsewhere.
+        try:
+            fcntl.fcntl(fd, fcntl.F_SETFL, original_flags)
+        except OSError:
+            pass
+        selector.close()
+
+def _json_lines(stream, deadline):
+    """Yield JSON objects from a line-delimited stream until the deadline passes.
+
+    Reads bytes and decodes with errors="replace" so one undecodable byte in a
+    startup banner costs that line, not the whole probe, and splits on "\\n" only
+    - str.splitlines() also breaks on U+2028/U+2029/U+0085, which are legal raw
+    characters inside a JSON string and which Swift's JSONEncoder emits unescaped.
+    Splitting before decoding is what makes that safe: no multibyte sequence can
+    contain 0x0A. A top-level array is a JSON-RPC batch, which the 2025-03-26
+    revision this probe negotiates still permits.
+    """
+    selector = selectors.DefaultSelector()
+    selector.register(stream, selectors.EVENT_READ)
+    buffered = b""
+    try:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not selector.select(remaining):
+                return
+            chunk = stream.read1(65536)
+            if not chunk:
+                return                      # EOF: the server closed stdout
+            buffered += chunk
+            if len(buffered) > MCP_PROBE_MAX_BUFFER:
+                return                      # a newline-free flood, not a reply
+            while b"\n" in buffered:
+                raw, buffered = buffered.split(b"\n", 1)
+                text = raw.decode("utf-8", errors="replace").strip().lstrip("﻿")
+                if not (text.startswith("{") or text.startswith("[")):
+                    continue                # banners and progress chatter
+                try:
+                    message = json.loads(text)
+                except ValueError:
+                    continue
+                for item in (message if isinstance(message, list) else [message]):
+                    if isinstance(item, dict):
+                        yield item
+    finally:
+        selector.close()
+
+def _await_result(replies, request_id):
+    """Return the result object for one request id, or None.
+
+    Matches on a RESPONSE, not merely on an id: JSON-RPC id spaces are per-direction,
+    so a server's own request may legitimately carry the same id we just used, and a
+    request carries "method" where a response carries "result" or "error".
+    """
+    for message in replies:
+        if message.get("id") != request_id or "method" in message:
+            continue
+        result = message.get("result")
+        return result if isinstance(result, dict) else None
+    return None
+
+def probe_tools(name, spec):
+    """Ask a server to describe itself. Returns its tools, or None on any doubt."""
+    env = os.environ.copy()
+    env.update(spec.get("env") or {})
+    try:
+        # start_new_session so the whole process group can be cleaned up: killing
+        # the direct child alone leaks any helper it forked holding the pipe.
+        # stderr is discarded rather than piped - nothing reads it during the
+        # probe, and a server that fills a 64K stderr pipe would deadlock.
+        proc = subprocess.Popen([spec["command"]] + list(spec.get("args") or []),
+                                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.DEVNULL, env=env, cwd=probe_cwd,
+                                start_new_session=True)
+    except Exception as e:
+        return _probe_fail(name, e)
+
+    deadline = time.monotonic() + MCP_PROBE_DEADLINE
+    try:
+        replies = _json_lines(proc.stdout, deadline)
+        # protocolVersion 2025-03-26 is the revision that defines tool annotations;
+        # asking for it is what entitles this probe to read readOnlyHint.
+        _send(proc.stdin, {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+            "protocolVersion": "2025-03-26",
+            "capabilities": {},
+            "clientInfo": {"name": "cadabra-config", "version": "1"}}}, deadline)
+        _send(proc.stdin,
+              {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}}, deadline)
+        if _await_result(replies, 1) is None:
+            return _probe_fail(name, "no reply to initialize")
+
+        tools = []
+        cursor = None
+        for page in range(MCP_PROBE_MAX_PAGES):
+            request_id = 2 + page
+            params = {"cursor": cursor} if cursor else {}
+            _send(proc.stdin, {"jsonrpc": "2.0", "id": request_id,
+                               "method": "tools/list", "params": params}, deadline)
+            result = _await_result(replies, request_id)
+            if result is None:
+                return _probe_fail(name, "no usable reply to tools/list")
+            page_tools = result.get("tools")
+            if not isinstance(page_tools, list):
+                return _probe_fail(name, "tools/list reply has no tools array")
+            tools += page_tools
+            if len(tools) > MCP_PROBE_MAX_TOOLS:
+                return _probe_fail(name, f"advertised more than {MCP_PROBE_MAX_TOOLS} tools")
+            # Absent means "last page". Anything else present but unusable is a
+            # malformed reply, and stopping early there would silently accept a
+            # TRUNCATED list - whose missing tools would then be un-gated, because
+            # gatedTools is an allowlist by omission.
+            cursor = result.get("nextCursor")
+            if cursor is None:
+                break
+            if not isinstance(cursor, str) or not cursor or len(cursor) > MCP_PROBE_MAX_CURSOR:
+                return _probe_fail(name, "unusable nextCursor")
+        else:
+            return _probe_fail(name, f"still paginating after {MCP_PROBE_MAX_PAGES} pages")
+    except Exception as e:
+        return _probe_fail(name, e)
+    finally:
+        # Shut down the way the MCP spec asks: close stdin and give the server a
+        # moment to exit on its own EOF, then escalate. The waits are short because
+        # this sits on the window-launch path - four stubborn servers must not add
+        # up to a visible stall.
+        for closer in (lambda: proc.stdin.close(), lambda: proc.stdout.close(),
+                       lambda: proc.wait(timeout=0.3),
+                       lambda: os.killpg(proc.pid, signal.SIGTERM),
+                       lambda: proc.wait(timeout=0.5)):
+            try:
+                closer()
+            except Exception:
+                pass
+        if proc.poll() is None:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except Exception:
+                pass
+
+    # Validate before any of it reaches a gating decision. A tool whose name is not
+    # a usable string is fatal for the WHOLE server: mlx-agent parses gatedTools as
+    # [String] and one non-string element makes that cast fail wholesale, silently
+    # un-gating every tool the server has.
+    if not tools:
+        return _probe_fail(name, "advertised no tools")
+    for tool in tools:
+        if not isinstance(tool, dict):
+            return _probe_fail(name, "a tools/list entry is not an object")
+        if not isinstance(tool.get("name"), str) or not tool["name"]:
+            return _probe_fail(name, "a tool has no usable name")
+        if tool.get("annotations") is not None and not isinstance(tool["annotations"], dict):
+            return _probe_fail(name, f"tool {tool['name']} has malformed annotations")
+    return tools
+
 # ── Emit the mlx-agent --mcp-config JSON ──────────────────────────────────────
 # {"servers":[{name,command,args,env?,gatedTools?}]} from the servers constructed
-# above. gatedTools lists the tools that require a session/request_permission
-# round-trip before dispatch - replay's mutating + shell operations (verified against
-# replay's tools/list). Read-only tools (read_file, list_directory, grep_files, ...)
-# are not gated. time/search expose no mutating tools. The pdf server sets its own
-# gatedTools in its block above (only when --writable), so it is absent here.
-gated_by_server = {
-    "local": ["write_file", "edit_file", "edit_files", "execute_command",
-              "create_directory", "move_file", "delete_file"],
-}
+# above. A server that will not describe itself is omitted rather than written out
+# un-gated: it could not have served those tools anyway, and a config entry with no
+# gatedTools is indistinguishable from one whose tools are all genuinely read-only.
+# (Any prior config was already removed up at session_dir, before the first fallible
+# step, so there is nothing stale left to outlive a crash here.)
+
+def _safe_probe(name):
+    try:
+        return probe_tools(name, servers[name])
+    except Exception as e:                  # a probe must never take the config down
+        return _probe_fail(name, e)
+
+# Probe concurrently: the servers are independent processes, and serially a stalled
+# one costs its full deadline before the next even starts - four of them would put
+# ~40s in front of a chat window that cannot open until this file exists. Fanned out,
+# the worst case is one deadline. Results are consumed in server_order below, so the
+# emitted config stays deterministic even though the warnings may interleave.
+with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(server_order))) as pool:
+    probed = dict(zip(server_order, pool.map(_safe_probe, server_order)))
+
 stdio_servers = []
 for name in server_order:
     spec = servers[name]
+    tools = probed[name]
+    if tools is None:
+        print(f"  omitting the {name} server from this session's config")
+        continue
     entry = {"name": name, "command": spec["command"], "args": list(spec.get("args") or [])}
     if spec.get("env"):
         entry["env"] = spec["env"]
-    gated = spec.get("gatedTools") or gated_by_server.get(name)
+    gated = list(dict.fromkeys(          # de-duplicated, order preserved
+        tool["name"] for tool in tools
+        if (tool.get("annotations") or {}).get("readOnlyHint") is not True))
     if gated:
-        entry["gatedTools"] = list(gated)
+        entry["gatedTools"] = gated
+    print(f"  {name}: {len(tools)} tool(s), {len(gated)} permission-gated")
     stdio_servers.append(entry)
-out_abs = os.path.abspath(out_json)
-os.makedirs(os.path.dirname(out_abs), exist_ok=True)
-# Remove any prior config first so a failure below degrades to "no config found" (the
-# transport builder then falls back to chat mode) instead of silently reusing a stale one.
-if os.path.exists(out_abs):
-    os.remove(out_abs)
 with open(out_abs, "w") as fh:
     json.dump({"servers": stdio_servers}, fh, indent=2)
 print(f"  wrote mcp config {out_json} ({len(stdio_servers)} server(s))")
