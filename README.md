@@ -119,16 +119,6 @@ chat is native.
 **arm64 only for the agent:** mlx-agent is Metal/MLX and does not build for x86_64. The llama.cpp
 half still accepts `--arch=x86_64` (pass `--skip-agent` with it). pdfutil builds for either arch.
 
-### Cadabra.app Python MCP servers (update-mcp-servers.py)
-
-```bash
-python3 update-mcp-servers.py [--identity=CERT]
-```
-
-Installs the Python MCP packages (`mcp-server-time`, `duckduckgo-mcp-server`) into
-`Cadabra.app/Contents/Library/Packages` and re-signs. Run once to set up MCP; re-run to add or
-upgrade packages.
-
 ### AIChat.app llama.cpp distribution (update-llama-cpp.sh)
 
 `update-llama-cpp.sh` serves the V1 app (and Enoch), which renders its UI from llama.cpp's WebUI and

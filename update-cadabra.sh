@@ -5,7 +5,15 @@
 #   1. llama.cpp  - llama-server + its dylibs, from a GitHub release (the GGUF engine)
 #   2. mlx-agent  - built from source with xcodebuild (the ACP agent + MLX engine)
 #   3. pdfutil    - built from source with ./build.sh (the PDF MCP server)
+#   4. replay     - built from source with xcodebuild (the local files/shell MCP server)
+#   5. packages   - the Python MCP servers, pip-installed into Contents/Library/Packages
 # then codesigns the bundle and verifies the engines actually launch.
+#
+# Stage 5 absorbs what update-mcp-servers.py did as a separate manual step. Folding it in
+# means one codesign pass instead of two (that script signed, then this one signed again)
+# and it means the Python servers cannot silently rot: generate_mcp_configs.py now PROBES
+# every server at launch and drops any that fails to answer, so a stale or missing
+# Packages dir no longer shows up as a broken server - it shows up as no server at all.
 #
 # Relationship to ./update-llama-cpp.sh: that script serves the V1 app (and Enoch), which
 # renders its UI from llama.cpp's WebUI and therefore has to download and sed-patch
@@ -15,13 +23,29 @@
 # mlx-agent, which V1 does not, so the two scripts do not converge.
 #
 # arm64 only for the agent: mlx-agent is Metal/MLX and does not build for x86_64. The
-# llama.cpp half still accepts --arch=x86_64 (pass --skip-agent with it). pdfutil builds
-# for either arch, so it is deployed on both the arm64 and x86_64 paths.
+# llama.cpp half still accepts --arch=x86_64 (pass --skip-agent with it). pdfutil and
+# replay build for either arch, so both are deployed on the arm64 and x86_64 paths.
 #
 # The bundle is Cadabra.app next to this script - NOT auto-globbed: the repo root also
 # holds the V1 AIChat.app, which this script must never touch.
 
 set -uo pipefail
+
+# Applies to every invocation of the bundle's embedded interpreter in this script - the
+# pip --version probe, pip install itself, and the post-codesign import checks.
+#
+# The app itself does NOT need this and must not set it: the OMC applet runtime exports
+# PYTHONPYCACHEPREFIX (Abracode's setPythonPycachePrefixIfEmbedded), which redirects
+# bytecode for the embedded interpreter out of the bundle entirely. Scripts INSIDE
+# Contents/Resources/Scripts therefore run with caching already handled.
+#
+# Maintenance scripts like this one run outside that environment, so they get no such
+# redirect and would write .pyc straight into Contents/Library. Before signing that
+# silently bloats the sealed payload (40 stdlib cache directories, just from running
+# `pip --version`); after signing it invalidates the seal and `codesign --verify` reports
+# "a sealed resource is missing or invalid". pip's --no-compile does not help: that
+# governs the packages being installed, not the interpreter's own stdlib caching.
+export PYTHONDONTWRITEBYTECODE=1
 
 RED=$(printf '\033[91m'); GREEN=$(printf '\033[92m')
 YELLOW=$(printf '\033[93m'); RESET=$(printf '\033[0m')
@@ -31,17 +55,47 @@ ARCH="auto"
 SIGNING_IDENTITY="-"
 AGENT_REPO="${AGENT_REPO:-}"
 PDFUTIL_REPO="${PDFUTIL_REPO:-}"
+REPLAY_REPO="${REPLAY_REPO:-}"
 DO_LLAMA="yes"
 DO_AGENT="yes"
 DO_PDFUTIL="yes"
+DO_REPLAY="yes"
+DO_PACKAGES="yes"
 DO_BUILD="yes"
 DO_CODESIGN="yes"
+CLEAN_PACKAGES="no"
+
+# The Python MCP servers. Two lists because the name pip installs is not the name that
+# gets imported, and they must stay index-aligned.
+#
+# MCP_MODULES holds the module generate_mcp_configs.py actually LAUNCHES with
+# `python3 -m`, which is not always the top-level package - the search server is started
+# as duckduckgo_mcp_server.server. Verifying the package instead would be near-worthless:
+# its __init__.py is 22 bytes of __version__ and imports nothing, so a broken dependency
+# tree would pass. Importing the launched module pulls the real dependency graph in, and
+# is safe to do because that module guards its entry point with `if __name__ ==
+# "__main__"`, so nothing starts serving.
+#
+# Kept in sync with generate_mcp_configs.py - adding one here without teaching that
+# script about it installs dead weight, and the reverse leaves a configured server with
+# nothing to import.
+MCP_PACKAGES=("mcp-server-time" "duckduckgo-mcp-server")
+MCP_MODULES=("mcp_server_time" "duckduckgo_mcp_server.server")
+[ "${#MCP_PACKAGES[@]}" -eq "${#MCP_MODULES[@]}" ] \
+    || { echo "MCP_PACKAGES and MCP_MODULES must be index-aligned" >&2; exit 1; }
+# bash 3.2 (which is what /bin/bash is on macOS) treats "${empty[@]}" as an unbound
+# variable under `set -u`. The list is meant to be edited, so refuse it explicitly
+# instead of dying with a confusing error three functions later.
+[ "${#MCP_PACKAGES[@]}" -gt 0 ] \
+    || { echo "MCP_PACKAGES is empty; use --skip-packages instead" >&2; exit 1; }
 
 # Set by prepare()
 ASSET_NAME=""; DOWNLOAD_URL=""; WORK_DIR=""; TARBALL=""; EXTRACT_DIR=""
 AGENT_BUILD_DIR=""
 PDFUTIL_BUILD_BIN=""
+REPLAY_BUILD_BIN=""
 LLAMA_STATUS="skipped"; AGENT_STATUS="skipped"; PDFUTIL_STATUS="skipped"
+REPLAY_STATUS="skipped"; PACKAGES_STATUS="skipped"
 
 SCRIPT_DIR="$(cd "$(/usr/bin/dirname "$0")" >/dev/null 2>&1 && pwd)"
 
@@ -67,6 +121,31 @@ APP_BUNDLE="$SCRIPT_DIR/Cadabra.app"
 INSTALL_DIR="$APP_BUNDLE/Contents/Support/Llama.cpp"
 MLX_DIR="$APP_BUNDLE/Contents/Support/MLX"
 PDFUTIL_BIN="$APP_BUNDLE/Contents/Support/pdfutil"
+REPLAY_BIN="$APP_BUNDLE/Contents/Support/replay"
+
+# The Python tier lives under Contents/Library, not Contents/Support: Support holds the
+# native engines this script builds, Library holds the embedded interpreter and the
+# packages tier.
+#
+# BUNDLED_PYTHON is installed by AppletBuilder, not by this script - `appletbuilder
+# create --python` for a new applet, `appletbuilder build --update-python` to refresh an
+# existing one. Stage 5 therefore checks for it and points at that tool rather than
+# falling back to the system python, whose site-packages would not travel with the app.
+#
+# Packages go in Contents/Library/Packages and never in the runtime's own site-packages:
+# AppletBuilder replaces Contents/Library/Python wholesale when it updates the runtime,
+# which would wipe anything installed inside it, whereas Packages/ survives. OMC also
+# prepends Packages/ to PYTHONPATH for every handler, so it is the supported location.
+PYTHON_DIR="$APP_BUNDLE/Contents/Library/Python"
+BUNDLED_PYTHON="$PYTHON_DIR/bin/python3"
+PACKAGES_DIR="$APP_BUNDLE/Contents/Library/Packages"
+# Where --clean-packages builds the new tree before swapping it in. Kept beside the live
+# directory so the swap is a rename rather than a 44 MB copy across filesystems, and
+# swept by codesign_app so an interrupted run can never seal a duplicate into the bundle.
+PACKAGES_STAGING="$APP_BUNDLE/Contents/Library/Packages.staging"
+# Written into the staging dir only once the install AND the strip have both succeeded.
+# Its presence is the sole signal that a staging tree is complete and safe to swap in.
+STAGING_SENTINEL=".install-complete"
 
 show_help() {
     cat <<EOF
@@ -76,6 +155,8 @@ Updates the runtime engines in $(/usr/bin/basename "$APP_BUNDLE"):
   llama.cpp -> Contents/Support/Llama.cpp/   (downloaded release, no WebUI - Cadabra is native)
   mlx-agent -> Contents/Support/MLX/         (built from source with xcodebuild)
   pdfutil   -> Contents/Support/pdfutil      (built from source with ./build.sh)
+  replay    -> Contents/Support/replay       (built from source with xcodebuild)
+  packages  -> Contents/Library/Packages     (pip install with the bundle's own python3)
 
 Options:
   --version=VERSION   llama.cpp build tag (e.g. b8797, default: auto-detect latest)
@@ -83,19 +164,25 @@ Options:
   --identity=CERT     codesign identity (default: - for ad-hoc)
   --agent-repo=PATH   mlx-agent repo (default: ../mlx-agent sibling checkout)
   --pdfutil-repo=PATH pdfutil repo (default: ../pdfutil sibling checkout)
+  --replay-repo=PATH  replay repo (default: ../replay sibling checkout)
   --skip-llama        leave llama.cpp untouched
   --skip-agent        leave mlx-agent untouched
   --skip-pdfutil      leave pdfutil untouched
-  --skip-build        deploy the agent's & pdfutil's existing build products without rebuilding
+  --skip-replay       leave replay untouched
+  --skip-packages     leave the Python MCP packages untouched
+  --clean-packages    wipe Contents/Library/Packages before installing (drops orphans)
+  --skip-build        deploy the existing build products without rebuilding
   --skip-codesign     do not codesign
   --help              show this message
 
 Examples:
   ./update-cadabra.sh
   ./update-cadabra.sh --version=b8797
-  ./update-cadabra.sh --skip-llama                 # rebuild + redeploy just the agent + pdfutil
-  ./update-cadabra.sh --skip-agent                 # refresh llama.cpp + pdfutil
-  ./update-cadabra.sh --skip-llama --skip-agent    # rebuild + redeploy just pdfutil
+  ./update-cadabra.sh --skip-llama                 # rebuild + redeploy the agent + MCP servers
+  ./update-cadabra.sh --skip-agent                 # refresh llama.cpp + the MCP servers
+  ./update-cadabra.sh --skip-llama --skip-agent    # rebuild + redeploy just pdfutil + replay
+  ./update-cadabra.sh --skip-llama --skip-agent --skip-pdfutil   # just replay + packages
+  ./update-cadabra.sh --skip-llama --skip-agent --skip-pdfutil --skip-replay   # just packages
 EOF
     exit 0
 }
@@ -113,15 +200,31 @@ while [ $# -gt 0 ]; do
         --agent-repo) shift; AGENT_REPO="${1:-}" ;;
         --pdfutil-repo=*) PDFUTIL_REPO="${1#*=}" ;;
         --pdfutil-repo) shift; PDFUTIL_REPO="${1:-}" ;;
+        --replay-repo=*) REPLAY_REPO="${1#*=}" ;;
+        --replay-repo) shift; REPLAY_REPO="${1:-}" ;;
         --skip-llama) DO_LLAMA="no" ;;
         --skip-agent) DO_AGENT="no" ;;
         --skip-pdfutil) DO_PDFUTIL="no" ;;
+        --skip-replay) DO_REPLAY="no" ;;
+        --skip-packages) DO_PACKAGES="no" ;;
+        --clean-packages) CLEAN_PACKAGES="yes" ;;
         --skip-build) DO_BUILD="no" ;;
         --skip-codesign) DO_CODESIGN="no" ;;
         *) echo "Unknown option: $1"; show_help ;;
     esac
     shift
 done
+
+# Refuse contradictory combinations rather than silently honouring one of them: with
+# --skip-build the packages stage reuses what is deployed and never runs pip, so
+# --clean-packages would be quietly discarded and the user would be told "reusing
+# existing packages" after asking for a wipe-and-reinstall.
+if [ "$CLEAN_PACKAGES" = "yes" ]; then
+    [ "$DO_BUILD" = "yes" ] \
+        || { echo "${RED}--clean-packages cannot be combined with --skip-build: a clean install has to run pip.${RESET}" >&2; exit 1; }
+    [ "$DO_PACKAGES" = "yes" ] \
+        || { echo "${RED}--clean-packages cannot be combined with --skip-packages.${RESET}" >&2; exit 1; }
+fi
 
 cleanup() {
     # Only ever remove the mktemp dir this run created; never an inherited/empty value.
@@ -227,11 +330,65 @@ prepare() {
         PDFUTIL_BUILD_BIN="$PDFUTIL_REPO/build/pdfutil"
     fi
 
+    if [ "$DO_REPLAY" = "yes" ]; then
+        # Locate the replay repo (github.com/abra-code/replay, Apache 2.0) by its Xcode
+        # PROJECT: the repo does ship a Package.swift, but the xcodeproj is what this
+        # script builds (see update_replay), so it is the marker that matters. Same
+        # sibling-then-legacy candidate order as mlx-agent and pdfutil above.
+        if [ -z "$REPLAY_REPO" ]; then
+            for _cand in "$SCRIPT_DIR/../replay" "$SCRIPT_DIR/../../replay"; do
+                [ -d "$_cand/replay.xcodeproj" ] && { REPLAY_REPO="$(cd "$_cand" && pwd)"; break; }
+            done
+        fi
+        if [ -z "$REPLAY_REPO" ]; then
+            offer_clone "https://github.com/abra-code/replay" "$(cd "$SCRIPT_DIR/.." && pwd)/replay" \
+                && [ -d "$SCRIPT_DIR/../replay/replay.xcodeproj" ] \
+                && REPLAY_REPO="$(cd "$SCRIPT_DIR/../replay" && pwd)"
+        fi
+        [ -n "$REPLAY_REPO" ] && [ -d "$REPLAY_REPO/replay.xcodeproj" ] \
+            || fail "replay repo not found (looked for replay.xcodeproj); clone github.com/abra-code/replay or pass --replay-repo=PATH."
+        # The project keeps SYMROOT inside the repo, so Release products land here.
+        REPLAY_BUILD_BIN="$REPLAY_REPO/build/Release/replay"
+    fi
+
+    if [ "$DO_PACKAGES" = "yes" ]; then
+        # Fail here rather than inside the stage: this is the one input the repo cannot
+        # produce for you, so saying so before any building starts saves a full llama.cpp
+        # download and two Xcode builds.
+        [ -x "$BUNDLED_PYTHON" ] \
+            || fail "No bundled interpreter at $BUNDLED_PYTHON. Install it with 'appletbuilder build \"$APP_BUNDLE\" --update-python' (AppletBuilder.app/Contents/Resources/Agents/appletbuilder), or re-run with --skip-packages."
+        "$BUNDLED_PYTHON" -m pip --version >/dev/null 2>&1 \
+            || fail "The bundled interpreter has no pip module; cannot install MCP packages. Re-run with --skip-packages."
+    fi
+
+    # Resolve a staging tree left by an interrupted --clean-packages run. Deliberately
+    # OUTSIDE the DO_PACKAGES check: codesign_app runs regardless of --skip-packages, and
+    # a stranded staging dir would otherwise be sealed into the bundle as a ~44 MB
+    # duplicate of the whole package tree, .so files individually signed and all.
+    #
+    # The sentinel decides it, with no guessing. Present means pip and the strip both
+    # finished and only the swap was missed, so the tree is complete and better than what
+    # is live - swap it in. Absent means the install died partway, so it is junk and the
+    # live packages were never touched - delete it. This is the payoff of staging over
+    # rename-aside: with a backup there is no way to tell a complete copy from a
+    # half-removed one, and the wrong guess destroys the good tree.
+    if [ -d "$PACKAGES_STAGING" ]; then
+        if [ -f "$PACKAGES_STAGING/$STAGING_SENTINEL" ]; then
+            echo "  ${YELLOW}Completing an interrupted --clean-packages run (staged tree is complete)${RESET}"
+            swap_in_staged_packages
+        else
+            echo "  ${YELLOW}Discarding an incomplete staged package tree from an interrupted run${RESET}"
+            /bin/rm -rf "${PACKAGES_STAGING:?}" || fail "Could not remove $PACKAGES_STAGING"
+        fi
+    fi
+
     echo "  App bundle : $APP_BUNDLE"
     echo "  Arch       : $ARCH"
     echo "  llama.cpp  : $([ "$DO_LLAMA" = yes ] && echo "$VERSION" || echo "<skipped>")"
     echo "  mlx-agent  : $([ "$DO_AGENT" = yes ] && echo "${AGENT_REPO}$([ "$DO_BUILD" = no ] && echo " (no rebuild)")" || echo "<skipped>")"
     echo "  pdfutil    : $([ "$DO_PDFUTIL" = yes ] && echo "${PDFUTIL_REPO}$([ "$DO_BUILD" = no ] && echo " (no rebuild)")" || echo "<skipped>")"
+    echo "  replay     : $([ "$DO_REPLAY" = yes ] && echo "${REPLAY_REPO}$([ "$DO_BUILD" = no ] && echo " (no rebuild)")" || echo "<skipped>")"
+    echo "  packages   : $([ "$DO_PACKAGES" = yes ] && echo "${MCP_PACKAGES[*]}$([ "$CLEAN_PACKAGES" = yes ] && echo " (clean install)")" || echo "<skipped>")"
     echo "  Codesign   : $([ "$DO_CODESIGN" = yes ] && echo "$SIGNING_IDENTITY" || echo "<skipped>")"
     echo
 }
@@ -408,10 +565,175 @@ update_pdfutil() {
     echo
 }
 
+# ── 3b. replay ────────────────────────────────────────────────────────────────
+update_replay() {
+    echo "==== replay ===="
+    echo
+
+    if [ "$DO_BUILD" = "yes" ]; then
+        # The repo's own ./build.sh builds all four tools (replay, dispatch, fingerprint,
+        # gate); only replay is bundled, so drive its scheme directly instead. ARCHS +
+        # ONLY_ACTIVE_ARCH=NO pins the slice to the app's arch, matching the rationale in
+        # update_pdfutil - on an arm64 host a bare build would never produce x86_64.
+        # replay is portable C++ (no Metal/MLX), so unlike mlx-agent both arches are fine.
+        echo "  Building (xcodebuild -scheme replay -configuration Release, $ARCH)..."
+        ( cd "$REPLAY_REPO" && /usr/bin/xcodebuild -project replay.xcodeproj -scheme replay \
+            -configuration Release ARCHS="$ARCH" ONLY_ACTIVE_ARCH=NO build ) 2>&1 | /usr/bin/tail -5
+        [ "${PIPESTATUS[0]}" = 0 ] || fail "replay xcodebuild failed."
+    else
+        echo "  --skip-build: reusing existing build product"
+    fi
+
+    [ -x "$REPLAY_BUILD_BIN" ] \
+        || fail "No built replay at $REPLAY_BUILD_BIN (build first, or drop --skip-build)."
+
+    /bin/mkdir -p "$(/usr/bin/dirname "$REPLAY_BIN")" || fail "Could not create Support dir for replay"
+    /bin/cp -f "$REPLAY_BUILD_BIN" "$REPLAY_BIN"
+    /bin/chmod +x "$REPLAY_BIN"
+
+    # Same pre-signing freshness proof as update_pdfutil: signing rewrites the signature
+    # blob in place, so a byte-compare afterwards could never match.
+    /usr/bin/cmp -s "$REPLAY_BUILD_BIN" "$REPLAY_BIN" \
+        || fail "Deployed replay differs from the build product - copy did not take."
+
+    [ -f "$REPLAY_REPO/LICENSE" ] && /bin/cp -f "$REPLAY_REPO/LICENSE" "${REPLAY_BIN}.LICENSE"
+
+    REPLAY_STATUS="deployed"
+    echo "  ${GREEN}Deployed${RESET} replay"
+    echo
+}
+
+# ── 3c. Python MCP packages ───────────────────────────────────────────────────
+update_packages() {
+    echo "==== Python MCP packages ===="
+    echo
+
+    # --skip-build means "reuse what is already deployed" in every other stage; honour the
+    # same reading here so a fast redeploy does not silently reach for the network.
+    if [ "$DO_BUILD" = "no" ]; then
+        [ -d "$PACKAGES_DIR" ] \
+            || fail "No packages at $PACKAGES_DIR (install them first, or drop --skip-build)."
+        echo "  --skip-build: reusing existing packages"
+        PACKAGES_STATUS="reused"
+        echo
+        return 0
+    fi
+
+    echo "  Python   : $("$BUNDLED_PYTHON" --version 2>&1)"
+    echo "  Target   : $PACKAGES_DIR"
+    echo "  Packages : ${MCP_PACKAGES[*]}"
+    echo
+
+    # pip --target --upgrade never REMOVES anything, so a dir that has been upgraded across
+    # dependency changes accumulates orphaned packages that are still importable and still
+    # signed into the bundle. --clean-packages is the escape hatch.
+    #
+    # It builds the new tree in a STAGING directory and only swaps it in once the install
+    # and the stripping have both succeeded. The obvious alternative - rename the live dir
+    # aside, install in its place, move it back on failure - was written first and is a
+    # trap: the "is there a backup?" state is not atomic, so a signal at the wrong moment
+    # leaves a partially-removed backup that later gets mistaken for the good copy, and the
+    # interrupt handler needed to delete the live tree before it could restore anything.
+    # Every one of those windows is minutes long, because pip is network-bound.
+    #
+    # Staging inverts the risk: the live tree is untouched for the whole slow part, and the
+    # only dangerous window is the final two renames, which take microseconds. Nothing has
+    # to be restored on failure because nothing was taken away.
+    local install_target="$PACKAGES_DIR"
+    if [ "$CLEAN_PACKAGES" = "yes" ]; then
+        # prepare() resolved any staging dir from an earlier run before we got here.
+        /bin/rm -rf "${PACKAGES_STAGING:?}" || fail "Could not clear $PACKAGES_STAGING"
+        install_target="$PACKAGES_STAGING"
+        echo "  Clean install: building a fresh tree in $(/usr/bin/basename "$PACKAGES_STAGING")"
+    fi
+
+    /bin/mkdir -p "$install_target" || fail "Could not create $install_target"
+
+    # --no-compile: .pyc files are regenerated on demand anyway, and baking them in both
+    # inflates the signed payload and embeds absolute build-time paths.
+    "$BUNDLED_PYTHON" -m pip install \
+        --target "$install_target" \
+        --no-compile --upgrade --no-input --disable-pip-version-check \
+        "${MCP_PACKAGES[@]}" \
+        || fail "pip install failed (network down, or a package no longer resolves).$([ "$CLEAN_PACKAGES" = yes ] && echo " The installed packages were left untouched.")"
+    echo
+
+    # Strip what should not be signed into the bundle: bytecode caches, pip's RECORD
+    # manifests (they list files by hash and go stale the moment anything is stripped), and
+    # the packages' own test suites. -prune stops find from descending into a directory it
+    # is about to delete.
+    echo "  Stripping __pycache__, RECORD, and test dirs..."
+    /usr/bin/find "$install_target" -type d -name '__pycache__' -prune -exec /bin/rm -rf {} + 2>/dev/null
+    /usr/bin/find "$install_target" -type f -name 'RECORD' -path '*.dist-info/*' -delete 2>/dev/null
+    /usr/bin/find "$install_target" -type d \( -name tests -o -name test \) -prune -exec /bin/rm -rf {} + 2>/dev/null
+
+    if [ "$CLEAN_PACKAGES" = "yes" ]; then
+        # The sentinel is what makes recovery decidable. Written only after pip AND the
+        # strip have succeeded, so prepare() can tell "complete tree waiting to be swapped
+        # in" from "pip died halfway" without guessing - which is exactly the distinction
+        # the rename-aside version could not make.
+        : > "$PACKAGES_STAGING/$STAGING_SENTINEL" \
+            || fail "Could not mark $PACKAGES_STAGING complete"
+        swap_in_staged_packages
+    fi
+
+    PACKAGES_STATUS="installed"
+    echo "  ${GREEN}Installed${RESET} ${MCP_PACKAGES[*]}"
+    echo
+}
+
+# Replace the live packages with the completed staging tree. Split out because prepare()
+# needs exactly this when a previous run was killed after the sentinel was written.
+# Deliberately no trap: both renames are metadata-only, so the window where neither
+# directory is in place is microseconds rather than the minutes a network install takes,
+# and a kill inside it still leaves the staging tree with its sentinel for the next run.
+swap_in_staged_packages() {
+    /bin/rm -rf "${PACKAGES_DIR:?}" \
+        || fail "Could not remove $PACKAGES_DIR to swap in the new packages. The complete new tree is at $PACKAGES_STAGING."
+    /bin/mv "$PACKAGES_STAGING" "$PACKAGES_DIR" \
+        || fail "Could not move $PACKAGES_STAGING into place. The complete new tree is still there - move it by hand."
+    # Drop the marker only after the rename succeeded; removing it earlier would leave a
+    # complete tree that the next run could no longer recognise as complete. A stray
+    # zero-byte dotfile here would otherwise be signed into the bundle.
+    /bin/rm -f "$PACKAGES_DIR/$STAGING_SENTINEL"
+}
+
 # ── 4. Codesign ───────────────────────────────────────────────────────────────
 codesign_app() {
     echo "==== Codesigning ===="
     echo
+
+    # Sweep stray bytecode out of every part of the bundle that Python touches, and do it
+    # here rather than in update_packages so it runs no matter which stages were skipped.
+    # Anything present now gets sealed in permanently.
+    #
+    # These caches never come from the app: the OMC runtime redirects them via
+    # PYTHONPYCACHEPREFIX. They come from running the bundle's interpreter OUTSIDE that
+    # environment - this script before the export above existed, a debugging session, a
+    # test harness, someone poking at Contents/Library/Packages by hand. That is exactly
+    # the kind of residue nobody notices until codesign seals it in, so sweep rather than
+    # trust that no one ever did it.
+    #
+    # Two roots because the caches land in two different places: under Contents/Library
+    # for the interpreter and the installed packages, and under Contents/Resources/Scripts
+    # when a script there imports a SIBLING module, which puts the cache next to the
+    # scripts rather than under Library at all.
+    # prepare() resolves any staging tree before this runs, so reaching here with one is a
+    # bug. Refuse rather than seal a ~44 MB duplicate of the package tree into the bundle.
+    [ -e "$PACKAGES_STAGING" ] \
+        && fail "$PACKAGES_STAGING still exists at signing time - refusing to seal a duplicate package tree into the bundle."
+
+    # Contents/Library covers both PYTHON_DIR and PACKAGES_DIR in one walk; each root is
+    # passed quoted so a bundle path containing spaces survives.
+    local stale_pyc
+    stale_pyc=$(/usr/bin/find "$APP_BUNDLE/Contents/Library" "$APP_BUNDLE/Contents/Resources/Scripts" \
+        -type d -name '__pycache__' 2>/dev/null | /usr/bin/wc -l | /usr/bin/tr -d ' ')
+    if [ "$stale_pyc" != "0" ]; then
+        echo "  Removing $stale_pyc stray __pycache__ dir(s) before sealing"
+        /usr/bin/find "$APP_BUNDLE/Contents/Library" "$APP_BUNDLE/Contents/Resources/Scripts" \
+            -type d -name '__pycache__' -prune -exec /bin/rm -rf {} + 2>/dev/null
+    fi
+
     # Beside this script at the repo root since the Cadabra rebrand; ../ is the
     # pre-rebrand location, kept as a fallback.
     local codesign_script="$SCRIPT_DIR/codesign_applet.sh"
@@ -457,6 +779,93 @@ verify() {
         echo "  pdfutil: $pdfutil_version"
         echo "  ${GREEN}OK${RESET} pdfutil launches (post-signing)"
     fi
+
+    if [ "$DO_REPLAY" = "yes" ]; then
+        # Freshness is proven by the cmp in update_replay (pre-signing); this proves the
+        # binary still loads once signed.
+        local replay_version
+        replay_version=$("$REPLAY_BIN" --version 2>&1 | head -1 || echo "")
+        [ -n "$replay_version" ] || fail "replay --version produced no output - load failure or broken signature?"
+        echo "  replay: $replay_version"
+        # replay is bundled for ONE job - being Cadabra's local files/shell MCP server - and
+        # the app derives its permission prompts from the annotations in this reply, so a
+        # binary that cannot answer tools/list is useless even if it launches.
+        #
+        # Capture the output and match the STRING rather than piping into grep. Two traps
+        # avoided, both of which would report a healthy replay as broken:
+        #   - `grep -c` prints 0 AND exits 1 on no-match, so a `|| echo 0` fallback captures
+        #     "0\n0" and a numeric test then errors out instead of comparing.
+        #   - `grep -q` exits the moment it matches, so replay takes SIGPIPE on anything it
+        #     writes afterwards and exits 141; with `set -o pipefail` that 141 becomes the
+        #     pipeline's status and the success path is never taken. Harmless only while
+        #     tools/list stays under the pipe buffer, which is not a property worth relying on.
+        # perl's alarm bounds the run: replay exits on stdin EOF today, but an MCP server
+        # that answers and then lingers is exactly what the launch-path probe was rewritten
+        # to survive, and this script should not be the thing that hangs instead.
+        local tools_out
+        tools_out=$(printf '%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"update-cadabra","version":"1"}}}' \
+            '{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' \
+            | /usr/bin/perl -e 'alarm 20; exec @ARGV or exit 127' \
+              "$REPLAY_BIN" --mcp-server --allow-write "${TMPDIR:-/tmp}" 2>/dev/null)
+        case "$tools_out" in
+            *'"readOnlyHint"'*) ;;
+            *) fail "replay answered no annotated tools/list - the MCP server mode is broken, it hung, or this build predates tool annotations." ;;
+        esac
+        echo "  ${GREEN}OK${RESET} replay launches and serves annotated tools (post-signing)"
+    fi
+
+    if [ "$DO_PACKAGES" = "yes" ]; then
+        # Import each module the way the app will: the bundle's own interpreter with
+        # PYTHONPATH pointing at Packages, matching how generate_mcp_configs.py spawns
+        # them. A package that pip reports as installed can still fail to import - a
+        # missing native wheel for this arch is the usual cause - and the launch probe
+        # would then silently drop that server from the config rather than complain.
+        #
+        # See MCP_MODULES at the top for why these are the launched module names rather
+        # than the top-level packages, and why importing them does not start a server.
+        #
+        # This is the invocation that MUST NOT write bytecode: it runs after codesign_app,
+        # so a single .pyc here breaks the seal just applied. -B is passed explicitly on
+        # top of the script-wide export because this is the one call site where losing it
+        # is not a size regression but a broken signature - and unlike the app, this runs
+        # outside the OMC environment, so nothing else is redirecting the cache.
+        # The module name is passed as argv, never interpolated into the source, so a name
+        # with a quote in it cannot become code.
+        local module failed_modules=""
+        for module in "${MCP_MODULES[@]}"; do
+            if PYTHONPATH="$PACKAGES_DIR" \
+                "$BUNDLED_PYTHON" -B -c '
+import importlib, importlib.util, sys
+name = sys.argv[1]
+mod = importlib.import_module(name)          # proves the dependency graph resolves
+# `python3 -m pkg` runs pkg/__main__.py, which importing the package never touches - so a
+# package missing __main__.py imports fine here and dies at launch with "cannot be
+# directly executed". Only packages need the check; plain modules are their own entry.
+if getattr(mod, "__path__", None) is not None and importlib.util.find_spec(name + ".__main__") is None:
+    sys.exit(1)
+' "$module" >/dev/null 2>&1
+            then
+                echo "  ${GREEN}OK${RESET} $module imports"
+            else
+                failed_modules="$failed_modules $module"
+            fi
+        done
+        [ -z "$failed_modules" ] || fail "Python MCP modules failed to import:$failed_modules"
+    fi
+
+    # Last, and only when we signed: prove the bundle the user is about to run still
+    # satisfies its own seal. Every check above EXECUTES something inside the bundle,
+    # and anything that writes a file there (bytecode caches being the classic) silently
+    # invalidates the signature while every individual check still reports OK. Without
+    # this the script's final word would be "ready" on a bundle that codesign rejects,
+    # which is fatal for Developer ID and notarization and easy to miss locally.
+    if [ "$DO_CODESIGN" = "yes" ]; then
+        /usr/bin/codesign --verify --deep "$APP_BUNDLE" 2>/dev/null \
+            || fail "$(/usr/bin/basename "$APP_BUNDLE") no longer satisfies its code signature - something written into the bundle after signing (stray __pycache__?). Run: codesign --verify --verbose=2 '$APP_BUNDLE'"
+        echo "  ${GREEN}OK${RESET} code signature still valid after verification"
+    fi
     echo
 }
 
@@ -466,6 +875,8 @@ print_summary() {
     echo "  llama.cpp : $LLAMA_STATUS"
     echo "  mlx-agent : $AGENT_STATUS"
     echo "  pdfutil   : $PDFUTIL_STATUS"
+    echo "  replay    : $REPLAY_STATUS"
+    echo "  packages  : $PACKAGES_STATUS"
     echo
     echo "  ${GREEN}$(/usr/bin/basename "$APP_BUNDLE") is ready.${RESET}"
     echo
@@ -476,6 +887,10 @@ main() {
     [ "$DO_LLAMA" = "yes" ] && update_llama
     [ "$DO_AGENT" = "yes" ] && update_agent
     [ "$DO_PDFUTIL" = "yes" ] && update_pdfutil
+    [ "$DO_REPLAY" = "yes" ] && update_replay
+    # Before codesign, deliberately: the packages land inside the bundle, so installing
+    # them afterwards would invalidate the seal that was just applied.
+    [ "$DO_PACKAGES" = "yes" ] && update_packages
     [ "$DO_CODESIGN" = "yes" ] && codesign_app
     verify
     cleanup
