@@ -107,19 +107,22 @@ You will only be asked once."
         printf '=== webui history import %s ===\n' "$(/bin/date -u '+%Y-%m-%dT%H:%M:%SZ')"
         "$py" "$scripts_dir/webui_history_extract.py" "$staging" --webkit-root "$v1_webkit"
         extract_rc=$?
-        if [ "$extract_rc" -eq 0 ]; then
-            "$py" "$scripts_dir/webui_history_convert.py" "$staging" "$history_root"
-            convert_rc=$?
-            if [ "$convert_rc" -eq 0 ]; then
-                printf 'imported v1 WebUI history (%s)\n' "$(/bin/date -u '+%Y-%m-%dT%H:%M:%SZ')" > "$marker"
-                # Consent has done its job: the marker is now the terminal state.
-                /bin/rm -f "$consent"
-                printf 'import OK; marker written\n'
-            else
-                printf 'convert failed rc=%s - will retry next launch\n' "$convert_rc"
-            fi
+        # Convert whatever the extract DID produce, even when it failed. A failing extract
+        # still writes a dump for every database it could read, and convert upserts by
+        # webui-<convid>, so importing a partial set now and the rest on a later launch is
+        # strictly better than discarding the lot - the staging dir is removed below either
+        # way, so anything not converted here is simply re-extracted next time.
+        "$py" "$scripts_dir/webui_history_convert.py" "$staging" "$history_root"
+        convert_rc=$?
+        if [ "$extract_rc" -eq 0 ] && [ "$convert_rc" -eq 0 ]; then
+            printf 'imported v1 WebUI history (%s)\n' "$(/bin/date -u '+%Y-%m-%dT%H:%M:%SZ')" > "$marker"
+            # Consent has done its job: the marker is now the terminal state.
+            /bin/rm -f "$consent"
+            printf 'import OK; marker written\n'
         else
-            printf 'extract failed rc=%s - will retry next launch\n' "$extract_rc"
+            # No marker: only a run where BOTH steps reported success may retire the offer.
+            printf 'extract rc=%s convert rc=%s - imported what was readable, will retry next launch\n' \
+                "$extract_rc" "$convert_rc"
         fi
     } > "$log" 2>&1
 
