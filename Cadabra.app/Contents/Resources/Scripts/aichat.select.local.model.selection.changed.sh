@@ -30,16 +30,14 @@ if [ -n "$selected_path" ]; then
     # model as a few hundred bytes (the directory entry), not the ~4-30GB it really is.
     engine=$(model_engine "$selected_path")
 
-    # Delete only offers what it can actually do: aichat.select.local.model.delete.sh handles
-    # a single .gguf FILE and exits on anything else, so leaving the button enabled for an MLX
-    # row makes Delete a silent no-op. Disabling it says so honestly. Recursively deleting a
-    # multi-GB model DIRECTORY is a destructive operation that deserves its own design (and
-    # its own confirmation), not an incidental widening of a file-shaped handler.
-    if [ "$engine" = "gguf" ]; then
-        "$dialog_tool" "$window_uuid" $DELETE_BUTTON_ID omc_enable
-    else
-        "$dialog_tool" "$window_uuid" $DELETE_BUTTON_ID omc_disable
-    fi
+    # Delete offers exactly what the handler can do, which is now both engines
+    # (aichat.select.local.model.delete.sh dispatches on engine: a .gguf FILE, or an MLX model
+    # DIRECTORY with its Hugging Face blobs). An unrecognised path stays disabled - that is the
+    # "listed but since deleted or replaced" case, where there is nothing to offer.
+    case "$engine" in
+        gguf|mlx) "$dialog_tool" "$window_uuid" $DELETE_BUTTON_ID omc_enable ;;
+        *)        "$dialog_tool" "$window_uuid" $DELETE_BUTTON_ID omc_disable ;;
+    esac
     filename=$(model_display_label "$selected_path")
     model_size=$(model_bytes "$selected_path" "$engine")
     size_gb=$(printf "%.2f" \
