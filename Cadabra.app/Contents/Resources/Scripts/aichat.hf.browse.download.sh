@@ -336,6 +336,7 @@ macOS needs free space for swap files and system caches. Free up space and try a
     local base_done=0
     local dl_failed=""
     # Read via redirect (NOT a pipe) so base_done persists in this shell.
+    local rel
     while IFS="$tab" read -r esize rel; do
         [ -n "$rel" ] || continue
         if stop_requested; then stop_exit "stopped before $rel"; fi

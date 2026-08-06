@@ -114,6 +114,7 @@ offer_clone() {
     [ -t 0 ] || return 1
     printf "%s  %s not found. Clone %s\n  into %s now? [y/N] %s" \
         "$YELLOW" "$(/usr/bin/basename "$2")" "$1" "$2" "$RESET"
+    local _ans
     IFS= read -r _ans
     case "$_ans" in [yY]|[yY][eE][sS]) ;; *) return 1 ;; esac
     /usr/bin/git clone "$1" "$2"
@@ -269,6 +270,7 @@ detect_latest_version() {
 
 # ── 0. Prepare ────────────────────────────────────────────────────────────────
 prepare() {
+    local _cand
     echo
     echo "==== Updating $(/usr/bin/basename "$APP_BUNDLE") ===="
     echo
@@ -439,6 +441,7 @@ update_llama() {
 
     # Clear stale dylibs/LICENSEs so a prior version cannot linger beside the new one.
     # [ -e ] || [ -L ] catches dangling symlinks too ([ -e ] follows the link).
+    local old
     for old in "$INSTALL_DIR"/*.dylib; do
         [ -e "$old" ] || [ -L "$old" ] || continue
         /bin/rm -f "$old"
@@ -475,6 +478,7 @@ update_llama() {
 
     echo "  dylibs (from otool -L, with symlink targets):"
     local install_ok="yes"
+    local dylib_name
     while IFS= read -r dylib_name; do
         [ -z "$dylib_name" ] && continue
         install_dylib "$dylib_name" || install_ok="no"
@@ -483,6 +487,7 @@ $required_dylibs
 EOF
     [ "$install_ok" = "yes" ] || fail "One or more required dylibs were missing from the archive"
 
+    local license_path
     for license_path in "$src_dir"/LICENSE*; do
         [ -f "$license_path" ] || continue
         /bin/cp "$license_path" "$INSTALL_DIR/$(/usr/bin/basename "$license_path")"
@@ -695,6 +700,7 @@ update_agent() {
     # runtime abort, so it is replaced wholesale rather than merged.
     local required_bundle="mlx-swift_Cmlx.bundle"
     [ -d "$AGENT_BUILD_DIR/$required_bundle" ] || fail "Required metallib bundle missing: $required_bundle"
+    local b
     for b in "$required_bundle" swift-crypto_Crypto.bundle swift-transformers_Hub.bundle; do
         if [ -d "$AGENT_BUILD_DIR/$b" ]; then
             /bin/rm -rf "${MLX_DIR:?}/$b"

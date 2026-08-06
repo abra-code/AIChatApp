@@ -67,6 +67,7 @@ mcp_prefs_write_defaults() {
     # include-session-tmpdir below; the dialog shows it as a removable row
     # (mcp_refresh_rw_table) so the temp grant can be revoked without saving its path.
     "$plister" insert "allowed-write" array "$mcp_prefs" /servers/local
+    local d
     for d in /private/tmp; do
         [ -d "$d" ] && "$plister" append string "$d" "$mcp_prefs" /servers/local/allowed-write
     done

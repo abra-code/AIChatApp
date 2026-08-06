@@ -56,6 +56,7 @@ thin_executables_in_dir()
 		return
 	fi
 
+	local exec_file
 	echo "$exec_files" | while IFS= read -r exec_file; do
 		file_type=$(/usr/bin/file -b "$exec_file")
 		echo "$file_type" | /usr/bin/grep -qE "Mach-O"

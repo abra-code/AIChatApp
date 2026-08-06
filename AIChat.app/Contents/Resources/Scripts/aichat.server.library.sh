@@ -77,6 +77,7 @@ generate_mcp_configs() {
 # any_mcp_server_enabled  ->  0 if at least one bundled server is enabled in prefs
 any_mcp_server_enabled() {
     [ ! -f "$mcp_prefs" ] && return 0  # no prefs file = use defaults (all on)
+    local srv
     for srv in time search local; do
         [ "$(mcp_prefs_get_bool "servers/$srv/enabled")" = "true" ] && return 0
     done

@@ -92,6 +92,8 @@ register_started_server()
 stop_orphaned_servers()
 {
 	echo "Stop orphaned servers without host app running"
+	local host_pids host_pid host_process_exists
+	local server_pids server_pid server_process_exists
 	host_pids=$("$plister" get keys "$prefs" "/server-hosts")
 	while read -r host_pid; do
 		echo "registered host_pid = $host_pid"

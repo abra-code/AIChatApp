@@ -287,12 +287,14 @@ extract_and_install() {
     # Use [ -e ] || [ -L ] to catch both valid files/symlinks and dangling symlinks
     # ([ -e ] follows symlinks, so it returns false if the target no longer exists).
     echo "  Removing existing dylibs..."
+    local old_dylib
     for old_dylib in "$INSTALL_DIR"/*.dylib; do
         [ -e "$old_dylib" ] || [ -L "$old_dylib" ] || continue
         /bin/rm -f "$old_dylib"
     done
 
     echo "  Removing existing LICENSE files..."
+    local old_license
     for old_license in "$INSTALL_DIR"/LICENSE*; do
         [ -f "$old_license" ] || continue
         /bin/rm -f "$old_license"
@@ -348,6 +350,7 @@ extract_and_install() {
 
     echo "  dylibs (from otool -L, with symlink targets):"
     local install_ok="yes"
+    local dylib_name
     while IFS= read -r dylib_name; do
         [ -z "$dylib_name" ] && continue
         install_dylib "$dylib_name"
@@ -366,6 +369,7 @@ EOF
 
     # Install LICENSE files
     echo "  LICENSE files:"
+    local license_path
     for license_path in "$src_dir"/LICENSE*; do
         [ -f "$license_path" ] || continue
         local license_name
@@ -467,6 +471,7 @@ verify_webui_patches() {
     local sed_file="$1"
     local patched_file="$2"
     local ok="yes"
+    local line
 
     while IFS= read -r line; do
         # Strip sed comments and blank lines before extracting the replacement.
@@ -533,6 +538,7 @@ update_webui() {
     # Download the three WebUI files
     echo "  Downloading WebUI files (${hf_version})..."
     local download_ok="yes"
+    local f
     for f in index.html bundle.js bundle.css; do
         printf "    %-12s" "$f"
         /usr/bin/curl -s --fail --show-error --max-time 120 -L \
@@ -553,6 +559,7 @@ update_webui() {
     fi
 
     # Remove any previous originals zip and save a fresh one for the new version.
+    local old_zip
     for old_zip in "${WEBUI_SED_DIR}"/WebUI-*.zip; do
         [ -f "$old_zip" ] || continue
         /bin/rm -f "$old_zip"

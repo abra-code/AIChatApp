@@ -157,10 +157,12 @@ calculate_total_server_ram() {
     [ ! -f "$prefs" ] && echo "0" && return 0
 
     local host_pids=$("$plister" get keys "$prefs" "/server-hosts" 2>/dev/null)
+    local _ctr_host_pid
     while IFS= read -r _ctr_host_pid; do
         [ -z "$_ctr_host_pid" ] && continue
         /bin/ps -p "$_ctr_host_pid" > /dev/null 2>&1 || continue
         local server_pids=$("$plister" get keys "$prefs" "/server-hosts/$_ctr_host_pid" 2>/dev/null)
+        local _ctr_server_pid
         while IFS= read -r _ctr_server_pid; do
             [ -z "$_ctr_server_pid" ] && continue
             kill -0 "$_ctr_server_pid" 2>/dev/null || continue
@@ -237,10 +239,12 @@ activate_if_model_running() {
     [ ! -f "$prefs" ] && return 1
 
     local host_pids=$("$plister" get keys "$prefs" "/server-hosts" 2>/dev/null)
+    local _act_host_pid
     while IFS= read -r _act_host_pid; do
         [ -z "$_act_host_pid" ] && continue
         /bin/ps -p "$_act_host_pid" > /dev/null 2>&1 || continue
         local server_pids=$("$plister" get keys "$prefs" "/server-hosts/$_act_host_pid" 2>/dev/null)
+        local _act_server_pid
         while IFS= read -r _act_server_pid; do
             [ -z "$_act_server_pid" ] && continue
             kill -0 "$_act_server_pid" 2>/dev/null || continue
