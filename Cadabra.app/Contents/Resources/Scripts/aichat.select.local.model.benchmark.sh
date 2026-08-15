@@ -20,6 +20,14 @@ window_uuid="$OMC_ACTIONUI_WINDOW_UUID"
 # Column 3 (hidden) holds the full model path
 selected_path="$OMC_ACTIONUI_TABLE_10_COLUMN_3_VALUE"
 [ -n "$selected_path" ] || { echo "no selection"; exit 0; }
+# The on-device model answers before the -e test below, which would otherwise call it "no longer
+# on disk" - it was never on our disk. The button is disabled for this row, so this is reachable
+# only by the re-enable at the end of a run that started on another model.
+if [ "$(model_engine "$selected_path")" = "foundation" ]; then
+    "$dialog_tool" "$window_uuid" $BENCH_TEXT_ID \
+        "Benchmarking measures a model this Mac loads. The on-device model belongs to the system, so there is nothing here to measure."
+    exit 0
+fi
 if [ ! -e "$selected_path" ]; then
     "$dialog_tool" "$window_uuid" $BENCH_TEXT_ID "The selected model is no longer on disk."
     exit 0
@@ -100,7 +108,9 @@ out=$(/bin/cat "$out_file")
 # Repaint and re-enable against the CURRENT selection: the run took minutes and the user
 # may have moved on (selection.changed leaves the button alone while we're running).
 current=$(pb_get "aichatv2_selected_model_${window_uuid}")
-if [ -n "$current" ]; then
+# Non-empty is not enough: the on-device row stamps a non-empty SENTINEL, so a run that finishes
+# while it is selected would re-enable a button that row deliberately disables.
+if [ -n "$current" ] && [ "$(model_engine "$current")" != "foundation" ]; then
     "$dialog_tool" "$window_uuid" $BENCH_BTN_ID omc_enable
 fi
 if [ "$current" = "$selected_path" ]; then

@@ -33,6 +33,10 @@ emit_model_row() {
 	local path="$1"
 	local engine="${2:-$(model_engine "$path")}"
 	[ -n "$engine" ] || return 0
+	# The on-device model has its own emitter (add_foundation_row): no size to format, and a
+	# name that depends on availability. Refused here so a sentinel arriving from an unexpected
+	# source - a recents entry written by an older build - cannot produce a "0.0 GB" row.
+	[ "$engine" = "foundation" ] && return 0
 
 	local name bytes size
 	name="$(model_display_label "$path")"
@@ -45,6 +49,57 @@ emit_model_row() {
 	bytes="$(model_bytes "$path" "$engine")"
 	size=$(printf "%.1f GB" "$(echo "scale=4; $bytes / (1024*1024*1024)" | /usr/bin/bc -l 2>/dev/null)")
 	printf '%s\t%s\t%s\n' "$name" "$size" "$path"
+}
+
+# ── Apple Foundation Models ───────────────────────────────────────────────────
+# Listed FIRST, and listed even when it is not usable right now.
+#
+# First because it is the only row that needs no download: on a Mac with nothing installed
+# yet, every other row is absent and this one is the whole answer to "can I chat at all".
+#
+# Listed while unavailable because the two states a user can act on - Apple Intelligence
+# switched off, assets still downloading - are invisible from here. Hiding the row would
+# hide the feature AND the remedy, leaving nothing to discover and nothing to click. The
+# row says which state it is in; picking it explains and offers the fix (see the ok handler).
+# It is omitted only when this Mac is KNOWN never to support it - which is not the same as "not
+# usable now": a reason this build does not recognize is listed too, because a newer macOS can
+# add states and reading ignorance as "never" would retire the feature on the systems that just
+# gained one.
+#
+# The size column reads "system" rather than a number: these weights are not ours, are not
+# on our disk, and are not counted against the RAM budget that column exists to convey.
+# Formatting 0 bytes as "0.0 GB" would put a measurement there that means nothing.
+add_foundation_row() {
+	local probe reason summary name row
+	probe=$(foundation_probe)
+	reason=$(printf '%s' "$probe" | /usr/bin/cut -f1)
+	summary=$(printf '%s' "$probe" | /usr/bin/cut -f2)
+	echo "foundation: reason=$reason ($summary)"
+
+	# Claimed BEFORE the offerable test, not after: a machine that cannot run this engine must
+	# also not list it via a stale recents entry, and recents are appended after the scan by a
+	# path that only consults `seen`.
+	seen="${seen}[$FOUNDATION_MODEL_ID]"
+
+	foundation_offerable "$reason" || return 0
+
+	name="$(model_display_label "$FOUNDATION_MODEL_ID") [Apple]"
+	case "$reason" in
+		# No tools badge, though the engine supports them. On every other row the hammer has
+		# come to mean "tools will be on for this model" - it is what auto-ticks the toggle -
+		# and this row deliberately starts with tools OFF (a very small window; see the info
+		# pane). Badging it would have the list promise what the pane immediately withdraws.
+		available)            ;;
+		appleIntelligenceOff) name="${name} - Apple Intelligence off" ;;
+		modelNotReady)        name="${name} - still downloading" ;;
+		timedOut)             name="${name} - not responding" ;;
+		probeFailed)          name="${name} - check failed" ;;
+		*)                    name="${name} - unavailable" ;;
+	esac
+
+	row=$(printf '%s\t%s\t%s' "$name" "system" "$FOUNDATION_MODEL_ID")
+	buffer="${buffer}${row}
+"
 }
 
 buffer=""
@@ -61,6 +116,10 @@ add_row() {
 	[ -n "$row" ] && buffer="${buffer}${row}
 "
 }
+
+# Before the disk scan, so it heads the list. It also claims its sentinel in `seen`, which
+# keeps a stale recents entry from producing a second copy of the row.
+add_foundation_row
 
 # Roots are scanned for BOTH engines. The HF cache and LM Studio genuinely hold each kind
 # (LM Studio ships an MLX runtime), so neither can be assumed single-engine. The Ollama /

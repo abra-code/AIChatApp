@@ -103,10 +103,19 @@ def _updated_epoch(session_dir):
     return newest
 
 
+# Apple's on-device model, which is not a path at all. Kept in step with FOUNDATION_MODEL_ID in
+# aichat.model.library.sh; history records whatever was stamped as the window's model, so this
+# side has to know the sentinel too or it renders it raw.
+FOUNDATION_MODEL_ID = "foundation:apple-on-device"
+
+
 def _model_label(model_path):
     """Display name for a model path. Mirrors model_display_label() in
     aichat.model.library.sh - keep the two in sync.
 
+    Foundation Models: a sentinel, not a path. Tested FIRST, for the same reason the shell
+      half does: every test below assumes a path, and basename() of a value with no slash is
+      the value itself - so the sentinel would render verbatim in the info strip.
     GGUF: keep the filename (its quant suffix, e.g. -Q5_K_S, is exactly what the user is
       choosing between), only drop the .gguf extension.
     MLX in the HF cache (.../models--<org>--<name>/snapshots/<hash>/...): the leaf is a
@@ -117,6 +126,8 @@ def _model_label(model_path):
     """
     if not model_path:
         return ""
+    if model_path == FOUNDATION_MODEL_ID:
+        return "Apple Foundation Models"
     path = model_path.rstrip("/")
     base = os.path.basename(path)
     if base.endswith(".gguf"):

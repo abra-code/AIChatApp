@@ -137,6 +137,10 @@ pb_set "aichatv2_modelpath_${chat_window_uuid}" "$AICHAT_MODEL_PATH"
 # Persist model path as a recent if it lives outside the standard caches.
 # The model selector init script reads this list and deduplicates against cache results.
 case "$AICHAT_MODEL_PATH" in
+	# The on-device model is not a path and is never "recent": the picker lists it
+	# unconditionally, from its own probe. Letting the sentinel into this list would put a
+	# second, unbadged copy of the row in the picker on the next open.
+	"$FOUNDATION_MODEL_ID") ;;
 	"$HOME/Library/Application Support/Cadabra/Models/"*|\
 	"$HOME/.cache/huggingface/"*|"$HOME/.lmstudio/"*|\
 	"$HOME/.ollama/"*|"$HOME/.localai/"*|\
@@ -189,7 +193,53 @@ chat_loading_overlay_show "$chat_window_uuid" "$model_label"
 agent_bin="$OMC_APP_BUNDLE_PATH/Contents/Support/MLX/mlx-agent"
 chat_config=""
 
-if [ "$engine" = "mlx" ]; then
+if [ "$engine" = "foundation" ]; then
+	# The lightest path of the three: no server to launch, no weights to map, no model to
+	# name. The model belongs to the OS, so mlx-agent is handed a backend and nothing else -
+	# passing --model here would be refused, since there is only one model and it is not ours.
+	#
+	# This is also THE LAST AVAILABILITY GATE, and it cannot be left to the picker. The
+	# picker's check is not the last thing before launch: with tools on, the user is routed
+	# through the MCP servers dialog first and may spend minutes there (its Start handler
+	# re-arms the launch queue with a fresh epoch for exactly that reason), and this window
+	# can also open from the launch queue or a restored session, neither of which probed at
+	# all. Apple Intelligence can be switched off in any of those gaps.
+	#
+	# Without a gate here the failure lands badly. Building this transport cannot realistically
+	# fail, so the window would open looking ready - real title, enabled composer - and then
+	# mlx-agent would exit 2 at spawn with its reason on stderr, leaving a dead composer or a
+	# raw transport error where the app already knows how to show an actionable alert.
+	if [ "$AICHAT_FORCE_OPENAI_SSE" = "1" ]; then
+		# Same reasoning as the mlx branch: that escape hatch IS the direct-to-llama-server
+		# transport, and there is no server on this path. Say it is ignored rather than
+		# pointing the window at a port nothing is listening on.
+		echo "AICHAT_FORCE_OPENAI_SSE=1 ignored: the foundation engine runs no llama-server"
+	fi
+	echo "foundation engine: mlx-agent uses Apple's on-device model; no llama-server, no weights"
+	fm_probe=$(foundation_probe)
+	fm_reason=$(printf '%s' "$fm_probe" | /usr/bin/cut -f1)
+	fm_summary=$(printf '%s' "$fm_probe" | /usr/bin/cut -f2)
+	if [ "$fm_reason" != "available" ]; then
+		engine_ready=1
+		echo "foundation engine: not usable ($fm_reason: $fm_summary)"
+		"$alert" --level "stop" --title "$APPLET_NAME" --ok "OK" \
+			"The on-device model is not available right now.
+
+${fm_summary}"
+	else
+		chat_config=$(aichat_acp_transport_json "$agent_bin" foundation "" "$chat_window_uuid" "$use_tools")
+		# Injecting "" would freeze the Chat element on an empty config and leave the composer
+		# permanently disabled under a title claiming a loaded model.
+		if [ -n "$chat_config" ]; then
+			engine_ready=0
+		else
+			engine_ready=1
+			echo "foundation engine: transport JSON came back empty; refusing to inject"
+			"$alert" --level "stop" --title "$APPLET_NAME" --ok "OK" \
+				"Could not prepare the on-device model for this conversation."
+		fi
+	fi
+elif [ "$engine" = "mlx" ]; then
 	# No server on this path. mlx-agent maps the weights itself, so there is nothing to
 	# launch, health-check, register or reap, and nothing to be ready FOR: the transport is
 	# complete the moment we can name the model directory. A bad or unloadable model surfaces
@@ -255,7 +305,9 @@ if [ "$engine_ready" = 0 ]; then
 	set_chat_status "$model_label"
 	echo "chat ready ($engine, $model_label) - injected states[config]"
 else
-	# wait_for_server / report_server_launch_failure / the no-port branch already alerted.
+	# Every path that sets engine_ready=1 has already alerted: wait_for_server /
+	# report_server_launch_failure / the no-port branch on gguf, the empty-transport check on
+	# mlx, and the availability refusal or empty-transport check on foundation.
 	set_chat_status "failed to load model"
 	echo "chat init failed (engine=$engine, engine_ready=$engine_ready)"
 fi

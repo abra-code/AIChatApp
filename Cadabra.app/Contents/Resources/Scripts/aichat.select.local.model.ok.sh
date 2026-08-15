@@ -22,6 +22,79 @@ fi
 
 echo "Selected model path: $selected_path"
 
+# ── The on-device model: usable right now? ────────────────────────────────────
+# Checked HERE rather than by disabling the row, because the two recoverable states are
+# invisible from the list and the user cannot act on what they cannot reach. This is the
+# point where "Apple Intelligence is off" turns into a button that opens the right pane.
+#
+# Re-probed rather than trusting what the picker found at open: the dialog is modeless, so
+# the user can leave it open, turn Apple Intelligence on (or off) in System Settings, and
+# come back. The row's caption may be minutes stale; this answer is not.
+if [ "$(model_engine "$selected_path")" = "foundation" ]; then
+    fm_probe=$(foundation_probe)
+    fm_reason=$(printf '%s' "$fm_probe" | /usr/bin/cut -f1)
+    fm_summary=$(printf '%s' "$fm_probe" | /usr/bin/cut -f2)
+    echo "foundation: reason=$fm_reason ($fm_summary)"
+
+    case "$fm_reason" in
+        available) ;;
+        appleIntelligenceOff)
+            "$alert" --level caution --title "Turn On Apple Intelligence?" \
+                --ok "Open Settings" --cancel "Cancel" \
+                "Apple Foundation Models needs Apple Intelligence, which is switched off.
+
+Open System Settings > Apple Intelligence & Siri and turn it on, then come back here, click the refresh button above the model list, and pick this model again. The first time it is enabled macOS downloads the model, which can take a while."
+            if [ $? -eq 0 ]; then
+                foundation_open_settings
+            fi
+            # No refresh chained here on purpose. `open` returns as soon as LaunchServices
+            # accepts the URL, so a rebuild would re-probe milliseconds later - long before
+            # anyone could flip the switch - and re-derive the identical stale caption. What
+            # actually keeps this correct is the re-probe at the top of this handler, which
+            # runs on the next attempt; Reload resyncs the caption when the user wants it.
+            exit 0 ;;
+        modelNotReady)
+            "$alert" --level caution --title "Still Downloading" --ok "OK" \
+                "macOS is still downloading the on-device model.
+
+Leave this Mac on power and connected to the network for a while, then pick this model again."
+            exit 0 ;;
+        timedOut)
+            "$alert" --level caution --title "Not Responding" --ok "OK" \
+                "The on-device model did not answer in time.
+
+${fm_summary}"
+            exit 0 ;;
+        deviceNotEligible|osTooOld|notBuilt)
+            # The three verdicts that are genuinely permanent on this machine. Named
+            # EXPLICITLY rather than left to the catch-all: those rows are not listed, so
+            # reaching here means a stale list, and asserting permanence is only honest for
+            # a reason we actually recognize as permanent.
+            "$alert" --level stop --title "Not Available" --ok "OK" \
+                "The on-device model cannot be used on this Mac.
+
+${fm_summary}"
+            exit 0 ;;
+        *)
+            # Everything the picker lists but cannot use right now: `unknown`, `probeFailed`,
+            # and any code added to the agent after this build. None of them is a verdict about
+            # this Mac - they are ignorance, a transient failure, or a state we have not learned
+            # yet - so do NOT say "cannot be used on this Mac". The picker deliberately lists
+            # these (see foundation_offerable, a denylist); declaring it impossible the moment
+            # the user acts on that would undo the point of listing it.
+            #
+            # `generationFailed` also lands here if it ever reaches this handler. That is right:
+            # the agent's guidance is "treat as unusable, detail says why", which is this arm.
+            "$alert" --level caution --title "Not Available Right Now" --ok "OK" \
+                "The on-device model is not available, for a reason this version does not recognize.
+
+${fm_summary}
+
+Check Apple Intelligence in System Settings, or try again after a macOS update."
+            exit 0 ;;
+    esac
+fi
+
 # ── In-place model switch? ────────────────────────────────────────────────────
 # Armed by a chat window's Model button (aichat.model.switch). Instead of opening a new
 # chat window, restart the pinned-port server for THAT window and let its frozen transport
@@ -68,10 +141,20 @@ if [ -n "$switch_win" ]; then
         exit 0
     fi
 
-    echo "cross-engine switch refused (current=$current_engine, selected=$new_engine)"
+    echo "in-place switch refused (current=$current_engine, selected=$new_engine)"
+    # The guard above is gguf-to-gguf ONLY, so this branch is not reached solely by CROSS-engine
+    # picks: two different MLX models land here too, and so does a current model that has since
+    # been deleted (empty engine). Naming both engines unconditionally produced "runs on mlx and
+    # ... runs on mlx", and "runs on  and ..." for the deleted case. Name them only when they
+    # actually differ and both are known.
+    if [ -n "$current_engine" ] && [ -n "$new_engine" ] && [ "$current_engine" != "$new_engine" ]; then
+        switch_why="Switching a conversation to a different engine is not supported yet. This conversation runs on $(model_engine_label "$current_engine") and \"$(model_display_label "$selected_path")\" runs on $(model_engine_label "$new_engine")."
+    else
+        switch_why="Changing this conversation's model in place is not supported yet."
+    fi
     "$alert" --level caution --title "Open in a New Window?" \
         --ok "Open in New Window" --cancel "Cancel" \
-        "Switching a conversation between the GGUF and MLX engines is not supported yet.
+        "${switch_why}
 
 \"$(model_display_label "$selected_path")\" can be opened in a new chat window instead. The current conversation stays exactly as it is."
     if [ $? -ne 0 ]; then

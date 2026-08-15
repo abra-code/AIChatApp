@@ -9,8 +9,11 @@ otherwise the transport is plain chat (no --mcp-config).
 Usage:
     acp_transport_json.py <agent_bin> <engine> <target> <mcp_config_path> <cwd>
 
-    engine == "openai": <target> is the llama-server base-url; mlx-agent talks to it.
-    engine == "mlx":    <target> is a safetensors model directory loaded in-process.
+    engine == "openai":     <target> is the llama-server base-url; mlx-agent talks to it.
+    engine == "mlx":        <target> is a safetensors model directory loaded in-process.
+    engine == "foundation": Apple's on-device model. <target> is UNUSED and expected to be
+                            empty - the model belongs to the OS, and passing --model would be
+                            refused by the agent because there is nothing to choose between.
 
 Writes one line of JSON to stdout and nothing else, so the caller's stdout stays
 pure JSON.
@@ -23,8 +26,13 @@ import sys
 def main():
     agent, engine, target, cfg, cwd = sys.argv[1:6]
 
+    # Dispatched explicitly rather than "openai or else --model": the on-device engine has no
+    # target, so falling through to the else would build `--model ""` and start an agent that
+    # fails on an empty model path instead of using the model the user picked.
     if engine == "openai":
         argv = [agent, "acp", "--backend", "openai", "--base-url", target]
+    elif engine == "foundation":
+        argv = [agent, "acp", "--backend", "foundation"]
     else:
         argv = [agent, "acp", "--model", target]
 

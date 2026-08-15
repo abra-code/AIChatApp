@@ -323,8 +323,13 @@ aichat_acp_transport_json() {
     local ae="$(printf '%s' "$agent_bin" | /usr/bin/sed 's/\\/\\\\/g; s/"/\\"/g')"
     local te="$(printf '%s' "$target"    | /usr/bin/sed 's/\\/\\\\/g; s/"/\\"/g')"
     local ce="$(printf '%s' "$cwd"       | /usr/bin/sed 's/\\/\\\\/g; s/"/\\"/g')"
+    # Dispatched explicitly, matching the builder: the on-device engine carries no target, so
+    # an "openai or else --model" split would emit `--model ""` here and launch an agent that
+    # fails on an empty model path rather than using the model the user picked.
     if [ "$engine" = "openai" ]; then
         printf '{"protocol":"acp","transport":{"command":["%s","acp","--backend","openai","--base-url","%s"],"cwd":"%s"}}\n' "$ae" "$te" "$ce"
+    elif [ "$engine" = "foundation" ]; then
+        printf '{"protocol":"acp","transport":{"command":["%s","acp","--backend","foundation"],"cwd":"%s"}}\n' "$ae" "$ce"
     else
         printf '{"protocol":"acp","transport":{"command":["%s","acp","--model","%s"],"cwd":"%s"}}\n' "$ae" "$te" "$ce"
     fi

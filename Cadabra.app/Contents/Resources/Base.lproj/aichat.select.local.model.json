@@ -58,6 +58,7 @@
               "systemImage": "arrow.clockwise",
               "imageScale": "medium",
               "buttonStyle": "plain",
+              "help": "Reload the model list",
               "actionID": "aichat.select.local.model.reload",
               "frame": { "width": 32, "height": 28 }
             }

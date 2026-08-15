@@ -598,6 +598,17 @@ engine=$(model_engine "$selected_path")
 echo "Selected model: $selected_path (engine=${engine:-unknown})"
 
 case "$engine" in
+    foundation)
+        # Unreachable through the UI - the trash is disabled for this row - but this is a
+        # DESTRUCTIVE handler, so it answers for itself rather than inheriting the catch-all
+        # below, which would test the sentinel with -e, find nothing, and report the model as
+        # having been moved or deleted. It is part of macOS; there is nothing of ours to remove.
+        deleted=1
+        "$alert" \
+            --level caution \
+            --title "Nothing to Delete" \
+            "Apple Foundation Models is part of macOS, not a download this app manages. To remove it, turn off Apple Intelligence in System Settings."
+        ;;
     gguf)
         delete_gguf
         deleted=$?
