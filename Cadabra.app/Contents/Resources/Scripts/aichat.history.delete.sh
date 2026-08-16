@@ -30,8 +30,8 @@ if [ "$(pb_get "aichatv2_session_${win}")" = "$sid" ]; then
     # The title tracks the loaded CONVERSATION (stamped by the selection handler), so it has
     # to fall back to the model here - otherwise the window keeps naming a chat that no
     # longer exists. Same end state as New Chat: empty chat, unbound, titled by model.
-    model_path=$(pb_get "aichatv2_modelpath_${win}")
-    [ -n "$model_path" ] && chat_window_set_status "$win" "$(model_display_label "$model_path")"
+    engine_label=$(chat_engine_label "$win")
+    [ -n "$engine_label" ] && chat_window_set_status "$win" "$engine_label"
 fi
 
 "$next_command" "$OMC_CURRENT_COMMAND_GUID" "aichat.history.refresh"

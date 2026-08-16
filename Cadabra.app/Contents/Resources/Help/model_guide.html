@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AIChat — Choosing a Local Model</title>
+<title>Choosing a Local Model</title>
 <style>
   :root {
     --bg: #ffffff;
@@ -117,7 +117,7 @@
       <tr><td><code>70B+</code></td><td>40 GB+</td><td>Top quality; needs a high-memory Mac (64&nbsp;GB+).</td></tr>
     </tbody>
   </table>
-  <p class="callout">Rule of thumb: keep the model under ~<b>75% of your Mac's unified memory</b>, leaving room for the OS, the app, and the context window. AIChat warns you before loading something likely to overflow.</p>
+  <p class="callout">Rule of thumb: keep the model under ~<b>75% of your Mac's unified memory</b>, leaving room for the OS, the app, and the context window. Cadabra warns you before loading something likely to overflow.</p>
 
   <h2>Quantization — how compressed it is (<code>Q4_K_M</code>, <code>IQ4_XS</code>, <code>BF16</code>)</h2>
   <p>Models are trained at 16-bit precision, but each weight can be <b>quantized</b> to fewer bits to shrink the download and memory footprint and run faster. The trade-off is a small loss of accuracy. The leading number is the bits per weight: fewer bits = smaller &amp; faster, more bits = higher fidelity.</p>
@@ -192,7 +192,7 @@
   <p>A tool call is structured output (usually JSON). One missing comma or hallucinated path and the agent loop breaks — so <b>reliability and formatting matter as much as raw intelligence</b>.</p>
   <div class="callout tools">
     <ul>
-      <li><b>Instruct-tuned is mandatory.</b> Base models can't reliably emit tool calls. Look for <code>Instruct</code>/<code>Chat</code>. In AIChat the model list shows <span class="pill">Tools: Supported</span> when a model advertises a tool-calling chat template.</li>
+      <li><b>Instruct-tuned is mandatory.</b> Base models can't reliably emit tool calls. Look for <code>Instruct</code>/<code>Chat</code>. In Cadabra the model list shows <span class="pill">Tools: Supported</span> when a model advertises a tool-calling chat template.</li>
       <li><b>Size and reasoning help most.</b> Multi-step plans, recovering from tool errors, and deciding <em>when</em> to call a tool improve sharply from ~7–8B upward, and again with reasoning models. Tiny models often loop or mis-call tools.</li>
       <li><b>Dense vs. MoE.</b> Dense models tend to be the most consistent on complex, deeply-nested tool calls. MoEs are much faster through long tool loops and keep broad knowledge — a well-trained agent/coder MoE is excellent, though a very low active-parameter count can occasionally make the hardest calls less reliable. Either works; favour a dense model for the trickiest tool schemas, an MoE for speed.</li>
       <li><b>Don't over-compress.</b> Very low bit-widths (Q2–Q3) degrade the structured-output reliability tool calls depend on. <b>Q4_K_M or higher</b> is a good floor for agentic work; an Unsloth <code>UD</code> quant is a strong choice when memory is tight.</li>
@@ -200,7 +200,7 @@
       <li><b>Give it enough context, but mind memory.</b> Tool transcripts (file contents, command output) fill the window fast, so prefer a larger context window — but the KV-cache grows with it. If the model + context overflows unified memory, macOS swaps to disk and speed collapses to a crawl. Keep the total under ~75% of RAM.</li>
     </ul>
   </div>
-  <p class="callout">On Apple Silicon, AIChat runs GGUF models on Metal. Some models also ship <b>MLX</b> builds tuned for Apple's unified memory that can be faster — but those are a different format that this app doesn't load.</p>
+  <p class="callout">On Apple Silicon, Cadabra runs GGUF models on Metal. Some models also ship <b>MLX</b> builds tuned for Apple's unified memory that can be faster - but those are a different format that this app doesn't load.</p>
 
   <h2>Quick recipes</h2>
   <table>
@@ -216,7 +216,7 @@
   </table>
 
   <div class="footer">
-    When you select a model in AIChat, the <b>Name decoder</b> in the Model Info panel breaks down that exact file's tags. This guide is the long-form reference behind it.
+    When you select a model in Cadabra, the <b>Name decoder</b> in the Model Info panel breaks down that exact file's tags. This guide is the long-form reference behind it.
   </div>
 
 </div>

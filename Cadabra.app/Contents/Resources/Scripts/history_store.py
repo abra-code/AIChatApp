@@ -183,6 +183,10 @@ def _build_transcript(session_dir):
     stats = {
         "msgs": msg_count,
         "model": model,
+        # An external ACP agent has no model path - the agent brings its own model and we
+        # never learn which. The conversation is identified by the AGENT instead, and the
+        # two are mutually exclusive by construction.
+        "agent": meta.get("agent") or "",
         "created": meta.get("created") or "",
         "title": title,
     }
@@ -270,9 +274,13 @@ def _preview_line(item):
     return ""
 
 
-def cmd_meta_init(sid, model_path):
+def cmd_meta_init(sid, model_path, agent=""):
     """Emit a fresh meta.json for a new native session. Called once on first entry.
-    Uses json.dumps so a model path with spaces/quotes is escaped correctly."""
+    Uses json.dumps so a model path with spaces/quotes is escaped correctly.
+
+    Exactly one of model_path and agent is meaningful: a conversation runs either the bundled
+    model or an external ACP agent. Recording the agent is what stops external conversations
+    showing a blank where every other row names its model."""
     meta = {
         "id": sid,
         "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -281,6 +289,8 @@ def cmd_meta_init(sid, model_path):
     if model_path:
         meta["modelPath"] = model_path
         meta["model"] = _model_label(model_path)
+    if agent:
+        meta["agent"] = agent
     json.dump(meta, sys.stdout, ensure_ascii=False)
     sys.stdout.write("\n")
     return 0
@@ -292,7 +302,9 @@ def cmd_info(session_dir):
     own recorded metadata."""
     _transcript, stats = _build_transcript(session_dir)
     bits = []
-    if stats.get("model"):
+    if stats.get("agent"):
+        bits.append("Agent: %s" % stats["agent"])
+    elif stats.get("model"):
         bits.append("Model: %s" % stats["model"])
     created = stats.get("created") or ""
     if created:
@@ -309,7 +321,9 @@ def cmd_preview(session_dir, max_items=8):
     transcript, stats = _build_transcript(session_dir)
     lines = ["## %s" % (stats.get("title") or "(untitled)")]
     meta_bits = []
-    if stats.get("model"):
+    if stats.get("agent"):
+        meta_bits.append("Agent: %s" % stats["agent"])
+    elif stats.get("model"):
         meta_bits.append("Model: %s" % stats["model"])
     meta_bits.append("Messages: %d" % stats.get("msgs", 0))
     if stats.get("created"):
@@ -339,9 +353,10 @@ def main(argv):
     cmd = argv[1]
     if cmd == "meta-init":
         if len(argv) < 3:
-            sys.stderr.write("usage: history_store.py meta-init <sid> [model_path]\n")
+            sys.stderr.write("usage: history_store.py meta-init <sid> [model_path] [agent]\n")
             return 2
-        return cmd_meta_init(argv[2], argv[3] if len(argv) > 3 else "")
+        return cmd_meta_init(argv[2], argv[3] if len(argv) > 3 else "",
+                             argv[4] if len(argv) > 4 else "")
     if len(argv) < 3:
         sys.stderr.write("usage: history_store.py %s <path>\n" % cmd)
         return 2

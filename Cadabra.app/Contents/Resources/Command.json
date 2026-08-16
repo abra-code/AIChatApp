@@ -12,7 +12,7 @@
         "INIT_SUBCOMMAND_ID" : "aichat.select.local.model.init",
         "IS_BLOCKING" : false,
         "JSON_NAME" : "aichat.select.local.model",
-        "WINDOW_TITLE" : "Cadabra — Select Model"
+        "WINDOW_TITLE" : "Local Models"
       },
       "COMMAND_ID" : "aichat.select.local.model",
       "EXECUTION_MODE" : "exe_script_file",
@@ -61,6 +61,43 @@
     },
     {
       "COMMAND_ID" : "aichat.select.local.model.browse",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "Cadabra"
+    },
+    {
+      "ACTIONUI_WINDOW" : {
+        "END_CANCEL_SUBCOMMAND_ID" : "aichat.select.external.agent.cancel",
+        "INIT_SUBCOMMAND_ID" : "aichat.select.external.agent.init",
+        "IS_BLOCKING" : false,
+        "JSON_NAME" : "aichat.select.external.agent",
+        "WINDOW_TITLE" : "ACP Agents"
+      },
+      "COMMAND_ID" : "aichat.select.external.agent",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "Cadabra"
+    },
+    {
+      "COMMAND_ID" : "aichat.select.external.agent.init",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "Cadabra"
+    },
+    {
+      "COMMAND_ID" : "aichat.select.external.agent.selection.changed",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "Cadabra"
+    },
+    {
+      "COMMAND_ID" : "aichat.select.external.agent.test",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "Cadabra"
+    },
+    {
+      "COMMAND_ID" : "aichat.select.external.agent.ok",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "Cadabra"
+    },
+    {
+      "COMMAND_ID" : "aichat.select.external.agent.cancel",
       "EXECUTION_MODE" : "exe_script_file",
       "NAME" : "Cadabra"
     },

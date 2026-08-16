@@ -15,7 +15,7 @@ new_title=$(/usr/bin/osascript - "$current" <<'APPLESCRIPT'
 on run argv
     set cur to item 1 of argv
     try
-        return text returned of (display dialog "Rename chat" default answer cur with title "AIChat")
+        return text returned of (display dialog "Rename chat" default answer cur with title "Cadabra")
     end try
     return ""
 end run

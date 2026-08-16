@@ -18,12 +18,10 @@ ROW_BUTTONS="521 520 524"   # Rename Reveal Delete
 chat_inject_empty "$win"
 pb_set "aichatv2_session_${win}" ""
 
-# Retitle to the active model (stamped by init / model switch).
-model_path=$(pb_get "aichatv2_modelpath_${win}")
-if [ -n "$model_path" ]; then
-    label=$(model_display_label "$model_path")
-    chat_window_set_status "$win" "$label"
-fi
+# Retitle to whatever drives this window - the active model, or the external ACP agent, which
+# has no model path and so used to leave the previous conversation's title sitting there.
+label=$(chat_engine_label "$win")
+[ -n "$label" ] && chat_window_set_status "$win" "$label"
 
 # Drop any selection and disable the row-action buttons (omc_deselect fires no actionID).
 "$dialog" "$win" "$TABLE_ID" omc_deselect
@@ -31,7 +29,5 @@ for b in $ROW_BUTTONS; do "$dialog" "$win" "$b" omc_disable; done
 
 # If the info strip is showing, refresh it to the "new conversation" state.
 if [ "$(pb_get "aichatv2_info_${win}")" = "1" ]; then
-    info="New conversation"
-    [ -n "$model_path" ] && info="${info}   ·   Model: $(model_display_label "$model_path")"
-    "$dialog" "$win" "$INFO_TEXT_ID" "$info"
+    "$dialog" "$win" "$INFO_TEXT_ID" "New conversation$(chat_engine_info_suffix "$win")"
 fi

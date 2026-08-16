@@ -78,6 +78,34 @@ model_display_label() {
 	esac
 }
 
+# chat_engine_label <window-uuid> -> what is driving this window, or nothing
+#
+# An external ACP agent or a local model, never both: chat.init.sh stamps exactly one of the
+# two per-window keys and blanks the other. The agent is checked first because an external
+# window has no model path at all, and that asymmetry is what used to make these call sites
+# fall through to a bare "New conversation" with nothing after it.
+chat_engine_label() {
+	local agent model_path
+	agent=$(pb_get "aichatv2_agent_${1}")
+	[ -n "$agent" ] && { printf '%s\n' "$agent"; return 0; }
+	model_path=$(pb_get "aichatv2_modelpath_${1}")
+	[ -n "$model_path" ] && model_display_label "$model_path"
+}
+
+# chat_engine_info_suffix <window-uuid> -> "   <dot>   Agent: X" / "   <dot>   Model: Y" / ""
+#
+# The tail of the info strip's "New conversation" line. Lives here because THREE scripts build
+# that line - the (i) toggle, New Chat, and (by way of the title) history delete - and only one
+# of them was updated when the agent case was added, so pressing New Chat in an external window
+# put the blank straight back. One definition, so the next engine cannot be half-added.
+chat_engine_info_suffix() {
+	local agent model_path
+	agent=$(pb_get "aichatv2_agent_${1}")
+	[ -n "$agent" ] && { printf '   ·   Agent: %s\n' "$agent"; return 0; }
+	model_path=$(pb_get "aichatv2_modelpath_${1}")
+	[ -n "$model_path" ] && printf '   ·   Model: %s\n' "$(model_display_label "$model_path")"
+}
+
 # model_dir_bytes <dir> -> total bytes of the model's *.safetensors shards, summed RECURSIVELY
 # (find, not a top-level glob) so a repo whose shards live in a subdirectory is still measured.
 # Used for the MLX RAM check (weights dominate the footprint).

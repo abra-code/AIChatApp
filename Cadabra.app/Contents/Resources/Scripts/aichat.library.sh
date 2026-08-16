@@ -179,7 +179,7 @@ format_bytes() {
 # Globals
 # ──────────────────────────────────────────────────────────────
 
-APPLET_NAME="AIChat"
+APPLET_NAME="Cadabra"
 
 # when no model is bundled with the app:
 AICHAT_MODEL_PATH=""
@@ -205,9 +205,4 @@ history_root="$mcp_app_support/History"
 # chat window's title. Lives in the BASE library so callers that have no business pulling in
 # the server library (registry, port pinning, orphan reaping) still have it - the history
 # selection handler is the one that forced the move.
-# NOTE: the brand is the literal "AIChat V2", NOT $APPLET_NAME. $APPLET_NAME is "AIChat" (it
-# titles this app's dialogs), while every window title in V2 reads "AIChat V2 — ...".
-# MLXChat's copy uses $APPLET_NAME because there the two happen to agree; here they do not,
-# and interpolating would silently retitle every chat window. This is the ONLY place the
-# brand is spelled - every titling caller goes through this helper.
-chat_window_set_status() { "$dialog" "$1" omc_window "AIChat V2 — $2"; }
+chat_window_set_status() { "$dialog" "$1" omc_window "$2"; }

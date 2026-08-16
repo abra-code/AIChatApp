@@ -6,6 +6,7 @@
 # it. An armed in-place switch (Model button) is the one path that reuses the current window.
 
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.model.library.sh"
+source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.acp.agents.library.sh"
 
 echo "[$(/usr/bin/basename "$0")]"
 
@@ -178,6 +179,13 @@ if [ $? -ne 0 ]; then
     echo "User cancelled load due to RAM pressure warning"
     exit 0
 fi
+
+# Picking a local model turns the external ACP agent off. The two are alternatives for the
+# same slot - aichat.chat.init.sh checks the external agent FIRST and ignores the model
+# entirely when it is on - so leaving it enabled here would silently discard the model the
+# user just chose and start their previous agent instead. The command stays remembered, so
+# switching back under Tools > External ACP Agent costs one click, not retyping.
+acp_agent_disable
 
 # Close the selector window now that we're committed to loading
 "$dialog_tool" "$window_uuid" omc_window omc_terminate_ok

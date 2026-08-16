@@ -26,9 +26,9 @@ if [ -n "$sid" ] && history_valid_sid "$sid"; then
     info=$(history_info_line "$sid")
 fi
 if [ -z "$info" ]; then
-    info="New conversation"
-    model_path=$(pb_get "aichatv2_modelpath_${win}")
-    [ -n "$model_path" ] && info="${info}   ·   Model: $(model_display_label "$model_path")"
+    # No session yet (a New Chat that has not been sent). Name whichever engine this window
+    # was opened with, so the strip is never just "New conversation" with nothing after it.
+    info="New conversation$(chat_engine_info_suffix "$win")"
 fi
 
 # Insert a fresh Text into the slot (defensively remove any stale one first), then set text.

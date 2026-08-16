@@ -67,10 +67,13 @@ history_title() {
     "$history_py" "$history_store" title "$dir"
 }
 
-# history_init_meta <session_dir> <sid> <model_path> — write a fresh meta.json (JSON-safe,
-# atomic: a concurrent history_index scan never sees a torn/empty file).
+# history_init_meta <session_dir> <sid> <model_path> [agent_label] - write a fresh meta.json
+# (JSON-safe, atomic: a concurrent history_index scan never sees a torn/empty file).
+#
+# model_path and agent_label are mutually exclusive: a conversation runs either the bundled
+# model or an external ACP agent, and an external one has no model path to record.
 history_init_meta() {
-    "$history_py" "$history_store" meta-init "$2" "$3" > "$1/meta.json.tmp" &&
+    "$history_py" "$history_store" meta-init "$2" "$3" "${4:-}" > "$1/meta.json.tmp" &&
         /bin/mv -f "$1/meta.json.tmp" "$1/meta.json"
 }
 

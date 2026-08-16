@@ -4,9 +4,13 @@
     "properties": { "placement": "replacing", "placementTarget": "new" },
     "children": [
       { "type": "Button", "properties": {
-          "title": "Select Model",
+          "title": "Select Local Model",
           "actionID": "aichat.select.local.model",
           "keyboardShortcut": { "key": "n" }
+      } },
+      { "type": "Button", "properties": {
+          "title": "Select ACP Agent",
+          "actionID": "aichat.select.external.agent"
       } },
       { "type": "Button", "properties": {
           "title": "Browse Hugging Face",
@@ -19,7 +23,7 @@
     "properties": { "placement": "replacing", "placementTarget": "open" },
     "children": [
       { "type": "Button", "properties": {
-          "title": "Open…",
+          "title": "Open Model File…",
           "actionID": "aichat.open.from.file.browser",
           "keyboardShortcut": { "key": "o" }
       } }

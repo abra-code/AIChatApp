@@ -25,10 +25,14 @@ if [ -z "$sid" ]; then
     sid="$(/bin/date -u +%Y%m%dT%H%M%SZ)-$$"
     pb_set "$session_key" "$sid"
     /bin/mkdir -p "$history_root/$sid"
-    # Record the model this session used (chat.init.sh stamped it per-window) so the
-    # history list shows it and Continue can auto-resume the same model. JSON-safe.
+    # Record what produced this session - the model, or the external ACP agent - from the
+    # per-window stamps chat.init.sh wrote. Exactly one of the two is ever non-empty. This
+    # feeds the info strip and the preview; the sidebar list shows only the title, and no
+    # resume path reads either value back (the comment here used to claim both, which was
+    # true of neither). JSON-safe.
     session_model_path=$(pb_get "aichatv2_modelpath_${win}")
-    history_init_meta "$history_root/$sid" "$sid" "$session_model_path"
+    session_agent=$(pb_get "aichatv2_agent_${win}")
+    history_init_meta "$history_root/$sid" "$sid" "$session_model_path" "$session_agent"
     newly_minted=1
 fi
 

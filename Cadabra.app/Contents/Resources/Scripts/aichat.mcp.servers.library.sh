@@ -326,7 +326,15 @@ aichat_acp_transport_json() {
     # Dispatched explicitly, matching the builder: the on-device engine carries no target, so
     # an "openai or else --model" split would emit `--model ""` here and launch an agent that
     # fails on an empty model path rather than using the model the user picked.
-    if [ "$engine" = "openai" ]; then
+    if [ "$engine" = "external" ]; then
+        # No bundled Python, so there is nothing here that can safely split a user-typed
+        # command line - shlex lives in the builder, and word-splitting it in the shell would
+        # glob-expand and re-split whatever the user wrote. Refuse instead of guessing: an
+        # empty transport makes the caller alert and leave the composer disabled, which is a
+        # far better outcome than launching a command nobody typed.
+        echo "external agent needs the bundled python3 to parse its command line" 1>&2
+        return 1
+    elif [ "$engine" = "openai" ]; then
         printf '{"protocol":"acp","transport":{"command":["%s","acp","--backend","openai","--base-url","%s"],"cwd":"%s"}}\n' "$ae" "$te" "$ce"
     elif [ "$engine" = "foundation" ]; then
         printf '{"protocol":"acp","transport":{"command":["%s","acp","--backend","foundation"],"cwd":"%s"}}\n' "$ae" "$ce"

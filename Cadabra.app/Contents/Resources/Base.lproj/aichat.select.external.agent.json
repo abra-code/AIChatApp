@@ -1,0 +1,234 @@
+{
+  "type": "NavigationSplitView",
+  "id": 100,
+  "properties": {
+    "columnVisibility": "all",
+    "style": "balanced",
+    "frame": {
+      "minWidth": 940,
+      "minHeight": 520,
+      "idealWidth": 1120,
+      "idealHeight": 660,
+      "maxWidth": "infinity",
+      "maxHeight": "infinity"
+    },
+    "padding": {
+      "top": 4
+    }
+  },
+  "sidebar": {
+    "type": "VStack",
+    "properties": {
+      "spacing": 0,
+      "navigationSplitViewColumnWidth": {
+        "min": 310,
+        "ideal": 360,
+        "max": 480
+      }
+    },
+    "children": [
+      {
+        "type": "Table",
+        "id": 10,
+        "properties": {
+          "columns": ["Agent", "Status"],
+          "widths": [200, 90],
+          "minWidths": [140, 70],
+          "actionID": "aichat.select.external.agent.selection.changed"
+        }
+      },
+      {
+        "type": "Text",
+        "properties": {
+          "text": "Found on this Mac, plus known agents you can install.",
+          "font": "caption",
+          "foregroundStyle": "secondary",
+          "frame": {
+            "maxWidth": "infinity",
+            "alignment": "leading"
+          },
+          "padding": {
+            "leading": 8,
+            "trailing": 8,
+            "top": 6,
+            "bottom": 6
+          }
+        }
+      }
+    ]
+  },
+  "detail": {
+    "type": "VStack",
+    "properties": {
+      "spacing": 16,
+      "padding": "default",
+      "frame": {
+        "minWidth": 420,
+        "idealWidth": 520
+      }
+    },
+    "children": [
+      {
+        "type": "GroupBox",
+        "properties": {
+          "title": "About This Agent",
+          "frame": {
+            "maxWidth": "infinity",
+            "maxHeight": "infinity"
+          }
+        },
+        "children": [
+          {
+            "type": "ScrollView",
+            "properties": {
+              "frame": {
+                "maxWidth": "infinity",
+                "maxHeight": "infinity"
+              }
+            },
+            "content": {
+              "type": "Text",
+              "id": 12,
+              "properties": {
+                "text": "Select an agent from the list.",
+                "frame": {
+                  "maxWidth": "infinity",
+                  "maxHeight": "infinity",
+                  "alignment": "topLeading"
+                },
+                "textSelection": "enabled",
+                "foregroundStyle": "secondary"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "type": "GroupBox",
+        "properties": {
+          "title": "Command",
+          "frame": {
+            "maxWidth": "infinity"
+          }
+        },
+        "children": [
+          {
+            "type": "VStack",
+            "properties": {
+              "spacing": 6,
+              "alignment": "leading",
+              "frame": {
+                "maxWidth": "infinity"
+              }
+            },
+            "children": [
+              {
+                "type": "HStack",
+                "properties": {
+                  "spacing": 8
+                },
+                "children": [
+                  {
+                    "type": "TextField",
+                    "id": 20,
+                    "properties": {
+                      "prompt": "/path/to/agent acp",
+                      "frame": {
+                        "maxWidth": "infinity"
+                      }
+                    }
+                  },
+                  {
+                    "type": "Button",
+                    "id": 22,
+                    "properties": {
+                      "title": "Test",
+                      "actionID": "aichat.select.external.agent.test"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "Text",
+                "properties": {
+                  "text": "The command Cadabra runs to start the agent. It must speak ACP on stdin/stdout. Quote any path containing spaces.",
+                  "font": "caption",
+                  "foregroundStyle": "secondary",
+                  "frame": {
+                    "maxWidth": "infinity",
+                    "alignment": "leading"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "GroupBox",
+        "properties": {
+          "title": "Test Result",
+          "frame": {
+            "maxWidth": "infinity"
+          }
+        },
+        "children": [
+          {
+            "type": "ScrollView",
+            "properties": {
+              "frame": {
+                "maxWidth": "infinity",
+                "minHeight": 110,
+                "maxHeight": 110
+              }
+            },
+            "content": {
+              "type": "Text",
+              "id": 24,
+              "properties": {
+                "text": "Press Test to launch the agent and check that it answers.",
+                "frame": {
+                  "maxWidth": "infinity",
+                  "maxHeight": "infinity",
+                  "alignment": "topLeading"
+                },
+                "textSelection": "enabled",
+                "foregroundStyle": "secondary"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "type": "HStack",
+        "properties": {
+          "spacing": 8
+        },
+        "children": [
+          {
+            "type": "Spacer"
+          },
+          {
+            "type": "Toggle",
+            "id": 30,
+            "properties": {
+              "title": "Use Tools in Agentic Session",
+              "isOn": true,
+              "style": "checkbox"
+            }
+          },
+          {
+            "type": "Button",
+            "id": 3,
+            "properties": {
+              "title": "Use This Agent",
+              "buttonStyle": "borderedProminent",
+              "disabled": true,
+              "actionID": "aichat.select.external.agent.ok"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -12,7 +12,7 @@
 # fragments out of that dump via mcp_tools_report.py - no MCP traffic after populate.
 #
 # There is deliberately no start/stop/restart here (that was the proxy-era AIChat
-# inspector): AIChat V2's MCP servers are stdio children owned by each window's
+# inspector): Cadabra's MCP servers are stdio children owned by each window's
 # mlx-agent, with no lifecycle the applet could or should manage.
 #
 # Sourced ONLY by the aichat.mcp.inspect.* handler scripts. Control IDs match

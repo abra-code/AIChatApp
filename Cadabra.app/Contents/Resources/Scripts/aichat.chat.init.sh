@@ -29,6 +29,28 @@ source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.server.library.sh
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.model.library.sh"
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.history.library.sh"
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.mcp.servers.library.sh"
+source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.acp.agents.library.sh"
+
+# Decided once, up front, because it changes what this script is even allowed to require. An
+# external ACP agent brings its own model, so on that path there is no model path to demand
+# and no engine to detect - and the two guards below would otherwise refuse the launch with
+# "Model path not specified" before the dispatch that knows better is ever reached.
+external_agent_active=$(acp_agent_enabled)
+
+# An explicit model THIS launch beats a stored agent preference. The external branch below
+# ignores $engine entirely, so without this a user who had configured opencode and then
+# dropped a .gguf on the app icon would watch their model silently discarded and opencode
+# open instead - and the drop path (AIChat.main.sh chains straight to aichat.chat) never goes
+# near the model picker, so the flag that the picker clears is still set.
+#
+# Scoped to this launch on purpose: the drop is a one-off, so the stored preference stays for
+# the next plain launch rather than being silently forgotten by a gesture that never mentioned
+# it. Note the external agent's own OK handler arms the launch queue with an EMPTY model path,
+# so a normal external launch never trips this.
+if [ "$external_agent_active" = "true" ] && [ -n "${AICHAT_MODEL_PATH:-}${OMC_OBJ_PATH:-}" ]; then
+	echo "external agent configured, but a model was given for this launch - using the model"
+	external_agent_active="false"
+fi
 
 echo "[$(/usr/bin/basename "$0")]"
 
@@ -81,7 +103,7 @@ elif [ -z "$AICHAT_MODEL_PATH" ]; then
 	fi
 fi
 
-if [ -z "$AICHAT_MODEL_PATH" ]; then
+if [ -z "$AICHAT_MODEL_PATH" ] && [ "$external_agent_active" != "true" ]; then
 	alert_message="Model path not specified"
 	echo "$alert_message"
 	"$alert" --level "stop" --title "$APPLET_NAME" --ok "OK" "$alert_message"
@@ -96,8 +118,13 @@ echo "AICHAT_MODEL_PATH = $AICHAT_MODEL_PATH"
 # DIRECTORY is loaded in-process by mlx-agent itself (--model, no server anywhere). Detect
 # once, here, and branch on it below - the picker made the same call using the same helper.
 engine=$(model_engine "$AICHAT_MODEL_PATH")
-if [ -z "$engine" ]; then
-	alert_message="This is not a model AIChat can load:
+if [ -z "$engine" ] && [ "$external_agent_active" = "true" ]; then
+	# Expected on this path and not a problem: there may be no model path at all, and even if
+	# a stale one is still queued from a previous pick, mlx-agent is not what is being
+	# launched. The dispatch below ignores $engine entirely when the external agent is on.
+	echo "external agent active: skipping model/engine detection"
+elif [ -z "$engine" ]; then
+	alert_message="This is not a model Cadabra can load:
 
 $AICHAT_MODEL_PATH
 
@@ -107,7 +134,10 @@ Expected either a .gguf file, or a folder containing config.json and .safetensor
 	exit 1
 fi
 
-if [ "$engine" = "mlx" ]; then
+# The external check joins the two guards above for the same reason they have it: this branch
+# can abort the launch over a model the external path was never going to load, and it exits
+# before BOTH per-window stamps below, leaving the window with no engine identity at all.
+if [ "$engine" = "mlx" ] && [ "$external_agent_active" != "true" ]; then
 	# Resolve to the PHYSICAL directory: mlx-swift-lm's weight loader fails to map sharded
 	# or quantized tensors when handed a SYMLINKED model dir (it reports "Key
 	# model.norm.weight not found"), which reads as a corrupt model rather than a symlink
@@ -125,7 +155,21 @@ fi
 # One label for both engines: for a gguf this is the filename minus .gguf (exactly what the
 # server library's LAUNCHED_MODEL_LABEL used to produce), for an mlx dir it is <org>/<name>
 # rather than the snapshot hash.
-model_label=$(model_display_label "$AICHAT_MODEL_PATH")
+if [ "$external_agent_active" = "true" ]; then
+	# Named here rather than in the dispatch below, because the loading overlay is raised
+	# before it and would otherwise be labeled with the empty string that
+	# model_display_label returns for an absent model path.
+	#
+	# acp_agent_display_label, not the bare acp_agent_stored_label: this value is ALSO what
+	# the aichatv2_agent_ stamp below carries, and the title and the stamp are read by
+	# different code paths. When they disagreed the window opened titled "opencode" and
+	# silently became "opencode 1.17.13" the moment the user pressed New Chat. init cannot
+	# call chat_engine_label itself - it runs before its own stamps exist - so computing the
+	# richer label once here and reusing it is what keeps the two in step.
+	model_label=$(acp_agent_display_label)
+else
+	model_label=$(model_display_label "$AICHAT_MODEL_PATH")
+fi
 echo "engine = $engine, model_label = $model_label"
 
 # Stamp the model path for this window so the history entry handler (aichat.chat.entry.sh)
@@ -133,6 +177,36 @@ echo "engine = $engine, model_label = $model_label"
 # switch handler can compare against the currently-loaded model. Stamped AFTER the mlx
 # symlink resolution above, so the comparison is against the path actually loaded.
 pb_set "aichatv2_modelpath_${chat_window_uuid}" "$AICHAT_MODEL_PATH"
+
+# The same stamp for the other kind of conversation. An external agent has no model path, so
+# without this the entry handler recorded an EMPTY model into meta.json and every external
+# conversation showed a blank where every other row names its model - in the history list, in
+# the info strip, and in the preview. Empty for a local model, which is what keeps the two
+# mutually exclusive downstream.
+if [ "$external_agent_active" = "true" ]; then
+	# Reuses the value computed above rather than calling the label function a second time.
+	# Not just to save the forks: two independent reads of a MUTABLE plist can disagree, and
+	# the Test dialog writes verifiedVersion, so a badly timed press between them would
+	# reintroduce exactly the title-versus-stamp mismatch this pairing exists to prevent. One
+	# read, one value, and the agreement is structural instead of coincidental.
+	pb_set "aichatv2_agent_${chat_window_uuid}" "$model_label"
+	# And blank the model path, so the exclusivity the readers rely on is ENFORCED here rather
+	# than merely documented. AICHAT_MODEL_PATH is normally already empty on this path, but it
+	# is resolved after the explicit-model-wins override above, so a stale legacy pasteboard
+	# value could still reach this line and produce a meta.json claiming both a model and an
+	# agent. The agent is what actually ran; the model path would be a lie about a file that
+	# was never loaded.
+	#
+	# DO NOT REMOVE AS REDUNDANT. It also carries a second property, further away: the in-place
+	# model switch reads this key as the currently-loaded model, and an empty value makes
+	# model_engine return "" so the gguf-to-gguf hot-swap guard fails and the user is routed to
+	# the new-window path, where acp_agent_disable runs. Without the blanking, a stale value
+	# could let an external window hot-swap in place, leaving the agent stamp attached to a
+	# conversation the local model produced.
+	pb_set "aichatv2_modelpath_${chat_window_uuid}" ""
+else
+	pb_set "aichatv2_agent_${chat_window_uuid}" ""
+fi
 
 # Persist model path as a recent if it lives outside the standard caches.
 # The model selector init script reads this list and deduplicates against cache results.
@@ -193,7 +267,47 @@ chat_loading_overlay_show "$chat_window_uuid" "$model_label"
 agent_bin="$OMC_APP_BUNDLE_PATH/Contents/Support/MLX/mlx-agent"
 chat_config=""
 
-if [ "$engine" = "foundation" ]; then
+if [ "$external_agent_active" = "true" ]; then
+	# An ACP agent the user configured instead of the bundled one - opencode, the Claude
+	# Code ACP adapter, anything that speaks ACP over stdio. It is checked FIRST and ignores
+	# $engine entirely, because the model picker's engine describes which weights mlx-agent
+	# would load, and on this path mlx-agent is not in the picture at all: the external agent
+	# brings its own model, its own provider credentials and its own tool loop.
+	#
+	# Nothing is launched or health-checked out here. There is no server to own (that is the
+	# agent's business) and no weights to find, so the transport is complete as soon as there
+	# is a command to run - exactly like the mlx branch, and for the same reason. A bad
+	# command surfaces as an ACP launch error in the window, which is where the user can see
+	# and fix it, rather than as an alert out here that cannot say much more than "it failed".
+	external_command=$(acp_agent_stored_command)
+	# So the ready/failed lines at the bottom name what actually ran. $engine still holds the
+	# engine of whatever model the picker last selected, which is not what is being launched.
+	engine="external"
+	echo "external agent: $external_command"
+	if [ "$AICHAT_FORCE_OPENAI_SSE" = "1" ]; then
+		# Same as the other no-server paths: the escape hatch IS the direct-to-llama-server
+		# transport, and this path runs no llama-server.
+		echo "AICHAT_FORCE_OPENAI_SSE=1 ignored: an external ACP agent runs no llama-server"
+	fi
+	if [ -z "$external_command" ]; then
+		engine_ready=1
+		echo "external agent: no command configured"
+		"$alert" --level "stop" --title "$APPLET_NAME" --ok "OK" \
+			"No external agent command is configured.
+
+Choose one under Tools > External ACP Agent, or pick a local model instead."
+	else
+		chat_config=$(aichat_acp_transport_json "$agent_bin" external "$external_command" "$chat_window_uuid" "$use_tools")
+		if [ -n "$chat_config" ]; then
+			engine_ready=0
+		else
+			engine_ready=1
+			echo "external agent: transport JSON came back empty; refusing to inject"
+			"$alert" --level "stop" --title "$APPLET_NAME" --ok "OK" \
+				"Could not prepare the external agent for this conversation."
+		fi
+	fi
+elif [ "$engine" = "foundation" ]; then
 	# The lightest path of the three: no server to launch, no weights to map, no model to
 	# name. The model belongs to the OS, so mlx-agent is handed a backend and nothing else -
 	# passing --model here would be refused, since there is only one model and it is not ours.
