@@ -7,7 +7,11 @@ Agent mode is selected only when the generated MCP config lists >= 1 server;
 otherwise the transport is plain chat (no --mcp-config).
 
 Usage:
-    acp_transport_json.py <agent_bin> <engine> <target> <mcp_config_path> <cwd>
+    acp_transport_json.py <agent_bin> <engine> <target> <mcp_config_path> <cwd> [tools]
+
+    [tools] is optional and defaults to "true": "readonly" hands the external agent only
+    the servers that have no gated tools (see acp_mcp_servers); anything else hands over
+    whatever the config lists.
 
     engine == "openai":     <target> is the llama-server base-url; mlx-agent talks to it.
     engine == "mlx":        <target> is a safetensors model directory loaded in-process.
@@ -60,11 +64,49 @@ def read_servers(cfg):
     return []
 
 
-def acp_mcp_servers(servers):
+def _declares_no_gated_tools(server):
+    """True only when this entry POSITIVELY says none of its tools need a permission prompt.
+
+    The question is asked this way round on purpose. The tempting test is "does it have a
+    truthy gatedTools", or "is gatedTools a non-empty list", and both hand the server over for
+    every shape they fail to recognize - null, 0, "", {}, false, and for the isinstance version
+    also a string or a number. Every one of those means WE CANNOT TELL, and "cannot tell" must
+    not resolve to "give a third-party agent this server".
+
+    So only two shapes qualify, and they are the only two the generator ever writes: the key
+    absent (it is set only when the gated list is non-empty), or an explicitly empty list.
+    Anything else is either real gating or a config we do not understand, and both are withheld.
+
+    Note `"gatedTools" in server` rather than a .get() - an explicit null would otherwise be
+    indistinguishable from absent, and null is a shape we do not understand.
+    """
+    if "gatedTools" not in server:
+        return True
+    gated = server["gatedTools"]
+    return isinstance(gated, list) and not gated
+
+
+def acp_mcp_servers(servers, readonly_only=False):
     """Cadabra's server list in the shape ACP's session/new expects.
 
     Only the spec's stdio fields survive: name, command, args, env. `gatedTools` is
     mlx-agent's own extension and is dropped (see the module docstring).
+
+    readonly_only is the "Read-only Servers" setting. `gatedTools` lists the tools that
+    mlx-agent must route through Cadabra's approval card, computed fail-closed by probing
+    each server: a tool is gated unless it positively declares MCP's readOnlyHint. So a
+    server with NO gatedTools is one whose every tool declared itself read-only, and
+    dropping the rest is the closest thing to Cadabra-side gating that an external agent
+    can be held to - it cannot be asked to honor a key it does not implement, but it can
+    only call tools it was handed.
+
+    The filter is SERVER granular, not tool granular, because session/new's mcpServers has
+    no per-tool selector. A server with one mutating tool goes entirely, which is why the
+    setting is named for servers rather than for tools.
+
+    That "absent means read-only" reading is only safe because generate_mcp_configs.py
+    OMITS a server it could not probe, rather than writing it out with no gatedTools - the
+    two would otherwise be indistinguishable here, and this filter would be fail-open.
 
     `env` IS ALWAYS EMITTED, even empty. It is a mapping in our config and an array of
     {name, value} in ACP, so it has to be converted either way - but it is also REQUIRED, and
@@ -81,6 +123,8 @@ def acp_mcp_servers(servers):
     for server in servers:
         if not isinstance(server, dict) or not server.get("command"):
             continue
+        if readonly_only and not _declares_no_gated_tools(server):
+            continue
         env = server.get("env")
         entry = {"name": str(server.get("name", "")),
                  "command": str(server["command"]),
@@ -93,6 +137,18 @@ def acp_mcp_servers(servers):
 
 def main():
     agent, engine, target, cfg, cwd = sys.argv[1:6]
+    # The session's tools setting, as the dialog's picker tags spell it: "true" (all
+    # servers), "readonly" (only servers with no gated tools), "false" (no config was
+    # generated at all, so there is nothing here to filter). Optional and defaulting to
+    # "true" so an older caller that passes five arguments behaves exactly as before.
+    # Absent means "true" so a five-argument caller behaves exactly as before. Anything
+    # PRESENT but not "true" filters, rather than only the exact string "readonly": ok.sh
+    # already coerces an unrecognized setting to the most restrictive one, and a second layer
+    # that quietly read an unknown value as "hand over everything" would be the two of them
+    # disagreeing about the same input - which is how a permission gap opens without anyone
+    # editing the line that has the bug. "false" lands here too and costs nothing: that path
+    # deleted the config, so there are no servers to filter.
+    tools = sys.argv[6] if len(sys.argv) > 6 else "true"
 
     # An agent that is not ours: the command line arrives as one user-typed string and is split
     # HERE rather than by a shell, so a path with spaces survives if it is quoted and nothing is
@@ -125,7 +181,7 @@ def main():
         # Test button uses the identical value, so the two cannot disagree. See acp_agent_env.
         transport = {"command": argv, "cwd": cwd,
                      "env": {"PATH": acp_agent_env.launch_path()}}
-        servers = acp_mcp_servers(read_servers(cfg))
+        servers = acp_mcp_servers(read_servers(cfg), readonly_only=(tools != "true"))
         if servers:
             transport["mcpServers"] = servers
         json.dump({"protocol": "acp", "transport": transport}, sys.stdout)

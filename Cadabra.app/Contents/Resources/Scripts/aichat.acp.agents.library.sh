@@ -34,6 +34,11 @@
 # picked. The MCP library is include-guarded, so sourcing it twice is free.
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.mcp.servers.library.sh"
 
+# The built-in agent list is DATA, not code: Resources/acp-agents.json, read through
+# acp_catalog.py. See acp_agent_catalog below for why it moved out of this file.
+acp_python="$OMC_APP_BUNDLE_PATH/Contents/Library/Python/bin/python3"
+acp_catalog_py="$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/acp_catalog.py"
+
 # acp_md_paragraphs
 # Reads markdown on stdin and rewrites it into the only multi-line form this dialog's text
 # renderer actually shows.
@@ -112,60 +117,62 @@ EOF
     return 1
 }
 
-# acp_agent_catalog  ->  TSV rows: id \t label \t executable \t argv-tail \t note
+# acp_agent_catalog  ->  TSV rows: id \t label \t command \t args \t url \t summary \t note
 #
-# `executable` is what to look for on disk; `argv-tail` is appended after the resolved path
-# to make the full argv. A row whose executable is not found is still offered, grayed, with
-# its note explaining how to get it - knowing an agent EXISTS is most of the value.
+# The rows live in Resources/acp-agents.json and arrive here through acp_catalog.py. They used
+# to be a heredoc in this function. Moving them out is what lets a row carry a URL and a
+# one-line summary for the info pane, and lets "this agent takes no arguments" be an empty
+# LIST rather than a single space smuggled through a tab-separated field - the hack that
+# existed only because an empty field collapses under IFS whitespace and shifts every later
+# field left, sliding prose into the argv column.
 #
-# Tabs are the field separator and none of these fields may contain one.
+# acp_catalog.py owns that invariant now: it never emits an empty field, and "-" means absent.
+# A human editing JSON therefore cannot reintroduce the bug, which a hand-maintained TSV
+# invited every time it was touched.
+#
+# An unreadable catalog emits NOTHING, and says why on stderr rather than silently: the dialog
+# then shows an empty list, which is an obvious failure, instead of a plausible partial one.
+# The window title degrades on its own - acp_agent_stored_label already falls back to the
+# command's basename when an id is not in the catalog.
 acp_agent_catalog() {
-    /bin/cat <<'EOF'
-opencode	OpenCode	opencode	acp	May need its own login (opencode auth login) before prompts work.
-kilo	Kilo	kilo	acp	A node script rather than a binary, so it only starts if node is on the launch PATH. May need its own login (kilo auth login) before prompts work.
-kimi	Kimi Code	kimi	acp	Runs kimi-code as an ACP server over stdio. It needs its own login first - kimi acp --login runs a device-code flow. Moonshot ships it as a single binary from its own installer at code.kimi.com rather than through npm.
-grok	Grok	grok	agent stdio	May need its own login - it advertises grok.com and a cached token.
-claude-code-acp	Claude Code (ACP adapter)	claude-agent-acp	 	Claude Code speaks no ACP itself; this adapter wraps it.
-gemini	Gemini	gemini	--acp	Google's CLI speaks ACP and it is listed in the official ACP Agent Registry.
-custom	Custom	 	 	Anything else that speaks ACP over stdio. Type the full command and arguments yourself.
-EOF
+    "$acp_python" "$acp_catalog_py" rows
 }
 
-# acp_agent_scan  ->  TSV rows: id \t label \t status \t resolved-argv \t note
+# acp_agent_scan  ->  TSV rows: id \t label \t status \t resolved-argv \t url \t summary \t note
 #
 # status is "found", "missing" or "custom". For a found row the argv is ready to store; for
 # a missing one the argv column carries the un-resolved executable name so the dialog can
 # still show what it would run; the custom row has no argv and carries "-".
 #
-# NEVER EMIT AN EMPTY FIELD HERE. Tab is IFS *whitespace*, so a reader doing
-# `IFS=<tab> read -r a b c d e` collapses two adjacent tabs into one separator and every
-# field after the empty one shifts left - the note lands in the argv column and the caller
-# runs it. That is why the placeholder is "-" and not "".
+# NEVER EMIT AN EMPTY FIELD HERE, for the same reason acp_catalog.py does not: tab is IFS
+# *whitespace*, so a reader doing `IFS=<tab> read -r a b c ...` collapses two adjacent tabs
+# into one separator and every field after the empty one shifts left - the note lands in the
+# argv column and the caller runs it. Everything arriving from acp_catalog.py is already
+# non-empty; the fields built HERE have to hold the line themselves.
 acp_agent_scan() {
-    local id label exe tail note path argv_tail
-    while IFS='	' read -r id label exe tail note; do
+    local id label exe args url summary note path argv_tail
+    while IFS='	' read -r id label exe args url summary note; do
         [ -n "$id" ] || continue
         if [ "$id" = "custom" ]; then
-            printf '%s\t%s\t%s\t%s\t%s\n' "$id" "$label" "custom" "-" "$note"
+            printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$label" "custom" "-" "$url" "$summary" "$note"
             continue
         fi
-        # A row whose agent takes NO arguments cannot say so with an empty field - tab is IFS
-        # whitespace, so an empty one collapses into its neighbor and shifts every later field
-        # left. It spells that as a single space, which has to be unspelled here or the stored
-        # command picks up a trailing space and the field that is meant to show the user
-        # exactly what will run shows something slightly different.
-        case "$tail" in
-            ""|" ") argv_tail="" ;;
-            *)      argv_tail=" $tail" ;;
+        # "-" is how the catalog spells "no arguments" (an empty JSON list). Anything else is
+        # a real argv tail and gets a separating space; without this the stored command picks
+        # up a trailing space and the field whose whole job is showing exactly what will run
+        # shows something slightly different.
+        case "$args" in
+            "-"|"") argv_tail="" ;;
+            *)      argv_tail=" $args" ;;
         esac
         if path=$(acp_agent_which "$exe"); then
             # Quote a resolved path that contains a space: this column is a COMMAND LINE that
             # shlex will re-split, so an unquoted "/Users/my name/.opencode/bin/opencode acp"
             # would become three argv entries and fail to launch.
             case "$path" in *\ *) path="\"$path\"" ;; esac
-            printf '%s\t%s\t%s\t%s\t%s\n' "$id" "$label" "found" "$path$argv_tail" "$note"
+            printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$label" "found" "$path$argv_tail" "$url" "$summary" "$note"
         else
-            printf '%s\t%s\t%s\t%s\t%s\n' "$id" "$label" "missing" "$exe$argv_tail" "$note"
+            printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$label" "missing" "$exe$argv_tail" "$url" "$summary" "$note"
         fi
     done <<EOF
 $(acp_agent_catalog)

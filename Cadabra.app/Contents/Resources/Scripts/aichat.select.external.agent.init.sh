@@ -20,7 +20,7 @@ TABLE_ID=10
 INFO_TEXT_ID=12
 COMMAND_FIELD_ID=20
 RESULT_TEXT_ID=24
-USE_TOOLS_TOGGLE_ID=30
+USE_TOOLS_PICKER_ID=30
 OK_BUTTON_ID=3
 dialog_tool="$OMC_OMC_SUPPORT_PATH/omc_dialog_control"
 window_uuid="$OMC_ACTIONUI_WINDOW_UUID"
@@ -42,7 +42,7 @@ stored_command=$(acp_agent_stored_command)
 buffer=""
 stored_row=-1
 row_index=0
-while IFS='	' read -r id label state argv note; do
+while IFS='	' read -r id label state argv url summary note; do
     [ -n "$id" ] || continue
     case "$state" in
         found)   shown="Ready" ;;
@@ -96,6 +96,13 @@ fi
 
 "$dialog_tool" "$window_uuid" $RESULT_TEXT_ID "Press Test to launch the agent and check that it answers."
 
-# Tools default ON: an external coding agent with no filesystem access is a chat box, which
-# is not why anyone points Cadabra at opencode.
-"$dialog_tool" "$window_uuid" $USE_TOOLS_TOGGLE_ID true
+# Tools default to ALL: an external coding agent with no filesystem access is a chat box,
+# which is not why anyone points Cadabra at opencode. The value is the picker's TAG, and the
+# tags are the literal strings the rest of the path already speaks ("true"/"false"), so
+# widening this control to three states changed no downstream comparison.
+#
+# "readonly" is the middle setting: hand the agent only the servers whose every tool declared
+# itself read-only. It exists because gatedTools - Cadabra's own "ask before this tool runs"
+# list - is an mlx-agent extension that an external agent cannot honor, so the only leverage
+# left is what we hand over rather than what we ask it to gate.
+"$dialog_tool" "$window_uuid" $USE_TOOLS_PICKER_ID true

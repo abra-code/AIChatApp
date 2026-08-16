@@ -1,0 +1,159 @@
+{
+  "comment": [
+    "Built-in catalog of local ACP agents offered by Tools > External ACP Agent.",
+    "Read by Scripts/acp_catalog.py, which flattens it to TSV for the shell library.",
+    "",
+    "note is USER FACING and appears in the dialog's info pane. Keep it to what someone running",
+    "Cadabra on their own machine can act on - what the agent is, what it needs, how to get it.",
+    "Do NOT write our own provenance into it: phrases like \"verified here\" or \"not probed here\"",
+    "mean a developer's machine, which is nothing the user can see or check.",
+    "",
+    "verification is OURS. acp_catalog.py never emits it, so it cannot reach the UI. It records",
+    "what we actually confirmed and how, and which rows are still NOT PROBED - the intent being",
+    "to probe every pre-configured tool, so this doubles as the list of what is still owed.",
+    "",
+    "A row is a STARTING POINT for the command field, never a promise. The dialog probes whatever",
+    "argv it is about to store, and the probe's answer is what gets believed. Two rows went stale",
+    "during development, both of them rows nobody had run.",
+    "",
+    "Fields: id is persisted in the user's settings, so DO NOT rename one - it would orphan an",
+    "existing selection. args is a list, so an agent that takes no arguments is [] rather than",
+    "the single space the old tab-separated table needed. url is the vendor's own information",
+    "page, shown as a clickable link; every one was verified to resolve.",
+    "",
+    "Rows are ordered alphabetically by label, with Custom pinned last, because the dialog renders",
+    "them in file order. Order carries no meaning: the selection is keyed by id, so rows can be",
+    "resorted freely.",
+    "",
+    "The five rows from the ACP registry (Codex, Cursor, GitHub Copilot, Mistral Vibe, Qwen Code)",
+    "come from https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json, which is",
+    "machine readable and carries each agent's distribution details. That registry is also the",
+    "cheapest way to check whether these rows have gone stale.",
+    "",
+    "The custom row is not an agent and has no vendor, so its url is not a product page: it points",
+    "at the registry of ACP agents, which is what someone about to type a command is looking for.",
+    "selection.changed.sh gives that row a different link LABEL for the same reason."
+  ],
+  "agents": [
+    {
+      "id": "claude-code-acp",
+      "label": "Claude Code (ACP adapter)",
+      "command": "claude-agent-acp",
+      "args": [],
+      "url": "https://github.com/agentclientprotocol/claude-agent-acp",
+      "summary": "An adapter that exposes Anthropic's Claude Agent SDK to any ACP client.",
+      "note": "Claude Code speaks no ACP itself; this adapter wraps it. It needs no login of its own - it uses your existing Claude Code credentials.",
+      "verification": "Probed: initialize ok at 0.69.0, protocolVersion 1, loadSession, authMethods empty. Takes no arguments - src/index.ts falls through to runAcp() with zero args. npm bin claude-agent-acp."
+    },
+    {
+      "id": "codex-acp",
+      "label": "Codex (ACP adapter)",
+      "command": "codex-acp",
+      "args": [],
+      "url": "https://github.com/agentclientprotocol/codex-acp",
+      "summary": "An adapter that exposes OpenAI's Codex coding assistant to any ACP client.",
+      "note": "OpenAI's Codex speaks no ACP itself; this adapter wraps it. Install the npm package @agentclientprotocol/codex-acp, which provides the codex-acp command.",
+      "verification": "NOT PROBED. ACP registry 1.4.0, npx distribution with no args; bin name codex-acp confirmed from npm package metadata."
+    },
+    {
+      "id": "cursor",
+      "label": "Cursor",
+      "command": "cursor-agent",
+      "args": ["acp"],
+      "url": "https://cursor.com/docs/cli/acp",
+      "summary": "Cursor's coding agent, driven through its cursor-agent command line tool.",
+      "note": "Cursor's installer provides this as both agent and cursor-agent, and its documentation uses agent acp. Needs a Cursor account.",
+      "verification": "NOT PROBED. ACP registry 2026.08.11, binary distribution: cmd cursor-agent, args [acp]. Cursor's live installer at cursor.com/install symlinks BOTH ~/.local/bin/agent (which it comments as primary) and ~/.local/bin/cursor-agent (legacy) to the same executable, and cursor.com/docs/cli/acp uses agent acp throughout with zero occurrences of cursor-agent. We look for cursor-agent ON PURPOSE: a PATH lookup for a name as generic as agent can match an unrelated binary and report Ready for the wrong tool, which is a risk today, whereas the legacy symlink being dropped is a risk later and would only show up as Not found. Revisit if Cursor stops creating it."
+    },
+    {
+      "id": "gemini",
+      "label": "Gemini",
+      "command": "gemini",
+      "args": ["--acp"],
+      "url": "https://geminicli.com",
+      "summary": "Google's Gemini CLI, which speaks ACP as a documented mode and is listed in the ACP Agent Registry.",
+      "note": "Google's site warns that unpaid-tier and Google One users are moved to Antigravity CLI, with paid and enterprise access continuing, so check before relying on it.",
+      "verification": "NOT PROBED. --acp confirmed in google-gemini/gemini-cli packages/cli/src/config/config.ts; --experimental-acp still functions but is declared deprecated. Banner read from geminicli.com, which the official README links as its docs site."
+    },
+    {
+      "id": "github-copilot-cli",
+      "label": "GitHub Copilot",
+      "command": "copilot",
+      "args": ["--acp"],
+      "url": "https://github.com/features/copilot/cli/",
+      "summary": "GitHub's AI pair programmer, as a command line agent.",
+      "note": "Install the npm package @github/copilot, which provides the copilot command. Needs a GitHub Copilot subscription.",
+      "verification": "NOT PROBED. ACP registry 1.0.80, npx distribution with args [--acp]; bin name copilot confirmed from npm package metadata."
+    },
+    {
+      "id": "grok",
+      "label": "Grok",
+      "command": "grok",
+      "args": ["agent", "stdio"],
+      "url": "https://docs.x.ai/build/overview",
+      "summary": "xAI's terminal coding agent, now branded Grok Build; the installed binary identifies itself as Grok Build TUI.",
+      "note": "A successful test names no agent, because Grok reports no agent information. May need its own login - it uses grok.com and a cached token.",
+      "verification": "Probed: initialize ok, protocolVersion 1, no agentInfo. The installed binary's --help identifies it as Grok Build TUI."
+    },
+    {
+      "id": "kilo",
+      "label": "Kilo",
+      "command": "kilo",
+      "args": ["acp"],
+      "url": "https://kilo.ai",
+      "summary": "An open source, model-agnostic AI coding agent for VS Code, JetBrains and the terminal.",
+      "note": "A node script rather than a binary, so it only starts if node is available. May need its own login (kilo auth login) before prompts work.",
+      "verification": "Probed: initialize ok as Kilo 7.1.23."
+    },
+    {
+      "id": "kimi",
+      "label": "Kimi Code",
+      "command": "kimi",
+      "args": ["acp"],
+      "url": "https://www.kimi.com/code",
+      "summary": "A terminal coding agent from Moonshot AI, shipped as a single binary rather than through npm.",
+      "note": "Needs a login first - kimi acp --login runs a device-code flow. Moonshot ships it as a single binary from its own installer rather than through npm.",
+      "verification": "NOT PROBED. Invocation taken from the tool's own kimi acp --help, supplied from a machine where it is installed; cross-checked against MoonshotAI/kimi-code."
+    },
+    {
+      "id": "mistral-vibe",
+      "label": "Mistral Vibe",
+      "command": "vibe-acp",
+      "args": [],
+      "url": "https://mistral.ai/products/vibe",
+      "summary": "Mistral's open source coding assistant.",
+      "note": "Installing mistral-vibe provides a SEPARATE vibe-acp command alongside the main vibe CLI, and vibe-acp is the ACP entry point.",
+      "verification": "PARTLY PROBED at 2.0.1: initialize ok as mistral-vibe, protocolVersion 1, no auth methods; session/new then failed with a bare Internal error, against an install 24 minor versions behind the registry's 2.24.1, so that says little about the current release. Console scripts vibe / vibe-acp / vibe-app-server confirmed from pyproject.toml."
+    },
+    {
+      "id": "opencode",
+      "label": "OpenCode",
+      "command": "opencode",
+      "args": ["acp"],
+      "url": "https://opencode.ai",
+      "summary": "An open source AI coding agent that runs in the terminal, from Anomaly.",
+      "note": "May need its own login (opencode auth login) before prompts work.",
+      "verification": "Probed: initialize ok as OpenCode 1.17.13, loadSession, MCP http+sse."
+    },
+    {
+      "id": "qwen-code",
+      "label": "Qwen Code",
+      "command": "qwen",
+      "args": ["--acp"],
+      "url": "https://qwenlm.github.io/qwen-code-docs/en/users/overview",
+      "summary": "Alibaba's Qwen coding assistant.",
+      "note": "Install the npm package @qwen-code/qwen-code, which provides the qwen command.",
+      "verification": "NOT PROBED. ACP registry 0.21.12; bin name qwen confirmed from npm metadata. The registry also passes --experimental-skills, which Qwen's own config.ts marks Deprecated, ignored and hidden, so it is left out."
+    },
+    {
+      "id": "custom",
+      "label": "Custom",
+      "command": "",
+      "args": [],
+      "url": "https://agentclientprotocol.com/get-started/registry",
+      "summary": "Anything else that speaks the Agent Client Protocol over stdio.",
+      "note": "Type the full command and arguments yourself.",
+      "verification": "Not an agent - there is no invocation to verify."
+    }
+  ]
+}

@@ -263,10 +263,14 @@ generate_stdio_mcp_config() {
 #
 # When the config has at least one server, the transport adds --mcp-config <cfg> (which
 # defaults mlx-agent to agent mode); otherwise it is a plain chat transport with no tools.
-# use_tools is the per-session decision (the selector's agentic-session checkbox, or the
-# caller's auto-detection): anything but "true" skips config generation entirely - and
-# removes any config left by a previous launch of the same window - so the session is plain
-# chat regardless of which servers the prefs enable. Omitted means "true" (prefs decide).
+# use_tools is the per-session decision (the selector's Tools picker, or the caller's
+# auto-detection) and is TRI-STATE: "true" hands over every enabled server, "readonly" hands
+# over only those with no permission-gated tools, and anything else skips config generation
+# entirely - removing any config left by a previous launch of the same window - so the session
+# is plain chat regardless of which servers the prefs enable. Omitted means "true" (prefs
+# decide). "readonly" is meaningful only for an EXTERNAL agent: the bundled mlx-agent honors
+# gatedTools and gates those tools through the approval card, so it needs no server filtering,
+# and the local model picker still passes a plain true/false.
 # Argv/JSON encoding is done in Python (json.dumps) so paths with spaces or quotes are safe;
 # if the bundled Python is somehow absent it falls back to a sed-escaped hand-built chat
 # transport rather than wedging the window. Echoes only the JSON on stdout; any generator
@@ -296,21 +300,27 @@ aichat_acp_transport_json() {
         *)  cwd="$HOME" ;;
     esac
 
-    if [ "$use_tools" = "true" ]; then
-        # Generate the config; its diagnostics go to stderr so stdout stays pure JSON.
-        generate_stdio_mcp_config "$cfg" 1>&2
-    else
-        # Tools off for this session: no config, and drop a stale one from a previous
-        # launch of this window so the argv builder below sees no servers.
-        /bin/rm -f "$cfg"
-    fi
+    case "$use_tools" in
+        true|readonly)
+            # Generate the config; its diagnostics go to stderr so stdout stays pure JSON.
+            # "readonly" generates the FULL config on purpose: the gatedTools lists inside it
+            # are exactly what the builder reads to decide which servers qualify, so filtering
+            # here instead would throw away the evidence the filter needs.
+            generate_stdio_mcp_config "$cfg" 1>&2
+            ;;
+        *)
+            # Tools off for this session: no config, and drop a stale one from a previous
+            # launch of this window so the argv builder below sees no servers.
+            /bin/rm -f "$cfg"
+            ;;
+    esac
 
     # Build the transport argv + JSON in a helper (json.dumps keeps paths with spaces/quotes
     # safe): agent mode only when the config parsed and lists >=1 server (a missing/empty/broken
     # config falls back to chat — never wedges the window).
     local builder="$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/acp_transport_json.py"
     if [ -x "$python3" ] && [ -f "$builder" ]; then
-        "$python3" "$builder" "$agent_bin" "$engine" "$target" "$cfg" "$cwd" && return 0
+        "$python3" "$builder" "$agent_bin" "$engine" "$target" "$cfg" "$cwd" "$use_tools" && return 0
     fi
 
     # Bundled Python missing (or the builder above failed): emit a plain chat-only transport by

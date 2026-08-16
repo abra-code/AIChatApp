@@ -206,16 +206,20 @@
         },
         "children": [
           {
-            "type": "Spacer"
-          },
-          {
-            "type": "Toggle",
+            "type": "Picker",
             "id": 30,
             "properties": {
-              "title": "Use Tools in Agentic Session",
-              "isOn": true,
-              "style": "checkbox"
+              "title": "Tools",
+              "options": [
+                { "title": "Off", "tag": "false" },
+                { "title": "Read-only Servers", "tag": "readonly" },
+                { "title": "All", "tag": "true" }
+              ],
+              "pickerStyle": "menu"
             }
+          },
+          {
+            "type": "Spacer"
           },
           {
             "type": "Button",

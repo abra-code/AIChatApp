@@ -16,7 +16,15 @@ RESULT_TEXT_ID=24
 
 command_line="${OMC_ACTIONUI_VIEW_20_VALUE:-}"
 selected_id="${OMC_ACTIONUI_TABLE_10_COLUMN_4_VALUE:-custom}"
+# The Tools picker's tag: "true" (all servers), "readonly" (only servers with no gated
+# tools), "false" (none). Validated rather than trusted - this value decides whether the MCP
+# servers are handed to a third-party agent at all, so an unrecognized one falls back to the
+# most restrictive setting instead of being passed through to a comparison it might match.
 use_tools="${OMC_ACTIONUI_VIEW_30_VALUE:-false}"
+case "$use_tools" in
+    true|readonly|false) ;;
+    *) echo "unrecognized tools setting '$use_tools', treating as off" >&2; use_tools="false" ;;
+esac
 
 if [ -z "$command_line" ]; then
     "$dialog_tool" "$window_uuid" $RESULT_TEXT_ID "Enter a command before continuing."
@@ -43,8 +51,10 @@ launch_queue_arm "" "$use_tools"
 
 "$dialog_tool" "$window_uuid" omc_window omc_terminate_ok
 
-if [ "$use_tools" = "true" ]; then
-    "$next_command" "$OMC_CURRENT_COMMAND_GUID" "aichat.mcp.servers"
-else
-    "$next_command" "$OMC_CURRENT_COMMAND_GUID" "aichat.chat"
-fi
+# Both tool settings go through the MCP servers step: "readonly" still needs the servers
+# configured and probed, because the probe is what produces the gatedTools lists that decide
+# which of them qualify as read-only.
+case "$use_tools" in
+    true|readonly) "$next_command" "$OMC_CURRENT_COMMAND_GUID" "aichat.mcp.servers" ;;
+    *)             "$next_command" "$OMC_CURRENT_COMMAND_GUID" "aichat.chat" ;;
+esac
