@@ -19,6 +19,11 @@ source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.select.external.a
 # minWidths (there is no dialog-control verb for those) and a runtime
 # omc_table_set_column_widths would silently overwrite the ideal widths while leaving the
 # minimums behind, leaving the two halves of the sizing disagreeing with each other.
+#
+# These two names are never SEEN - the JSON hides the headers, so "Status" is a 20pt strip of
+# check marks and crosses beside the agent name. The call still matters: the column COUNT is
+# what decides how many of each row's four values get drawn, and the last two are the command
+# and the id, which must stay hidden. Adding a name here reveals one of them.
 "$dialog_tool" "$window_uuid" $TABLE_ID omc_table_set_columns "Agent" "Status"
 
 agent_restore_configured_view $TABLE_ID

@@ -39,6 +39,16 @@ source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.mcp.servers.libra
 acp_python="$OMC_APP_BUNDLE_PATH/Contents/Library/Python/bin/python3"
 acp_catalog_py="$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/acp_catalog.py"
 
+# The Status column of the agent list, as GLYPHS rather than words - the same shape the MCP
+# inspector's server table uses for its handshake dot: headers hidden, a name column that grows
+# to fill the sidebar, and a ~20pt marker column beside it. Words cost real width in a sidebar
+# that is 310pt at its narrowest, and "Not found" was wide enough to squeeze the agent names it
+# was describing. A glyph reads at a glance and costs one character.
+
+ACP_STATUS_READY="✅"
+ACP_STATUS_MISSING="➖"
+ACP_STATUS_UNKNOWN="┅"
+
 # acp_md_paragraphs
 # Reads markdown on stdin and rewrites it into the only multi-line form this dialog's text
 # renderer actually shows.
@@ -115,22 +125,48 @@ acp_command_first_word() {
     printf '%s\n' "$first"
 }
 
+# acp_runnable <path>  ->  is this something exec can actually start?
+#
+# A REGULAR FILE THAT IS EXECUTABLE. Both halves are load-bearing and neither is obvious:
+#
+# -x alone is TRUE FOR A DIRECTORY. The execute bit on a directory means "searchable", not
+# "runnable", so `[ -x / ]` succeeds and the whole lookup below used to report "/" - or
+# "/usr/local/bin", or any name that happened to be a directory sitting in a search dir - as a
+# perfectly good agent. The list drew a check mark beside a path that cannot be started, and
+# the failure only surfaced later, in the chat window, as an agent that would not launch.
+#
+# -f alone is not enough either, and the missing bit is not a formality: the agent is started
+# with a direct execve (acp_probe.py and the chat transport both spawn an argv LIST with no
+# shell), so a script without +x fails with EACCES whatever its shebang says. A user who
+# downloads an agent script and points us at it before chmod +x gets told so by the list.
+#
+# -f follows symlinks, which is required rather than incidental - these tools are almost all
+# installed as a symlink into a bin dir (~/.local/bin/opencode -> ../lib/opencode/bin/...).
+# A symlink to a directory correctly fails, and so does a dangling one.
+acp_runnable() {
+    [ -f "$1" ] && [ -x "$1" ]
+}
+
 # acp_agent_which <executable-name>  ->  absolute path on stdout, or nothing (rc 1)
 #
 # PATH first so a user who deliberately shadows a tool wins, then the well-known dirs.
+#
+# All three branches ask acp_runnable rather than testing inline: they are three answers to one
+# question, and three copies of it is how one of them keeps accepting directories after the
+# other two are fixed.
 acp_agent_which() {
     local name="$1" dir found
     [ -n "$name" ] || return 1
     case "$name" in
-        /*) [ -x "$name" ] && { printf '%s\n' "$name"; return 0; }; return 1 ;;
+        /*) acp_runnable "$name" && { printf '%s\n' "$name"; return 0; }; return 1 ;;
     esac
     found=$(command -v "$name" 2>/dev/null)
-    if [ -n "$found" ] && [ -x "$found" ]; then
+    if [ -n "$found" ] && acp_runnable "$found"; then
         printf '%s\n' "$found"
         return 0
     fi
     while IFS= read -r dir; do
-        [ -x "$dir/$name" ] && { printf '%s\n' "$dir/$name"; return 0; }
+        acp_runnable "$dir/$name" && { printf '%s\n' "$dir/$name"; return 0; }
     done <<EOF
 $(acp_agent_search_dirs)
 EOF
@@ -243,9 +279,11 @@ EOF
 # they need it to agree; three copies of the row format is how a hidden column ends up shifted
 # in one of them.
 #
-# THE ROW FORMAT IS FOUR VALUES AGAINST TWO HEADERS. Columns 3 (the command) and 4 (the id) are
+# THE ROW FORMAT IS FOUR VALUES AGAINST TWO COLUMNS. Columns 3 (the command) and 4 (the id) are
 # HIDDEN, and the sibling handlers read them back as OMC_ACTIONUI_TABLE_10_COLUMN_3_VALUE and
 # _4_VALUE. Adding a visible column shifts both indices here and in every one of those readers.
+# The two that ARE drawn have their headers hidden (see the dialog JSON), so column 2 is a bare
+# glyph beside the name - which is why it holds ACP_STATUS_* and not a word.
 #
 # It does NOT select the row: the caller decides that, because selecting programmatically does
 # NOT fire the selection-changed action, so whoever selects also owns repainting the panes.
@@ -259,12 +297,14 @@ acp_agent_fill_table() {
     while IFS='	' read -r id label state argv url summary note; do
         [ -n "$id" ] || continue
         case "$state" in
-            found)   shown="Ready" ;;
-            missing) shown="Not found" ;;
-            # A saved agent with no command typed into it yet. "Not found" would be a lie about
-            # the machine when the truth is about the record: there is nothing to look for.
-            empty)   shown="Not set" ;;
-            *)       shown="Custom" ;;
+            found)   shown="$ACP_STATUS_READY" ;;
+            missing) shown="$ACP_STATUS_MISSING" ;;
+            # EVERYTHING ELSE IS THE QUESTION MARK, and that is the whole reason this column
+            # can be one character wide. "empty" - a saved agent with no command typed into it
+            # yet - is the only other state this list produces today, and the cross would be a
+            # lie about it: nothing is missing from the machine, there is simply nothing to
+            # look for. Any future state lands here too rather than silently reading as Ready.
+            *)       shown="$ACP_STATUS_UNKNOWN" ;;
         esac
         # A remembered command wins over the catalog default for its own row, so reopening the
         # dialog shows what is actually configured rather than silently reverting to the
@@ -354,7 +394,7 @@ acp_path_writable() {
 # ~/.npm-global is not an arbitrary choice: its bin directory matches the ~/.[!.]*/bin pattern
 # that acp_agent_search_dirs and acp_agent_env.py already discover, so an agent installed there
 # is found and launchable with no PATH edit by the user. Verified end to end - installed, the
-# row flips from "Not found" to "Ready" with the absolute path, and the probe answers.
+# row flips from the cross to the check mark with the absolute path, and the probe answers.
 #
 # The prefix comes from `npm config get prefix` rather than being derived from npm's own path,
 # because a user who has already pointed npm at a writable prefix should get the plain command.

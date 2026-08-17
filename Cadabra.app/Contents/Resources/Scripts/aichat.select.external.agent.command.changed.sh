@@ -34,7 +34,8 @@ new_command=$(acp_clean_one_line "${OMC_ACTIONUI_VIEW_20_VALUE:-}")
 current_command=$(acp_custom_get "$edit_id" command)
 
 # An EMPTY command is allowed here, unlike an empty name. A saved agent with nothing typed into
-# it yet is a real state - it is what + creates - and the list says "Not set" for exactly that.
+# it yet is a real state - it is what + creates, and the list has a question mark for exactly
+# that.
 # So clearing the field is an edit like any other, not something to refuse.
 [ "$new_command" = "$current_command" ] && exit 0
 
@@ -66,11 +67,11 @@ saved_command="$new_command"
 # next blur or OK commits it. The record holds the cleaned value and the next repaint of the
 # pane shows it. Only the rare pasted-tab case is visibly stale, and only until the next click.
 
-# Repaint the list, because the command is not invisible in it: the Status column is computed
-# from the command, so an agent that was "Not set" becomes "Ready" or "Not found" the moment one
-# is typed. Leaving the row alone would show "Not set" beside a command that is saved and about
-# to run. Same division of labor as the rename - the rows and the highlight, never the detail
-# pane and never the pane owner, so those keep exactly one writer.
+# Repaint the list, because the command is not invisible in it: the status glyph is computed
+# from the command, so an agent that was a question mark becomes a check mark or a cross the
+# moment one is typed. Leaving the row alone would show "nothing to run" beside a command that
+# is saved and about to run. Same division of labor as the rename - the rows and the highlight,
+# never the detail pane and never the pane owner, so those keep exactly one writer.
 agent_refresh_list $TABLE_ID "$edit_id"
 
 # CONTINUE IS DELIBERATELY LEFT ALONE, including when the field was just cleared. Disabling it

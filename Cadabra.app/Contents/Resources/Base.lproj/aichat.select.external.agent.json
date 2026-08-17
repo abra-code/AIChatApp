@@ -32,8 +32,9 @@
         "id": 10,
         "properties": {
           "columns": ["Agent", "Status"],
-          "widths": [200, 90],
-          "minWidths": [140, 70],
+          "columnHeadersVisibility": "hidden",
+          "widths": [200, 20],
+          "minWidths": [140, 20],
           "actionID": "aichat.select.external.agent.selection.changed"
         }
       },
