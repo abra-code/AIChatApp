@@ -26,8 +26,8 @@ case "${OMCTEST_API_VERSION:-}" in
             "${OMCTEST_API_VERSION:-}" >&2
         exit 1 ;;
 esac
-if [ "$OMCTEST_API_VERSION" -lt 3 ]; then
-    printf 'lib.test.cadabra: needs omctest API 3 (isolated $HOME) - refusing to run against the real settings\n' >&2
+if [ "$OMCTEST_API_VERSION" -lt 4 ]; then
+    printf 'lib.test.cadabra: needs omctest API 4 (isolated $HOME, namespaced pasteboards, diagnostics that survive ui_reset) - refusing to run\n' >&2
     exit 1
 fi
 
@@ -83,6 +83,20 @@ cad_type() {
     "$cad_plister" get type "$cad_settings" "$1" 2>/dev/null
 }
 
+# cad_count <pseudopath>  ->  how many items a container holds, "0" when it does not exist.
+#
+# `plister get count` prints NOTHING for an absent key, so the empty string has to be turned
+# into a number here - a check comparing against "0" would otherwise pass for "no such key"
+# and for "a container with nothing in it" alike. It is also the only honest way to count a
+# list whose entries may contain newlines: the text form cannot represent the answer.
+cad_count() {
+    cad_count_n=$("$cad_plister" get count "$cad_settings" "$1" 2>/dev/null)
+    case "${cad_count_n:-}" in
+        ''|*[!0-9]*) printf '0\n' ;;
+        *)           printf '%s\n' "$cad_count_n" ;;
+    esac
+}
+
 # cad_reset - back to a profile that has never opened Cadabra.
 # The whole configuration is one file, so this is genuinely complete: there is no per-window
 # pasteboard key or state directory for the agent dialog to leave behind.
@@ -135,11 +149,13 @@ cad_call_lib() {
 # An opt-in seam is one a future test forgets to opt into, and the failure mode of forgetting
 # is reading (and one day writing) the real thing.
 #
-# The registry of running llama-servers is the one piece of Cadabra's state that an isolated
-# $HOME does NOT cover: aichat.library.sh builds its path from "/Users/$USER" rather than from
-# $HOME, so under test it still resolves to the developer's real file. Everything that reads it
-# is read-only, so this is not dangerous - but it is not deterministic either, and a test
-# asserting "no models are loaded" would fail for whoever happens to have a chat window open.
+# The registry of running llama-servers is now under the isolated $HOME like everything else -
+# aichat.library.sh used to build its path from "/Users/$USER", which no amount of $HOME
+# redirection could reach, and that was the original reason for this override. It is kept
+# anyway, and pointed at a nonexistent file by DEFAULT, because the registry is the one piece
+# of state whose readers also TERM processes: stop_orphaned_servers is on the chat-init path.
+# A seam that fails closed costs nothing and means the next spelling mistake in a path is a
+# missing file rather than the developer's real registry.
 #
 # Setting CAD_PREFS_OVERRIDE points those functions at a file the test built. The override is
 # applied AFTER the library is sourced, which is what makes it work without touching the applet.
@@ -191,107 +207,24 @@ cad_import_ids() {
 cad_pb_set() { "$OMC_OMC_SUPPORT_PATH/pasteboard" "$1" set "$2"; }
 cad_pb_get() { "$OMC_OMC_SUPPORT_PATH/pasteboard" "$1" get; }
 
-# THE PASTEBOARD IS NOT ISOLATED BY THE HARNESS, and that has a consequence worth spelling out.
+# THE PASTEBOARD IS ISOLATED BY THE HARNESS AS OF API 4, and this lib used to do it by hand.
 #
-# What the harness isolates is the WINDOW UUID - unique per file and per run - which makes every
-# window-scoped key (aichatv2_launch_<win>, aichatv2_clearseq_<win>, aichatv2_selected_model_<win>)
-# unique for free. omctest.sh says as much where it mints the uuid: "pasteboard keys outlive the
-# process".
+# Two layers. The WINDOW UUID is unique per file and per run, which makes every window-scoped key
+# (aichatv2_launch_<win>, aichatv2_clearseq_<win>, aichatv2_selected_model_<win>) unique for free.
+# That was never enough for Cadabra: the model-switch handoff and the launch queue have NO window
+# in their name, so they were shared with whatever else was using the pasteboard - a concurrent
+# run of this suite, or the developer's own running copy of Cadabra, which would have acted on a
+# well-formed launch entry the suite left behind. Measured both ways: a sentinel written into
+# aichatv2_launch_queue did not survive a run of 50-settings-core, and 70-mcp-servers-dialog
+# failed about one time in six when two runs overlapped.
 #
-# Cadabra also has two keys with NO window in their name - the model-switch handoff and the
-# launch queue - and those are shared with whatever else is using this pasteboard namespace,
-# including the developer's own running copy of Cadabra. Verified rather than assumed: a
-# sentinel written into aichatv2_launch_queue is gone after running 50-settings-core.
-#
-# Both are TTL-bounded transient handoffs, so the blast radius is one dropped pending switch,
-# but "the test suite reached outside its scratch" is not a thing to leave undocumented. These
-# snapshot the keys at the top of a file that touches them and put them back at the end.
-CAD_GLOBAL_PB_KEYS="aichatv2_launch_queue aichatv2_model_switch"
-
-# ONE FILE PER KEY, not a TSV. These values carry model paths, and a path may contain a tab or
-# a newline on every filesystem macOS mounts - which a `IFS=<tab> read -r k v` loop would
-# truncate, and a newline would corrupt the whole snapshot rather than one entry.
-cad_pb_snapshot() {
-    /bin/mkdir -p "$OMCTEST_WORK/.pb-snapshot"
-    for cad_pb_k in $CAD_GLOBAL_PB_KEYS; do
-        cad_pb_get "$cad_pb_k" > "$OMCTEST_WORK/.pb-snapshot/$cad_pb_k"
-    done
-}
-
-# Best effort, and worth being honest about its limits: there is no EXIT trap, so a file that
-# dies part way never reaches this, and it cannot protect a LIVE Cadabra during the run - only
-# leave the keys as it found them afterwards. Both handoffs are TTL-bounded, so the value put
-# back is either still valid or already refused on read.
-cad_pb_restore() {
-    [ -d "$OMCTEST_WORK/.pb-snapshot" ] || return 0
-    for cad_pb_k in $CAD_GLOBAL_PB_KEYS; do
-        [ -f "$OMCTEST_WORK/.pb-snapshot/$cad_pb_k" ] || continue
-        cad_pb_set "$cad_pb_k" "$(/bin/cat "$OMCTEST_WORK/.pb-snapshot/$cad_pb_k")"
-    done
-    return 0
-}
-
-# Snapshot the shared keys for EVERY file, and put them back however the file ends.
-#
-# Per file rather than per suite because that is the only scope this lib controls, and it is
-# enough: whatever a file breaks, it repairs. It has to be every file, not just the ones whose
-# TESTS write these keys - the pre-existing agent-dialog files dispatch a handler that calls
-# launch_queue_arm, so they leave a well-formed, in-TTL launch entry behind that a live Cadabra
-# would act on within its 120s window.
-#
-# The trap is COMPOSED rather than set. In standalone mode omctest installs its own EXIT/INT/TERM
-# traps to remove the scratch, and a bare `trap ... EXIT` here would silently replace them,
-# turning a tidy-up into a leak. Under the runner no such trap exists and the plain form is right.
-cad_pb_snapshot
-# The detection is a COMMAND SUBSTITUTION, not a pipeline. `trap` with no operands run as a
-# pipeline element executes in a subshell, where caught traps are reset to default - so it
-# prints nothing, the test always failed, and this always installed the bare form, replacing
-# omctest's scratch cleanup in standalone mode. Measured: a file sourcing only omctest.sh leaks
-# nothing; the same file sourcing this lib leaked one full isolated $HOME per run.
-if case "$(trap)" in *omctest_cleanup_scratch*) true ;; *) false ;; esac; then
-    trap 'cad_pb_restore; omctest_cleanup_scratch' EXIT
-    trap 'cad_pb_restore; omctest_cleanup_scratch; exit 130' INT
-    trap 'cad_pb_restore; omctest_cleanup_scratch; exit 143' TERM
-else
-    trap 'cad_pb_restore' EXIT
-    trap 'cad_pb_restore; exit 130' INT
-    trap 'cad_pb_restore; exit 143' TERM
-fi
-
-# cad_ui_reset - ui_reset, without throwing away the three diagnostic logs.
-#
-# ui_reset removes unknown_ids.log, suspect_writes.log and errors.log along with the windows,
-# so the standing "no undeclared ids" check at the end of a file covers only what happened since
-# the LAST reset - which in a file that resets between sections is almost nothing. Measured: in
-# a file resetting before every section, that closing check covered zero writes and a handler
-# scribbling on a made-up view id went unnoticed.
-#
-# This carries the three logs forward. Use cad_unknown_writes_all for the closing check.
-# Truncated at source time. OMCTEST_SCRATCH can be pre-set to a fixed directory (which
-# OMCTEST_KEEP_SCRATCH invites), and without this a run that legitimately failed "no undeclared
-# ids" keeps failing after the applet is fixed - the worst kind of stale test.
-/bin/rm -f "$OMCTEST_WORK"/.cumulative-unknown_ids.log \
-           "$OMCTEST_WORK"/.cumulative-suspect_writes.log \
-           "$OMCTEST_WORK"/.cumulative-errors.log 2>/dev/null
-
-cad_ui_reset() {
-    for cad_log in unknown_ids suspect_writes errors; do
-        if [ -s "$OMCTEST_UI/$cad_log.log" ]; then
-            /bin/cat "$OMCTEST_UI/$cad_log.log" >> "$OMCTEST_WORK/.cumulative-$cad_log.log"
-        fi
-    done
-    ui_reset
-}
-
-# The cumulative counterparts, covering the whole file rather than the last section.
-cad_unknown_writes_all() {
-    /bin/cat "$OMCTEST_WORK/.cumulative-unknown_ids.log" 2>/dev/null
-    ui_unknown_writes
-}
-cad_suspect_writes_all() {
-    /bin/cat "$OMCTEST_WORK/.cumulative-suspect_writes.log" 2>/dev/null
-    ui_suspect_writes
-}
+# omctest now prefixes every board NAME with $OMCTEST_PB_PREFIX, per file per run, and empties
+# what it wrote when the file ends. So this lib no longer snapshots and restores those two keys,
+# and no longer needs an EXIT trap composed with omctest's own - which is where the old version
+# had its own bug: `trap` with no operands run as a PIPELINE element executes in a subshell where
+# caught traps are reset, so the detection printed nothing, the composed form was never chosen,
+# and the bare trap it installed instead replaced omctest's scratch cleanup. One full isolated
+# $HOME leaked per standalone run.
 
 # cad_raw <pseudopath>  ->  the value as STORED, empty when the key does not exist.
 #

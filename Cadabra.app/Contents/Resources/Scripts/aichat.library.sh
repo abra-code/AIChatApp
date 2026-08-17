@@ -187,7 +187,15 @@ AICHAT_MODEL_PATH=""
 # when a model is bundled with the app:
 # AICHAT_MODEL_PATH="$OMC_APP_BUNDLE_PATH/Contents/Resources/LFM2-1.2B-F16.gguf"
 
-prefs="/Users/$USER/Library/Preferences/com.abracode.Cadabra-servers.plist"
+# "$HOME", not "/Users/$USER". The same path for a normal account, and the two
+# differ in every way that matters: $USER is an identity, so a path spelled from
+# it is not the account's home but a guess about where the account's home is -
+# wrong for a relocated or network home, and unreachable by the one mechanism
+# that isolates state under test, which redirects $HOME. This was the last path
+# in the app spelled the other way, and it is why the terminate handler's
+# registry teardown could not be covered by a test at all: it would have pruned
+# the running app's real registry.
+prefs="$HOME/Library/Preferences/com.abracode.Cadabra-servers.plist"
 # Multi-model: each gguf chat window runs its OWN llama-server on its OWN port, so several
 # models can be loaded at once (RAM permitting - see warn_ram_pressure_for_new_model). A free
 # port is claimed from this range at window init (find_free_port_in) and stashed per-window
@@ -208,10 +216,10 @@ history_root="$mcp_app_support/History"
 # domain wholesale on its own schedule, so a script writing it behind cfprefsd's back either
 # loses its write or clobbers the system's.
 #
-# TWO SUBTREES, TWO OWNERS, ONE FILE. /servers + /allow-network belong to the MCP library and
-# /agents to the ACP agents library. Neither may assume it owns the file: see
-# mcp_prefs_write_defaults, which used to begin with `rm -f` and would now take the other
-# owner's settings with it.
+# THREE SUBTREES, THREE OWNERS, ONE FILE. /servers + /allow-network belong to the MCP library,
+# /agents to the ACP agents library, and /recent-models to the model library. None may assume
+# it owns the file: see mcp_prefs_write_defaults, which used to begin with `rm -f` and would
+# now take the other owners' settings with it.
 cadabra_settings="$mcp_app_support/settings.plist"
 
 # cadabra_settings_init - create the directory and an empty root dict, once.
@@ -224,6 +232,20 @@ cadabra_settings_init() {
     [ -f "$cadabra_settings" ] && return 0
     /bin/mkdir -p "$mcp_app_support" 2>/dev/null || return 1
     "$plister" set dict "$cadabra_settings" / >/dev/null 2>&1
+}
+
+# process_start_stamp <pid> - the instant that pid started, whitespace-normalized, or nothing
+# if there is no such process.
+#
+# A PID IS NOT AN IDENTITY once it has been written down. Anything that records a pid and reads
+# it back later - a lock file, a registry entry that outlives a crash - is holding a number the
+# kernel is free to hand to an unrelated process in the meantime, and `kill -0` then reports
+# that stranger as the original. Pairing the number with its start time closes it: two processes
+# can share a pid, but not also the instant they began. Normalized because `ps` pads the field,
+# so the same instant has two spellings and a naive string compare disagrees with itself.
+process_start_stamp() { # <pid>
+    [ -n "$1" ] || return 0
+    /bin/ps -p "$1" -o lstart= 2>/dev/null | /usr/bin/tr -s ' ' | /usr/bin/sed 's/^ *//; s/ *$//'
 }
 
 # chat_window_set_status <window_uuid> <status> — reflect load/model/conversation state in a

@@ -311,8 +311,20 @@ acp_agent_fill_table() {
         # A remembered command wins over the catalog default for its own row, so reopening the
         # dialog shows what is actually configured rather than silently reverting to the
         # default. A saved agent already carries its own command and needs no such override.
+        #
+        # The GLYPH has to move with it. It is the answer to "will this run", and once the
+        # command is not the catalog's any more, the catalog's verdict is about a different
+        # command - wrong in both directions, and wrong in exactly the two cases the override
+        # exists to create: Ready beside a stored command that is not on this machine, and the
+        # cross beside one that is. Resolved the same way acp_agent_scan resolves a saved
+        # agent's command, because that is the same question about the same kind of value.
         if [ -n "$stored_command" ] && [ "$id" = "$stored_id" ]; then
             argv="$stored_command"
+            if acp_agent_which "$(acp_command_first_word "$stored_command")" >/dev/null 2>&1; then
+                shown="$ACP_STATUS_READY"
+            else
+                shown="$ACP_STATUS_MISSING"
+            fi
         fi
         [ "$id" = "$want_id" ] && row=$index
         index=$((index + 1))

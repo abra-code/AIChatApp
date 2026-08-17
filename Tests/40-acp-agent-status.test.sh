@@ -115,6 +115,50 @@ omc_control "$COMMAND_FIELD_ID" ""
 omc_run aichat.select.external.agent.command.changed
 check "clearing it goes back to unknown"            "$UNKNOWN" "$(cad_field "$fresh" 2)"
 
+section "a catalog row's glyph answers for the command that will actually run"
+# A catalog row shows the catalog's executable UNTIL the user configures that agent with their
+# own command, and then it shows theirs - the override exists so reopening the dialog does not
+# silently revert to a default the user has already replaced. The glyph has to move with it.
+# It did not: it stayed the catalog's verdict about a command that is no longer the one stored,
+# which is wrong in both directions and wrong in exactly the two cases the override creates.
+#
+# ASSERTED AS A CHANGE, not as two absolute values. Whether claude-code-acp is installed
+# varies by machine, so the catalog's own verdict for that row is READY on some and MISSING on
+# others - and an absolute expectation that happens to match the baseline is satisfied by the
+# feature being ABSENT. Exactly one half of such a pair does real work on any given machine,
+# and which one is unknowable from the test. Pinning the baseline first, then requiring the
+# glyph to move away from it and back, bites on every machine.
+cad_reset
+omc_run aichat.select.external.agent.init
+check_status "init ran" 0
+baseline=$(cad_field claude-code-acp 2)
+# cad_has, not a bare `case` - a case inside $( ) mis-parses under /bin/sh, the `*)` closing
+# the substitution. That is what the helper is for.
+check "the catalog's own verdict is one of the three" "1" \
+    "$(cad_has "$READY|$MISSING|$UNKNOWN" "$baseline")"
+
+# A command that certainly resolves, whatever this machine has installed, and one that
+# certainly does not. Whichever the baseline was, at least one of these differs from it.
+cad_call acp_agent_store claude-code-acp "/bin/echo acp" >/dev/null 2>&1
+omc_run aichat.select.external.agent.init
+check "the row shows the stored command"       "/bin/echo acp" "$(cad_field claude-code-acp 3)"
+check "  and the glyph reads ready"            "$READY"        "$(cad_field claude-code-acp 2)"
+ready_glyph=$(cad_field claude-code-acp 2)
+
+cad_call acp_agent_store claude-code-acp "/opt/nowhere/agent acp" >/dev/null 2>&1
+omc_run aichat.select.external.agent.init
+check "an unresolvable stored command shows"   "/opt/nowhere/agent acp" "$(cad_field claude-code-acp 3)"
+check "  and the glyph reads missing"          "$MISSING"      "$(cad_field claude-code-acp 2)"
+# THE ONE THAT CANNOT BE SATISFIED BY THE FEATURE'S ABSENCE. Without the recompute both
+# stores leave the catalog's verdict in place, so the two glyphs are equal whatever this
+# machine has installed.
+check "  the glyph MOVED between the two commands" "differ" \
+    "$([ "$ready_glyph" != "$(cad_field claude-code-acp 2)" ] && echo differ || echo same)"
+# The override is for ONE row. Every other catalog row keeps the catalog's answer, so a stored
+# command cannot repaint the whole list.
+check "no other row was affected"              "0" \
+    "$(ui_rows "$TABLE_ID" | /usr/bin/awk -F '\t' '$4 != "claude-code-acp" && $3 ~ /nowhere/' | /usr/bin/grep -c .)"
+
 section "cumulative: no handler wrote to a view id the window does not declare"
 check "no undeclared ids" "" "$(ui_unknown_writes)"
 

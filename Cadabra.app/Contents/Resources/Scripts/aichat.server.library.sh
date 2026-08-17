@@ -562,6 +562,48 @@ stop_orphaned_servers() {
     done <<< "$host_pids"
 }
 
+# prune_server_registry <front_pid> - the terminate-time teardown of the registry.
+#
+# Two halves that look alike and are not the same operation. OUR host's servers are stopped
+# because the app they belong to is going away. Another host's are stopped only if that host is
+# already DEAD; a live sibling instance's servers are left strictly alone, because one instance
+# quitting must not take another instance's loaded models with it.
+#
+# Lifted out of app.will.terminate so it can be tested at all. Everything else in that handler
+# identifies processes with `pgrep` over paths inside the bundle - which, under a harness that
+# runs the REAL bundle, match the developer's own running copy of the app - so the handler as a
+# whole can never be dispatched by a test. This half touches nothing but the registry and the
+# pids recorded in it, both of which a test can own outright.
+prune_server_registry() { # <front_pid>
+    local front="$1" server_pids server_pid
+    if [ -n "$front" ]; then
+        server_pids=$("$plister" get keys "$prefs" "/server-hosts/$front" 2>/dev/null)
+        # Reports what was actually FOUND, not merely that this branch was entered. The
+        # frontmost process at terminate is often some other app entirely, with nothing
+        # registered under it, and a line claiming "killing its servers" on every quit makes
+        # this log useless for the one bug it exists to diagnose - whether the pid recorded as
+        # the registry host at launch is still the pid we see here.
+        if [ -n "$server_pids" ]; then
+            srvlog "TERMINATE host=$front == front -> OUR APP branch, killing its servers"
+        else
+            srvlog "TERMINATE front=$front has no registered servers - nothing of ours to stop"
+        fi
+        while IFS= read -r server_pid; do
+            [ -z "$server_pid" ] && continue
+            if /bin/ps -p "$server_pid" >/dev/null 2>&1; then
+                echo "kill -TERM $server_pid"
+                kill -TERM "$server_pid" 2>/dev/null
+            fi
+            "$plister" delete "$prefs" "/server-info/$server_pid" 2>/dev/null
+        done <<< "$server_pids"
+        "$plister" delete "$prefs" "/server-hosts/$front" 2>/dev/null
+    fi
+    # Every OTHER host, by the dead-host rule. Same code the launch path uses, deliberately:
+    # two spellings of "is this host still alive" is how a live instance eventually gets read
+    # as dead by one of them.
+    stop_orphaned_servers
+}
+
 # wait_for_server <win_uuid> <port> [limit_seconds] — poll /health on <port> until ready
 # (updating the window title) or time out with an alert. 0 = ready, 13 = timeout.
 # limit_seconds defaults to 30; launches that pass --no-mmap hand in a size-scaled limit

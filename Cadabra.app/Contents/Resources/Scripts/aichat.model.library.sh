@@ -430,6 +430,91 @@ EOF
 	esac
 }
 
+# ── Recently opened models ────────────────────────────────────────────────────
+#
+# The picker lists what it finds in the standard caches. A model the user opened from anywhere
+# ELSE is not in any of them, so this list is the only reason such a model appears in the
+# picker at all - lose it and the model silently drops out of the UI the next time the dialog
+# opens, while still sitting on disk exactly where the user put it.
+#
+# It lives in the app's own settings file, a THIRD subtree beside /servers and /agents. It used
+# to live in the com.abracode.Cadabra preferences domain, written with PlistBuddy straight at
+# the file - which is the one thing the note above $cadabra_settings says not to do, because
+# cfprefsd owns that domain and rewrites it wholesale on its own schedule. Read and write also
+# disagreed about where it was: `defaults read` asks cfprefsd, PlistBuddy wrote the file, so a
+# path added by one launch could be missing from the very next read and reappear later. Here
+# both ends are plister on one file, which is also the only spelling a test can observe: a
+# domain is keyed by uid, so it is the developer's own preferences however $HOME is set.
+#
+# NOTHING HERE MIGRATES THE OLD LOCATION. Cadabra has not shipped, so the only people with a
+# list in the preferences domain are the ones who built it - and carrying a one-time move
+# inside the app would mean shipping it forever, running on every launch, for a case that
+# stops existing at release. Tools/migrate_recent_models.sh does it once, from outside.
+
+CAD_RECENT_MODELS_KEY="recent-models"
+CAD_RECENT_MODELS_MAX=10
+
+# model_recents_list -> the remembered paths, newest first, one per line.
+#
+# A READ PATH, so it must not create anything. Merely asking what the recents are must not be
+# what creates the settings file.
+#
+# One per line, which is why model_recents_add does NOT round-trip through this: a path may
+# contain a newline on every filesystem macOS mounts, and a line-based round trip turns one
+# such model into two bogus entries and loses the real one.
+model_recents_list() {
+	"$plister" iterate "$cadabra_settings" "/$CAD_RECENT_MODELS_KEY" get string / 2>/dev/null
+}
+
+# model_recents_add <path> - put a path at the head of the list, deduplicated, capped.
+#
+# STAGED IN A SCRATCH FILE AND INSTALLED IN ONE WRITE. The obvious shape - remove the array,
+# insert an empty one, append the survivors - is up to twelve whole-file read-modify-write
+# cycles against a file with THREE owners (/servers, /agents, /recent-models) and no locking
+# anywhere. Measured on this machine: sixty concurrent MCP setting writes against one recents
+# rewrite lost twenty-five of them. This runs on the chat-window-open path, which a user
+# triggers twice with two quick Cmd-N, so that is a real collision rather than a theoretical
+# one. Two writes to the shared file is not zero, but it is a window of microseconds rather
+# than one that spans a dozen sequential rewrites.
+#
+# The survivors are copied ITEM BY ITEM out of the old array rather than read back as text,
+# so a path containing a newline or a tab survives intact - the whole reason plister has a
+# "copy" directive.
+model_recents_add() { # <path>
+	[ -n "$1" ] || return 0
+	cadabra_settings_init || return 1
+	local _stage _count _i _p _n
+	_stage="${TMPDIR:-/tmp}/cadabra-recents-$$.plist"
+	/bin/rm -f "$_stage"
+	"$plister" set dict "$_stage" / >/dev/null 2>&1 || return 1
+	"$plister" insert "list" array "$_stage" / >/dev/null 2>&1 || { /bin/rm -f "$_stage"; return 1; }
+	# The new path first: this is a most-recently-used list, and that is the whole ordering rule.
+	"$plister" append string "$1" "$_stage" /list >/dev/null 2>&1
+	_n=1
+	_count=$("$plister" get count "$cadabra_settings" "/$CAD_RECENT_MODELS_KEY" 2>/dev/null)
+	case "${_count:-}" in ''|*[!0-9]*) _count=0 ;; esac
+	_i=0
+	while [ "$_i" -lt "$_count" ] && [ "$_n" -lt "$CAD_RECENT_MODELS_MAX" ]; do
+		_p=$("$plister" get string "$cadabra_settings" "/$CAD_RECENT_MODELS_KEY/$_i" 2>/dev/null)
+		_i=$((_i + 1))
+		[ -n "$_p" ] || continue
+		[ "$_p" = "$1" ] && continue
+		"$plister" append string "$_p" "$_stage" /list >/dev/null 2>&1
+		_n=$((_n + 1))
+	done
+	# Verified before it is installed. Every plister call here is silenced, so without this a
+	# file that exists but cannot be parsed would empty the list and still report success.
+	_count=$("$plister" get count "$_stage" /list 2>/dev/null)
+	if [ "${_count:-0}" != "$_n" ]; then
+		/bin/rm -f "$_stage"
+		return 1
+	fi
+	"$plister" set copy "$_stage" /list "$cadabra_settings" "/$CAD_RECENT_MODELS_KEY" >/dev/null 2>&1 \
+		|| "$plister" insert "$CAD_RECENT_MODELS_KEY" copy "$_stage" /list "$cadabra_settings" / >/dev/null 2>&1
+	/bin/rm -f "$_stage"
+	return 0
+}
+
 # calculate_total_server_ram()
 # Sums model sizes (from /server-info) for all currently live registered servers.
 # Prints the total in bytes.

@@ -131,7 +131,7 @@ section "the sidebar table is repainted, not appended to"
 /bin/rm -rf "$HROOT"
 mk_session one '{"id":"one","title":"First"}'  - 202601010900
 mk_session two '{"id":"two","title":"Second"}' - 202602010900
-cad_ui_reset
+ui_reset
 hist history_populate_table "$OMC_ACTIONUI_WINDOW_UUID" "$HC_TABLE_ID"
 check "both sessions are rows" "2" "$(ui_row_count "$HC_TABLE_ID")"
 hist history_populate_table "$OMC_ACTIONUI_WINDOW_UUID" "$HC_TABLE_ID"
@@ -140,7 +140,7 @@ check "refilling does not duplicate them" "2" "$(ui_row_count "$HC_TABLE_ID")"
 hist history_populate_table "$OMC_ACTIONUI_WINDOW_UUID" "$HC_TABLE_ID"
 check "a deleted session leaves the list" "1" "$(ui_row_count "$HC_TABLE_ID")"
 /bin/rm -rf "$HROOT"
-cad_ui_reset
+ui_reset
 hist history_populate_table "$OMC_ACTIONUI_WINDOW_UUID" "$HC_TABLE_ID"
 check "an empty store leaves an empty list" "0" "$(ui_row_count "$HC_TABLE_ID")"
 
@@ -182,7 +182,7 @@ check "it says when"         "1" "$(cad_has "$line" "Started: 2026-05-04 10:11:1
 check "and how many messages" "1" "$(cad_has "$line" "Messages: 1")"
 
 section "restoring a conversation into the chat"
-cad_ui_reset
+ui_reset
 check "a saved session injects" "0" \
     "$(hist history_inject_content "$OMC_ACTIONUI_WINDOW_UUID" "$HC_CHAT_VIEW_ID" chat1; echo $?)"
 check "  as chat content" "1" "$(ui_calls omc_set_state)"
@@ -190,27 +190,28 @@ content=$(ui_state "$HC_CHAT_VIEW_ID" content)
 check "  carrying the conversation" "1" "$(cad_has "$content" '"items"')"
 
 section "the restore directive rides along without being invented"
-cad_ui_reset
+ui_reset
 hist history_inject_content "$OMC_ACTIONUI_WINDOW_UUID" "$HC_CHAT_VIEW_ID" chat1 defer
 check "defer is passed through" "1" \
     "$(cad_has "$(ui_state "$HC_CHAT_VIEW_ID" content)" '"prime": "defer"')"
-cad_ui_reset
+ui_reset
 hist history_inject_content "$OMC_ACTIONUI_WINDOW_UUID" "$HC_CHAT_VIEW_ID" chat1
 check "and omitted when not asked for" "0" \
     "$(cad_has "$(ui_state "$HC_CHAT_VIEW_ID" content)" '"prime"')"
 
 section "an invalid session id injects nothing"
-cad_ui_reset
+ui_reset
 check "it reports failure" "1" \
     "$(hist history_inject_content "$OMC_ACTIONUI_WINDOW_UUID" "$HC_CHAT_VIEW_ID" "../../etc" 2>/dev/null; echo $?)"
 check "  and wrote nothing to the chat" "0" "$(cad_writes "$HC_CHAT_VIEW_ID")"
 
 section "cumulative: no handler wrote to a view id the window does not declare"
-# cad_unknown_writes_all, not ui_unknown_writes: ui_reset DELETES unknown_ids.log along with
-# the windows, so the plain form covers only what happened since the last reset - which in a
-# file that resets per section is close to nothing. Measured: a handler scribbling on a
-# made-up view id went entirely unnoticed by the plain form.
-check "no undeclared ids" "" "$(cad_unknown_writes_all)"
-check "no table clobbered by a bare value write" "" "$(cad_suspect_writes_all)"
+# Cumulative across the whole file, which is what makes one check at the end meaningful.
+# It was not always: ui_reset used to DELETE unknown_ids.log along with the windows, so this
+# covered only what happened since the last reset - close to nothing in a file that resets per
+# section, and a handler scribbling on a made-up view id went entirely unnoticed. omctest API 4
+# carries the three diagnostic logs across a reset, and this lib asserts that minimum.
+check "no undeclared ids" "" "$(ui_unknown_writes)"
+check "no table clobbered by a bare value write" "" "$(ui_suspect_writes)"
 
 omctest_end

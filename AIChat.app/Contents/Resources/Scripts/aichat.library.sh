@@ -54,7 +54,11 @@ AICHAT_MODEL_PATH=""
 # when a model is bundled with the app:
 # AICHAT_MODEL_PATH="$OMC_APP_BUNDLE_PATH/Contents/Resources/LFM2-1.2B-F16.gguf"
 
-prefs="/Users/$USER/Library/Preferences/com.abracode.AIChat-servers.plist"
+# "$HOME", not "/Users/$USER" - see the note on the same line in Cadabra's copy.
+# The same path for a normal account, but $USER is an identity rather than a
+# place, so spelling a home directory from it is a guess, and one that nothing
+# can redirect.
+prefs="$HOME/Library/Preferences/com.abracode.AIChat-servers.plist"
 # base port; aichat.init.sh picks a free port starting here
 port_num="8088"
 mcp_app_support="$HOME/Library/Application Support/AIChat"

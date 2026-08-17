@@ -137,7 +137,7 @@ section "clearing the chat is distinguishable from clearing it again"
 # The Chat element DEDUPES a re-injected transcript equal to the last one, and live-typed turns
 # never update its notion of the last one - so two identical empty injects would make the
 # second New Chat a no-op. The counter in the title is the whole defense.
-cad_ui_reset
+ui_reset
 cad_call chat_inject_empty "$OMC_ACTIONUI_WINDOW_UUID"
 first=$(ui_state 1 content)
 cad_call chat_inject_empty "$OMC_ACTIONUI_WINDOW_UUID"
@@ -149,7 +149,7 @@ check "the two clears are not identical"       "differ" \
 check "  the counter advanced"                 "1" "$(cad_has "$second" '__cleared-2__')"
 
 section "the clear counter is per window, and survives a corrupt value"
-cad_ui_reset
+ui_reset
 saved_win="$OMC_ACTIONUI_WINDOW_UUID"
 omc_window_switch "second-chat"
 cad_call chat_inject_empty "$OMC_ACTIONUI_WINDOW_UUID"
@@ -163,7 +163,7 @@ check "a second window counts from one" "1" "$(cad_has "$(ui_state 1 content)" '
 #
 # And the window has to be reset between the calls, because both write byte-identical content:
 # without that, the check cannot tell that the second call happened at all.
-cad_ui_reset
+ui_reset
 cad_pb_set "aichatv2_clearseq_$OMC_ACTIONUI_WINDOW_UUID" "12x"
 cad_call chat_inject_empty "$OMC_ACTIONUI_WINDOW_UUID"
 check "the corrupt counter did not stop the clear" "1" "$(cad_writes 1)"
@@ -173,7 +173,7 @@ check "a corrupt counter restarts at one" "1" "$(cad_has "$(ui_state 1 content)"
 OMC_ACTIONUI_WINDOW_UUID="$saved_win"; export OMC_ACTIONUI_WINDOW_UUID
 
 section "the window title reflects state"
-cad_ui_reset
+ui_reset
 cad_call chat_window_set_status "$OMC_ACTIONUI_WINDOW_UUID" "Loading Tiny"
 check "the status becomes the title" "Loading Tiny" "$(ui_title)"
 
@@ -191,11 +191,12 @@ check "two gigabytes"       "2.0 GB"  "$(cad_call format_bytes 2147483648)"
 check "a realistic model size" "4.1 GB" "$(cad_call format_bytes 4400000000)"
 
 section "cumulative: no handler wrote to a view id the window does not declare"
-# cad_unknown_writes_all, not ui_unknown_writes: ui_reset DELETES unknown_ids.log along with
-# the windows, so the plain form covers only what happened since the last reset - which in a
-# file that resets per section is close to nothing. Measured: a handler scribbling on a
-# made-up view id went entirely unnoticed by the plain form.
-check "no undeclared ids" "" "$(cad_unknown_writes_all)"
-check "no table clobbered by a bare value write" "" "$(cad_suspect_writes_all)"
+# Cumulative across the whole file, which is what makes one check at the end meaningful.
+# It was not always: ui_reset used to DELETE unknown_ids.log along with the windows, so this
+# covered only what happened since the last reset - close to nothing in a file that resets per
+# section, and a handler scribbling on a made-up view id went entirely unnoticed. omctest API 4
+# carries the three diagnostic logs across a reset, and this lib asserts that minimum.
+check "no undeclared ids" "" "$(ui_unknown_writes)"
+check "no table clobbered by a bare value write" "" "$(ui_suspect_writes)"
 
 omctest_end

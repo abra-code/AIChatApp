@@ -19,7 +19,7 @@ cad_import_ids aichat.mcp.servers.init.sh MCP_
 # not a state this dialog can be in.
 fresh_window() {
     omc_control_defaults aichat.mcp.servers
-    cad_ui_reset
+    ui_reset
     cad_journal_reset
 }
 
@@ -390,11 +390,12 @@ check "and no chat window opens"   "0" "$(chain_asked aichat.chat)"
 cad_call launch_queue_clear
 
 section "cumulative: no handler wrote to a view id the window does not declare"
-# cad_unknown_writes_all, not ui_unknown_writes: ui_reset DELETES unknown_ids.log along with
-# the windows, so the plain form covers only what happened since the last reset - which in a
-# file that resets per section is close to nothing. Measured: a handler scribbling on a
-# made-up view id went entirely unnoticed by the plain form.
-check "no undeclared ids" "" "$(cad_unknown_writes_all)"
-check "no table clobbered by a bare value write" "" "$(cad_suspect_writes_all)"
+# Cumulative across the whole file, which is what makes one check at the end meaningful.
+# It was not always: ui_reset used to DELETE unknown_ids.log along with the windows, so this
+# covered only what happened since the last reset - close to nothing in a file that resets per
+# section, and a handler scribbling on a made-up view id went entirely unnoticed. omctest API 4
+# carries the three diagnostic logs across a reset, and this lib asserts that minimum.
+check "no undeclared ids" "" "$(ui_unknown_writes)"
+check "no table clobbered by a bare value write" "" "$(ui_suspect_writes)"
 
 omctest_end

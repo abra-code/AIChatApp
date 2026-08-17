@@ -5,10 +5,12 @@
 # all: the harness gives each test file its own home, so "these are the models on this Mac" is
 # a fact the test writes rather than one it has to tolerate.
 #
-# One gap is stated rather than worked around: recently-opened models come from `defaults read
-# com.abracode.Cadabra`, and cfprefsd keys the user domain by uid rather than by $HOME - so the
-# developer's real recents are still read here and can add rows. Nothing below asserts a total
-# row count for that reason; the fixtures are identified by path instead.
+# Recently-opened models used to be the one gap: they came from `defaults read
+# com.abracode.Cadabra`, and cfprefsd keys the user domain by uid rather than by $HOME, so the
+# developer's real recents were read here and could add rows that no fixture put there. They
+# live in the app's own settings file now, which the isolated home does cover, so they are
+# asserted below like everything else. Row counts are still stated per path rather than as a
+# total, which is the honest shape for a list assembled from a disk scan.
 #
 # POSIX sh only. Validate with "sh -n", never "bash -n".
 . "${OMCTEST_LIB:?set OMCTEST_LIB, or run via: appletbuilder test}"
@@ -71,7 +73,7 @@ check "a model with no template at all does not"     "1" \
 
 section "the picker lists what is on this Mac"
 /usr/bin/head -c 2048 /dev/zero > "$MODELS/Tiny-Instruct-Q4_K_M.gguf"
-cad_ui_reset
+ui_reset
 omc_run aichat.select.local.model.init
 check_status "init ran" 0
 check "the table is titled Model and Size" "Model
@@ -89,7 +91,7 @@ section "a directory that only looks like a model is not listed"
 # so this is the case where the scan and model_engine must agree, and the scan defers.
 /bin/mkdir -p "$MODELS/not-a-model"
 echo '{}' > "$MODELS/not-a-model/config.json"
-cad_ui_reset
+ui_reset
 omc_run aichat.select.local.model.init
 check "a config with no shards is skipped" "" "$(row_for "$MODELS/not-a-model")"
 
@@ -99,14 +101,12 @@ section "the same file under two roots is two rows, because dedup is by path"
 # through a symlink yield two different strings - so both are listed, and that is the designed
 # behavior rather than a bug being pinned.
 #
-# The case the dedup actually exists for - a recents entry naming a model the scan already
-# found - is NOT reachable under test: recents come from `defaults read com.abracode.Cadabra`,
-# and cfprefsd keys the user domain by uid rather than by $HOME, so the only way to set it up
-# would be to write the developer's real preferences. Left uncovered deliberately; see the
-# commit note.
+# The case the dedup actually exists for - a recents entry naming a model the scan already found
+# - is covered in "a model opened from outside the caches" below. It was unreachable while
+# recents lived in a preferences domain.
 /bin/mkdir -p "$HOME/.lmstudio/models"
 /bin/ln -sfn "$MODELS/Tiny-Instruct-Q4_K_M.gguf" "$HOME/.lmstudio/models/Tiny-Instruct-Q4_K_M.gguf"
-cad_ui_reset
+ui_reset
 omc_run aichat.select.local.model.init
 check "the original path appears exactly once" "1" \
     "$(ui_rows "$LM_TABLE_ID" | /usr/bin/awk -F'\t' -v p="$MODELS/Tiny-Instruct-Q4_K_M.gguf" '$3 == p' | /usr/bin/wc -l | /usr/bin/tr -d ' ')"
@@ -142,7 +142,7 @@ check "if present, badged Apple" "1" \
     "$([ -z "$fnd" ] && echo 1 || cad_has "$(printf '%s' "$fnd" | /usr/bin/cut -f1)" "[Apple]")"
 
 section "with nothing selected the pane says so and everything is disabled"
-cad_ui_reset
+ui_reset
 omc_table_cell "$LM_TABLE_ID" 3 ""
 omc_run aichat.select.local.model.selection.changed
 check_status "the handler ran" 0
@@ -155,7 +155,7 @@ check "  and is not markdown" "" "$(ui_content_type "$LM_INFO_TEXT_ID")"
 check "no model is remembered" "" "$(cad_pb_get "aichatv2_selected_model_$OMC_ACTIONUI_WINDOW_UUID")"
 
 section "selecting a gguf fills the pane"
-cad_ui_reset
+ui_reset
 omc_table_cell "$LM_TABLE_ID" 3 "$MODELS/Tiny-Instruct-Q4_K_M.gguf"
 omc_run aichat.select.local.model.selection.changed
 check "Load is enabled"   "1" "$(ui_enabled "$LM_LOAD_BUTTON_ID")"
@@ -174,19 +174,19 @@ section "the tools toggle follows the model, not the last model"
 # It is WRITTEN on both branches rather than only when supported: leaving it alone would carry
 # the previous row's answer onto a model that cannot use tools, which is how a toggle ends up
 # claiming a capability the model does not have.
-cad_ui_reset
+ui_reset
 omc_table_cell "$LM_TABLE_ID" 3 "$MODELS/mlx-tools"
 omc_run aichat.select.local.model.selection.changed
 check "a tool-capable model ticks it" "true" "$(ui_value "$LM_USE_TOOLS_TOGGLE_ID")"
 check "  and the pane agrees"         "1" "$(cad_has "$(ui_value "$LM_INFO_TEXT_ID")" "Supported")"
-cad_ui_reset
+ui_reset
 omc_table_cell "$LM_TABLE_ID" 3 "$MODELS/mlx-plain"
 omc_run aichat.select.local.model.selection.changed
 check "one without tools unticks it"  "false" "$(ui_value "$LM_USE_TOOLS_TOGGLE_ID")"
 check "  and the pane says so"        "1" "$(cad_has "$(ui_value "$LM_INFO_TEXT_ID")" "Not detected")"
 
 section "a listed model that has since been deleted offers nothing to delete"
-cad_ui_reset
+ui_reset
 omc_table_cell "$LM_TABLE_ID" 3 "$MODELS/gone-since.gguf"
 omc_run aichat.select.local.model.selection.changed
 check "Load stays enabled"  "1" "$(ui_enabled "$LM_LOAD_BUTTON_ID")"
@@ -206,7 +206,7 @@ for pair in \
     p="$HOME/$rel"
     /bin/mkdir -p "$(/usr/bin/dirname "$p")"
     /usr/bin/head -c 512 /dev/zero > "$p"
-    cad_ui_reset
+    ui_reset
     omc_table_cell "$LM_TABLE_ID" 3 "$p"
     omc_run aichat.select.local.model.selection.changed
     check "  $want" "1" "$(cad_has "$(ui_value "$LM_INFO_TEXT_ID")" "$want")"
@@ -215,14 +215,14 @@ done
 p="$OMCTEST_WORK/loose/m.gguf"
 /bin/mkdir -p "$OMCTEST_WORK/loose"
 /usr/bin/head -c 512 /dev/zero > "$p"
-cad_ui_reset
+ui_reset
 omc_table_cell "$LM_TABLE_ID" 3 "$p"
 omc_run aichat.select.local.model.selection.changed
 check "  anything else is a local file" "1" "$(cad_has "$(ui_value "$LM_INFO_TEXT_ID")" "Local file")"
 
 section "the benchmark button waits for a run in flight, but not forever"
 now=$(/bin/date +%s)
-cad_ui_reset
+ui_reset
 cad_pb_set "aichatv2_bench_running_$OMC_ACTIONUI_WINDOW_UUID" "$MODELS/mlx-plain|$now"
 omc_table_cell "$LM_TABLE_ID" 3 "$MODELS/mlx-plain"
 omc_run aichat.select.local.model.selection.changed
@@ -234,20 +234,20 @@ omc_run aichat.select.local.model.selection.changed
 # obvious improvement. Asserting the state the user meets covers both routes and still fails
 # for the only thing that matters - the button coming back to life mid-run.
 check "a live run does not re-enable the button" "not enabled" "$(bench_btn_state)"
-cad_ui_reset
+ui_reset
 cad_pb_set "aichatv2_bench_running_$OMC_ACTIONUI_WINDOW_UUID" "$MODELS/mlx-plain|$((now - 7300))"
 omc_run aichat.select.local.model.selection.changed
 check "a stale stamp is not believed" "enabled" "$(bench_btn_state)"
 # A killed handler can leave a stamp that never parses. Treated as dead rather than as "now",
 # which would disable the button until the window is closed.
-cad_ui_reset
+ui_reset
 cad_pb_set "aichatv2_bench_running_$OMC_ACTIONUI_WINDOW_UUID" "$MODELS/mlx-plain|wedged"
 omc_run aichat.select.local.model.selection.changed
 check "a malformed stamp is treated as dead" "enabled" "$(bench_btn_state)"
 cad_pb_set "aichatv2_bench_running_$OMC_ACTIONUI_WINDOW_UUID" ""
 
 section "the on-device row offers nothing to reveal, delete or measure"
-cad_ui_reset
+ui_reset
 omc_table_cell "$LM_TABLE_ID" 3 "$FOUNDATION"
 omc_run aichat.select.local.model.selection.changed
 check_status "the handler ran" 0
@@ -269,12 +269,92 @@ check "  and never sizes it in GB"              "0" "$(cad_has "$info" "GB")"
 check "the benchmark pane explains itself"      "1" \
     "$(cad_has "$(ui_value "$LM_BENCH_TEXT_ID")" "nothing here to measure")"
 
+section "a model opened from outside the caches is the only thing recents are for"
+# A model the user opened from their Desktop is in none of the scanned roots, so this list is
+# the ONLY reason it appears in the picker at all. Lose it and the model silently drops out of
+# the UI while sitting exactly where the user put it.
+cad_reset
+OUTSIDE="$HOME/Desktop/Elsewhere-Q4_K_M.gguf"
+/bin/mkdir -p "$HOME/Desktop"
+/usr/bin/head -c 4096 /dev/zero > "$OUTSIDE"
+ui_reset
+omc_run aichat.select.local.model.init
+check "an unremembered outside model is not listed" "0" \
+    "$([ -n "$(row_for "$OUTSIDE")" ] && echo 1 || echo 0)"
+cad_model_call model_recents_add "$OUTSIDE"
+ui_reset
+omc_run aichat.select.local.model.init
+check "once remembered it appears"                  "1" \
+    "$([ -n "$(row_for "$OUTSIDE")" ] && echo 1 || echo 0)"
+# The dedup this list needs: a recents entry naming a model the scan already found must not
+# produce a second row for it.
+cad_model_call model_recents_add "$MODELS/Tiny-Instruct-Q4_K_M.gguf"
+ui_reset
+omc_run aichat.select.local.model.init
+check "a recent the scan already found is listed once" "1" \
+    "$(ui_rows "$LM_TABLE_ID" | /usr/bin/awk -F'\t' -v p="$MODELS/Tiny-Instruct-Q4_K_M.gguf" '$3 == p' | /usr/bin/wc -l | /usr/bin/tr -d ' ')"
+
+section "the recents list is newest first, deduplicated and bounded"
+cad_reset
+cad_model_call model_recents_add /tmp/a.gguf
+cad_model_call model_recents_add /tmp/b.gguf
+check "the newest is first"        "/tmp/b.gguf
+/tmp/a.gguf" "$(cad_model_call model_recents_list)"
+cad_model_call model_recents_add /tmp/a.gguf
+check "re-adding moves, not duplicates" "/tmp/a.gguf
+/tmp/b.gguf" "$(cad_model_call model_recents_list)"
+# The cap is what stops a list that only ever grows. Twelve in, ten out, and the two oldest are
+# the ones gone.
+cad_reset
+i=1
+while [ "$i" -le 12 ]; do cad_model_call model_recents_add "/tmp/m$i.gguf"; i=$((i + 1)); done
+check "the list is capped"          "10" "$(cad_model_call model_recents_list | /usr/bin/grep -c .)"
+check "  keeping the newest"        "/tmp/m12.gguf" "$(cad_model_call model_recents_list | /usr/bin/head -n 1)"
+check "  and dropping the oldest"   "0" \
+    "$(cad_model_call model_recents_list | /usr/bin/grep -c '^/tmp/m1\.gguf$')"
+
+section "asking for the recents does not create them"
+# A read path that writes is how merely opening a window ends up creating the settings file -
+# and how "did this handler save anything" stops being answerable at all.
+cad_reset
+check "the settings file is gone"     "0" "$([ -f "$cad_settings" ] && echo 1 || echo 0)"
+check "reading gives nothing"         ""  "$(cad_model_call model_recents_list)"
+check "  and created no file"         "0" "$([ -f "$cad_settings" ] && echo 1 || echo 0)"
+
+section "a path containing a newline survives being remembered"
+# macOS permits newlines in filenames, and the list is read back one-per-line. A round trip
+# through that text would turn one model into two bogus entries AND lose the real one, so it
+# would vanish from the picker while sitting on disk. Asserted on the COUNT, because the
+# textual list cannot represent the answer.
+cad_reset
+NL_PATH="$(printf '/tmp/two\nline.gguf')"
+cad_model_call model_recents_add "$NL_PATH"
+cad_model_call model_recents_add /tmp/plain.gguf
+check "two models are two entries" "2" "$(cad_count /recent-models)"
+# And dedup still recognizes it, which a split entry could not.
+cad_model_call model_recents_add "$NL_PATH"
+check "  and re-adding it does not duplicate" "2" "$(cad_count /recent-models)"
+
+section "recents share the settings file rather than owning it"
+# Three subtrees, three owners, one file. The list is rewritten whole on every add, so it is
+# the one most able to take somebody else's settings with it.
+cad_reset
+cad_call acp_agent_store custom:1 "/bin/echo acp" >/dev/null 2>&1
+cad_call mcp_prefs_write_defaults >/dev/null 2>&1
+check "the MCP subtree exists first"  "dict" "$(cad_type /servers)"
+check "  and the agents subtree too"  "true" "$("$cad_plister" get value "$cad_settings" /agents/external/enabled 2>/dev/null)"
+cad_model_call model_recents_add /tmp/z.gguf
+check "adding a recent leaves /servers" "dict" "$(cad_type /servers)"
+check "  and leaves /agents"            "true" "$("$cad_plister" get value "$cad_settings" /agents/external/enabled 2>/dev/null)"
+check "  while storing its own"         "/tmp/z.gguf" "$(cad_model_call model_recents_list)"
+
 section "cumulative: no handler wrote to a view id the window does not declare"
-# cad_unknown_writes_all, not ui_unknown_writes: ui_reset DELETES unknown_ids.log along with
-# the windows, so the plain form covers only what happened since the last reset - which in a
-# file that resets per section is close to nothing. Measured: a handler scribbling on a
-# made-up view id went entirely unnoticed by the plain form.
-check "no undeclared ids" "" "$(cad_unknown_writes_all)"
-check "no table clobbered by a bare value write" "" "$(cad_suspect_writes_all)"
+# Cumulative across the whole file, which is what makes one check at the end meaningful.
+# It was not always: ui_reset used to DELETE unknown_ids.log along with the windows, so this
+# covered only what happened since the last reset - close to nothing in a file that resets per
+# section, and a handler scribbling on a made-up view id went entirely unnoticed. omctest API 4
+# carries the three diagnostic logs across a reset, and this lib asserts that minimum.
+check "no undeclared ids" "" "$(ui_unknown_writes)"
+check "no table clobbered by a bare value write" "" "$(ui_suspect_writes)"
 
 omctest_end

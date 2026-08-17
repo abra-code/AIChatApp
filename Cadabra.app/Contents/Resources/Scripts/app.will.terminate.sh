@@ -40,56 +40,8 @@ echo "Stop every llama-server this bundle owns (reliable at terminate: matches t
 echo "binary + pinned port, independent of OMC_FRONT_PROCESS_ID / app-exe pgrep, both unreliable here)"
 stop_all_bundle_servers
 
-echo "Prune registry: stop any registered server whose host app is gone (other-instance leftovers)"
-host_pids=$("$plister" get keys "$prefs" "/server-hosts")
-while read -r host_pid; do
-    echo "registered host_pid = $host_pid"
-    # check if the registered host is our app 
-    if [ "$host_pid" = "$OMC_FRONT_PROCESS_ID" ]; then
-    	echo "host_pid = $host_pid is our app. Stop all servers we started"
-    	srvlog "TERMINATE host=$host_pid == front -> OUR APP branch, killing its servers"
-    	server_pids=$("$plister" get keys "$prefs" "/server-hosts/$host_pid")
-
-    	while read -r server_pid; do
-    		if [ -n "$server_pid" ]; then
-				/bin/ps -p "$server_pid"
-				server_process_exists=$?
-				if [ "$server_process_exists" = 0 ]; then
-					echo "kill -TERM $server_pid"
-					kill -TERM "$server_pid"
-				fi
-				"$plister" delete "$prefs" "/server-info/$server_pid" 2>/dev/null
-    		fi
-		done <<< "$server_pids"
-
-		"$plister" delete "$prefs" "/server-hosts/$host_pid"
-    elif [ -n "$host_pid" ]; then
-    	# not our app, check if the host process exists
-    	echo "host_pid = $host_pid is other app instance"
-    	/bin/ps -p "$host_pid"
-    	host_process_exists=$?
-    	if [ "$host_process_exists" != 0 ]; then
-    		echo "host process with pid=$host_pid does not exist, check if there are orphaned servers"
-    		srvlog "TERMINATE host=$host_pid != front, host DEAD -> killing its orphaned servers"
-    		server_pids=$("$plister" get keys "$prefs" "/server-hosts/$host_pid")
-    		while read -r server_pid; do
-    			if [ -n "$server_pid" ]; then
-    				/bin/ps -p "$server_pid"
-    				server_process_exists=$?
-    				if [ "$server_process_exists" = 0 ]; then
-						echo "kill -TERM $server_pid"
-						kill -TERM "$server_pid"
-    				fi
-    				"$plister" delete "$prefs" "/server-info/$server_pid" 2>/dev/null
-    			fi
-			done <<< "$server_pids"
-			"$plister" delete "$prefs" "/server-hosts/$host_pid"
-		else
-			echo "other app instance with pid = $host_pid is running. leave its servers untouched"
-			srvlog "TERMINATE host=$host_pid != front, host ALIVE -> LEAVING servers untouched (orphan bug if this host is really us)"
-    	fi
-    fi
-done <<< "$host_pids"
+echo "Prune registry: our own servers, plus any registered server whose host app is gone"
+prune_server_registry "$OMC_FRONT_PROCESS_ID"
 
 # Belt-and-suspenders for the ACP agent: mlx-agent is the Chat element's child and its stdin
 # closes when the app goes away, so it normally exits by itself (verified: on a hard kill of

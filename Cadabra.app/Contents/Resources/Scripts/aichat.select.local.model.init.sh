@@ -163,11 +163,7 @@ done
 # from outside the standard caches, so they are the only way those models are listed at all.
 # No -f/-d test here: model_engine already answers "is this still a loadable model", and it
 # is the one that knows a GGUF is a file while an MLX model is a directory.
-PREFS_DOMAIN="com.abracode.Cadabra"
-PREFS_KEY="recentModelPaths"
-recent_paths=$(/usr/bin/defaults read "$PREFS_DOMAIN" "$PREFS_KEY" 2>/dev/null | \
-	/usr/bin/grep -E '^\s+"' | \
-	/usr/bin/sed 's/^[[:space:]]*"\(.*\)",\{0,1\}$/\1/')
+recent_paths=$(model_recents_list)
 while IFS= read -r recent_path; do
 	[ -n "$recent_path" ] || continue
 	add_row "$recent_path" ""

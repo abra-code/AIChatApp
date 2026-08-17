@@ -39,7 +39,8 @@ source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.library.sh"
 # server has no playlist to re-read, so nothing under it is read once the sandbox is
 # live. No private user dirs (Documents/Desktop/Downloads) are added by default.
 
-mcp_prefs="/Users/$USER/Library/Preferences/com.abracode.AIChat-mcp.plist"
+# "$HOME", not "/Users/$USER" - see the note in aichat.library.sh.
+mcp_prefs="$HOME/Library/Preferences/com.abracode.AIChat-mcp.plist"
 
 # mcp_prefs_write_defaults
 # Overwrites the MCP prefs plist with built-in defaults.

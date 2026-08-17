@@ -48,14 +48,33 @@ fi
 
 # Best-effort single-run lock: if a prior launch's import is still running, do not start a second
 # concurrent one. (The convert step is already corruption-safe under concurrency - per-pid temp
-# files + a journal-completeness guard - so this only avoids wasted duplicate work; a stale lock
-# from a crashed run is detected by the dead-pid check and ignored.)
+# files + a journal-completeness guard - so this only avoids wasted duplicate work.)
+#
+# A PID ALONE IS NOT AN IDENTITY. A lock file outlives a launch by however long the user leaves
+# the app closed, which is ample time for the number in it to be handed to something else. A
+# dead-pid check reads that unrelated process as "the import is still running" and skips the
+# import - silently, and for as long as that process lives. So the lock records the pid AND its
+# start time: two processes can share a pid number, but not also the instant they started.
+#
+# THE CHILD WRITES IT, not the parent. The parent used to, right after forking, which lost every
+# race with a child that finished first: the child removed a lock that did not exist yet, and the
+# parent then created one nobody held. Ownership end to end is what makes "no lock survives the
+# run" true rather than usually true. What remains is the gap between the fork and the child's
+# first statement, in which a second launch would see no lock - unchanged in size from the gap
+# this replaces, and this is a best-effort lock over an idempotent pipeline.
 lock="$mcp_app_support/.webui_import.lock"
+
 if [ -f "$lock" ]; then
-    lpid="$(/bin/cat "$lock" 2>/dev/null)"
-    if [ -n "$lpid" ] && kill -0 "$lpid" 2>/dev/null; then
+    lline="$(/usr/bin/head -n 1 "$lock" 2>/dev/null)"
+    lpid="${lline%% *}"
+    lstamp="${lline#* }"
+    # "$lstamp" = "$lline" means there was no space: a lock from the pid-only format, which
+    # cannot be verified and is therefore treated as stale rather than believed.
+    if [ -n "$lpid" ] && [ "$lstamp" != "$lline" ] && kill -0 "$lpid" 2>/dev/null \
+       && [ "$lstamp" = "$(process_start_stamp "$lpid")" ]; then
         exit 0
     fi
+    /bin/rm -f "$lock"
 fi
 
 # Ask, then run the proven extract -> convert pipeline, all in the background so launch is never
@@ -63,6 +82,11 @@ fi
 # retries next launch (idempotent, and silently - see the consent file above).
 (
     log="$mcp_app_support/webui-import.log"
+
+    # Claim the lock as our own, first thing. A subshell inherits $$ from its parent and bash 3.2
+    # has no $BASHPID, so we ask a child process who its parent is - which is us.
+    import_pid=$(/bin/sh -c 'echo $PPID')
+    printf '%s %s\n' "$import_pid" "$(process_start_stamp "$import_pid")" > "$lock"
 
     # Ask once. Skipped when the user already said yes and a previous attempt did not finish.
     if [ ! -f "$consent" ]; then
@@ -129,7 +153,5 @@ You will only be asked once."
     /bin/rm -rf "$staging"
     /bin/rm -f "$lock"
 ) &
-
-printf '%s\n' "$!" > "$lock"
 
 exit 0

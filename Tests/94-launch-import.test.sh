@@ -8,10 +8,11 @@
 # nothing else in the app would notice if that care were removed.
 #
 # Everything it touches is under $HOME, so an isolated home makes the whole flow assertable.
-# Its sibling, app.will.terminate, is deliberately NOT dispatched anywhere in this suite: it
-# pgreps and TERMs this bundle's processes machine-wide and prunes a registry that is NOT
-# covered by the isolated home, so running it under test would kill the developer's own
-# running servers. See the commit note.
+# Its sibling, app.will.terminate, is still not dispatched anywhere in this suite, but the reason
+# has narrowed: its registry teardown IS covered now (the registry moved to $HOME and the logic
+# moved to prune_server_registry, exercised in 96-terminate-registry). What is left in the
+# handler identifies processes with pgrep over paths inside the bundle, which under a harness
+# that runs the REAL bundle match the developer's own running copy of the app.
 #
 # POSIX sh only. Validate with "sh -n", never "bash -n".
 . "${OMCTEST_LIB:?set OMCTEST_LIB, or run via: appletbuilder test}"
@@ -34,8 +35,8 @@ V1="$HOME/Library/WebKit/com.abracode.AIChat/WebsiteData/Default"
 # creates the file and the header is written before the pipeline runs, so waiting on that races
 # the very output being asserted. It waits for a TERMINAL line instead.
 #
-# Not the lock file either: the parent writes it AFTER forking, so a fast child can remove it
-# before it exists.
+# Not the lock file either. It is now written and removed by the child alone, so its absence is
+# a real signal - but it is absent BEFORE the child starts too, which is not the state meant.
 wait_for_import_done() {
     omc_wait_for "/usr/bin/grep -qE 'import OK|will retry next launch|could not ask|user declined' \"$LOG\"" 30
 }
@@ -98,6 +99,19 @@ for rc in 255 3; do
     check "  rc=$rc leaves no consent" "0" "$([ -f "$CONSENT" ] && echo 1 || echo 0)"
     check "  rc=$rc says why"          "1" "$(cad_has "$(/bin/cat "$LOG")" "could not ask")"
     check "  rc=$rc will ask again"    "1" "$(cad_has "$(/bin/cat "$LOG")" "ask again next launch")"
+    # The fastest exit there is: the alert fails to draw and the child is gone in milliseconds.
+    # What this pins is that the CHILD's own `rm -f "$lock"` runs on that path, so the lock it
+    # claimed does not outlive it.
+    #
+    # Honest about what it does NOT catch: reverting to the old shape, where the PARENT wrote
+    # the lock after forking, leaves this green. Verified by doing exactly that. The parent's
+    # printf is one statement after `&` while the child must fork and exec the alert stub
+    # before reaching its rm, so the parent always wins the write and the child always removes
+    # it; the old bug needs the parent descheduled in between, which does not happen here. Both
+    # implementations also write the same pid, so even the file contents match. That race is
+    # not reachable deterministically from a test, and pretending otherwise would be worse
+    # than saying so.
+    check "  rc=$rc leaves no lock behind" "0" "$([ -f "$LOCK" ] && echo 1 || echo 0)"
     /bin/rm -f "$LOCK"
 done
 
@@ -154,9 +168,16 @@ section "a second launch does not start a second import"
 # given, so "no alert was raised" would be true whether the lock guard worked or not - proved by
 # disabling the guard and watching this section stay green. Without it, the only thing that can
 # keep the dialog away is the lock.
+#
+# The lock line is built through the app's OWN process_start_stamp rather than by spelling `ps`
+# out here: it is the identity check under test, and a test that reimplements it passes when the
+# two spellings agree with each other rather than when the handler is right.
+lock_line_for() { # <pid>
+    printf '%s %s\n' "$1" "$(cad_call_lib aichat.library.sh process_start_stamp "$1")"
+}
 reset_import_state
 give_v1_data
-printf '%s\n' "$$" > "$LOCK"
+lock_line_for "$$" > "$LOCK"          # this test file's own shell: alive, and provably so
 alert_answer 1
 omc_run app.did.launch
 check_status "the handler ran" 0
@@ -166,26 +187,36 @@ check "a live import blocks another" "0" "$(alerts_count)"
 omc_wait_for "[ -s \"$LOG\" ]" 3
 check "  and nothing was logged"     "0" "$([ -s "$LOG" ] && echo 1 || echo 0)"
 check "  and no answer was consumed"  "0" "$([ -f "$MARKER" ] && echo 1 || echo 0)"
+check "  and the lock it honored is untouched" "$(lock_line_for "$$")" "$(/bin/cat "$LOCK")"
 alert_answers_reset
 
-section "a lock left by a crashed run is ignored"
-reset_import_state
-give_v1_data
-# A pid that cannot be running. The dead-pid check is what stops one crashed launch from
-# disabling the import forever.
-printf '999999\n' > "$LOCK"
-alert_answer 1
-omc_run app.did.launch
-wait_for_import_done
-check "the offer is made anyway" "1" "$(alerts_count)"
-/bin/rm -f "$LOCK"
+section "a lock nobody holds is ignored"
+# Three ways a lock can name a process that is not the import, and all three must let the offer
+# through. The third is the one with teeth: a pid that IS alive, because the number was reused
+# while the app was closed. `kill -0` alone says "held" there and retires the offer silently for
+# as long as that unrelated process lives.
+for lock_case in legacy dead recycled; do
+    reset_import_state
+    give_v1_data
+    case "$lock_case" in
+        legacy)   printf '%s\n' "$$" > "$LOCK" ;;              # the pid-only format: unverifiable
+        dead)     lock_line_for 999999 > "$LOCK" ;;            # a pid that cannot be running
+        recycled) printf '%s Thu Jan  1 00:00:00 1970\n' "$$" > "$LOCK" ;;  # alive, wrong process
+    esac
+    alert_answer 1
+    omc_run app.did.launch
+    wait_for_import_done
+    check "  $lock_case: the offer is made anyway" "1" "$(alerts_count)"
+    /bin/rm -f "$LOCK"
+done
 
 section "cumulative: no handler wrote to a view id the window does not declare"
-# cad_unknown_writes_all, not ui_unknown_writes: ui_reset DELETES unknown_ids.log along with
-# the windows, so the plain form covers only what happened since the last reset - which in a
-# file that resets per section is close to nothing. Measured: a handler scribbling on a
-# made-up view id went entirely unnoticed by the plain form.
-check "no undeclared ids" "" "$(cad_unknown_writes_all)"
-check "no table clobbered by a bare value write" "" "$(cad_suspect_writes_all)"
+# Cumulative across the whole file, which is what makes one check at the end meaningful.
+# It was not always: ui_reset used to DELETE unknown_ids.log along with the windows, so this
+# covered only what happened since the last reset - close to nothing in a file that resets per
+# section, and a handler scribbling on a made-up view id went entirely unnoticed. omctest API 4
+# carries the three diagnostic logs across a reset, and this lib asserts that minimum.
+check "no undeclared ids" "" "$(ui_unknown_writes)"
+check "no table clobbered by a bare value write" "" "$(ui_suspect_writes)"
 
 omctest_end
