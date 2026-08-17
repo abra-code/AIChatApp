@@ -47,7 +47,7 @@ acp_catalog_py="$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/acp_catalog.py"
 
 ACP_STATUS_READY="✅"
 ACP_STATUS_MISSING="➖"
-ACP_STATUS_UNKNOWN="┅"
+ACP_STATUS_UNKNOWN="•••"
 
 # acp_md_paragraphs
 # Reads markdown on stdin and rewrites it into the only multi-line form this dialog's text
@@ -140,9 +140,11 @@ acp_command_first_word() {
 # shell), so a script without +x fails with EACCES whatever its shebang says. A user who
 # downloads an agent script and points us at it before chmod +x gets told so by the list.
 #
-# -f follows symlinks, which is required rather than incidental - these tools are almost all
-# installed as a symlink into a bin dir (~/.local/bin/opencode -> ../lib/opencode/bin/...).
-# A symlink to a directory correctly fails, and so does a dangling one.
+# -f follows symlinks, which is required rather than incidental - most of these tools install
+# as a symlink into a bin dir. Both of the ones that do so on this machine are real cases:
+# /usr/local/bin/kilo -> ../lib/node_modules/@kilocode/cli/bin/kilo, and
+# ~/.grok/bin/grok -> ../downloads/grok-1.0.4-macos-aarch64. A symlink to a DIRECTORY
+# correctly fails, and so does a dangling one.
 acp_runnable() {
     [ -f "$1" ] && [ -x "$1" ]
 }
