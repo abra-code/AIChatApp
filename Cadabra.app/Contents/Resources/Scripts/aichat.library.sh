@@ -201,6 +201,31 @@ mcp_app_support="$HOME/Library/Application Support/Cadabra"
 # Chat history store root (per-session dirs; see aichat.history.library.sh + history_store.py).
 history_root="$mcp_app_support/History"
 
+# The one settings file. Application data the user configured - which MCP servers are on and
+# what they may reach, and which external ACP agent to run - NOT a macOS preference, so it
+# lives here rather than in ~/Library/Preferences, and in ONE file rather than a plist per
+# feature. Emphatically not com.abracode.Cadabra.plist: cfprefsd caches and rewrites that
+# domain wholesale on its own schedule, so a script writing it behind cfprefsd's back either
+# loses its write or clobbers the system's.
+#
+# TWO SUBTREES, TWO OWNERS, ONE FILE. /servers + /allow-network belong to the MCP library and
+# /agents to the ACP agents library. Neither may assume it owns the file: see
+# mcp_prefs_write_defaults, which used to begin with `rm -f` and would now take the other
+# owner's settings with it.
+cadabra_settings="$mcp_app_support/settings.plist"
+
+# cadabra_settings_init - create the directory and an empty root dict, once.
+#
+# `plister insert` cannot create the file it inserts into; only `set dict <file> /` can.
+# Without this every write no-ops AND RETURNS SUCCESS, which is how a fresh profile's settings
+# used to vanish silently. Callers that only READ must not call it - a read path that creates
+# files is how merely looking at the configuration ends up writing it.
+cadabra_settings_init() {
+    [ -f "$cadabra_settings" ] && return 0
+    /bin/mkdir -p "$mcp_app_support" 2>/dev/null || return 1
+    "$plister" set dict "$cadabra_settings" / >/dev/null 2>&1
+}
+
 # chat_window_set_status <window_uuid> <status> — reflect load/model/conversation state in a
 # chat window's title. Lives in the BASE library so callers that have no business pulling in
 # the server library (registry, port pinning, orphan reaping) still have it - the history

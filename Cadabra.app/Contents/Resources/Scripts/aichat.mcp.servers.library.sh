@@ -1,6 +1,7 @@
 #!/bin/sh
 # aichat.mcp.servers.library.sh
-# MCP server preferences (the com.abracode.Cadabra-mcp plist): read/written by the
+# MCP server settings (the /servers and /allow-network subtrees of the shared settings file,
+# see cadabra_settings in aichat.library.sh): read/written by the
 # aichat.mcp.servers.* dialog handlers and read by the launch flow
 # (generate_stdio_mcp_config / aichat_acp_transport_json below). Sourced by those
 # handlers, by the MCP inspector, and — transitively — by aichat.server.library.sh.
@@ -42,13 +43,23 @@ source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.library.sh"
 # server has no playlist to re-read, so nothing under it is read once the sandbox is
 # live. No private user dirs (Documents/Desktop/Downloads) are added by default.
 
-mcp_prefs="/Users/$USER/Library/Preferences/com.abracode.Cadabra-mcp.plist"
+# Was ~/Library/Preferences/com.abracode.Cadabra-mcp.plist. Now the shared settings file -
+# see cadabra_settings in aichat.library.sh for why, and for the two-owners rule this file has
+# to respect.
+mcp_prefs="$cadabra_settings"
 
 # mcp_prefs_write_defaults
-# Overwrites the MCP prefs plist with built-in defaults.
+# Resets the MCP subtree to built-in defaults, leaving the rest of the settings file alone.
+#
+# This used to open with `rm -f "$mcp_prefs"`, which was correct while the file held nothing
+# but MCP settings. It shares the file with /agents now, and this runs from Reset to Defaults
+# in the servers dialog - so the old line would have answered "reset my MCP servers" by also
+# silently discarding the user's external-agent choice.
 mcp_prefs_write_defaults() {
-    /bin/rm -f "$mcp_prefs"
-    "$plister" set dict   "$mcp_prefs" /
+    cadabra_settings_init || return 1
+    # Remove only what this function owns, then rebuild it.
+    "$plister" remove "$mcp_prefs" /servers       >/dev/null 2>&1
+    "$plister" remove "$mcp_prefs" /allow-network >/dev/null 2>&1
     "$plister" insert "allow-network" bool true "$mcp_prefs" /
     "$plister" insert "servers" dict "$mcp_prefs" /
     "$plister" insert "time"   dict "$mcp_prefs" /servers
@@ -111,11 +122,21 @@ mcp_prefs_write_defaults() {
         /opt/homebrew "$HOME/.nvm"; do
         [ -d "$d" ] && "$plister" append string "$d" "$mcp_prefs" /servers/local/allowed-read
     done
+    # Explicit, because the loop above ends on a [ -d ] test: without this the function
+    # reports failure on any machine that happens to lack the last directory in that list.
+    # It only became worth stating once the head of the function grew a real `|| return 1`,
+    # which makes the exit status look like it means something.
+    return 0
 }
 
 # mcp_prefs_init_if_missing
+#
+# Tests for the MCP SUBTREE, not for the file. The file may already exist because the
+# external-agent dialog wrote /agents into it, and a file-existence test would then decide the
+# servers were already configured - leaving every mcp_prefs_get_* silently on its fallback and
+# the servers dialog showing defaults it had not actually stored.
 mcp_prefs_init_if_missing() {
-    [ -f "$mcp_prefs" ] && return 0
+    "$plister" get type "$mcp_prefs" /servers >/dev/null 2>&1 && return 0
     mcp_prefs_write_defaults
 }
 

@@ -23,7 +23,7 @@
 # on it, so an agent the user runs happily in Terminal is invisible to us unless we look.
 
 # Sourced HERE rather than left to every caller. The stored-selection helpers below keep their
-# own store and no longer touch mcp_prefs_*, but they still need $plister, which the MCP
+# own accessors and no longer touch mcp_prefs_*, but they still need $plister, which the MCP
 # library pulls in from aichat.library.sh - and the dialog scripts that source this one rely on
 # the MCP helpers being in scope too.
 #
@@ -301,10 +301,9 @@ acp_agent_install_hint() {
 # either loses its write or clobbers the system's, and the visible result is a preferences
 # file that looks corrupted.
 #
-# The MCP server settings have NOT moved here yet - that is a separate change - so
-# com.abracode.Cadabra-mcp.plist still exists and still owns /servers. The key paths below
-# are deliberately left at /agents/... so that when /servers moves it lands in this same file
-# beside them, with no second reshuffle.
+# The MCP server settings now live in this same file, under /servers and /allow-network,
+# which is what leaving these keys at /agents/... was for. TWO SUBTREES, TWO OWNERS, ONE FILE:
+# neither library may assume it owns the file. See cadabra_settings in aichat.library.sh.
 #
 #   /agents/external/enabled : bool    - use the external agent instead of bundled mlx-agent
 #   /agents/external/id      : string  - catalog id, so the dialog can re-select the row
@@ -327,7 +326,7 @@ acp_agent_install_hint() {
 # it being general; it is the app support root, not an MCP thing.
 #
 # NOTE THE SPACE in "Application Support": every expansion of this must stay quoted.
-acp_prefs="$mcp_app_support/settings.plist"
+acp_prefs="$cadabra_settings"
 
 # acp_prefs_init_if_missing - create the directory and an empty root dict, once
 #
@@ -335,9 +334,7 @@ acp_prefs="$mcp_app_support/settings.plist"
 # this every write below no-ops AND RETURNS SUCCESS, which is exactly how the selection used to
 # vanish silently on a profile that had never opened the Tools dialogs.
 acp_prefs_init_if_missing() {
-    [ -f "$acp_prefs" ] && return 0
-    /bin/mkdir -p "$mcp_app_support" 2>/dev/null || return 1
-    "$plister" set dict "$acp_prefs" / >/dev/null 2>&1
+    cadabra_settings_init
 }
 
 # The four accessors. Every read and write goes through one of these, so the file path and
