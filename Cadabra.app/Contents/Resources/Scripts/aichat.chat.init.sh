@@ -40,7 +40,7 @@ external_agent_active=$(acp_agent_enabled)
 # An explicit model THIS launch beats a stored agent preference. The external branch below
 # ignores $engine entirely, so without this a user who had configured opencode and then
 # dropped a .gguf on the app icon would watch their model silently discarded and opencode
-# open instead - and the drop path (AIChat.main.sh chains straight to aichat.chat) never goes
+# open instead - and the drop path (Cadabra.main.sh chains straight to aichat.chat) never goes
 # near the model picker, so the flag that the picker clears is still set.
 #
 # Scoped to this launch on purpose: the drop is a one-off, so the stored preference stays for

@@ -15,7 +15,7 @@
         "WINDOW_TITLE" : "Local Models"
       },
       "COMMAND_ID" : "aichat.select.local.model",
-      "EXECUTION_MODE" : "exe_script_file",
+      "EXECUTION_MODE" : "exe_shell_script",
       "NAME" : "Cadabra"
     },
     {
@@ -73,7 +73,7 @@
         "WINDOW_TITLE" : "ACP Agents"
       },
       "COMMAND_ID" : "aichat.select.external.agent",
-      "EXECUTION_MODE" : "exe_script_file",
+      "EXECUTION_MODE" : "exe_shell_script",
       "NAME" : "Cadabra"
     },
     {
@@ -130,7 +130,7 @@
         "WINDOW_TITLE" : "Cadabra"
       },
       "COMMAND_ID" : "aichat.chat",
-      "EXECUTION_MODE" : "exe_script_file",
+      "EXECUTION_MODE" : "exe_shell_script",
       "NAME" : "Cadabra"
     },
     {
@@ -248,7 +248,7 @@
         "WINDOW_TITLE" : "Cadabra — Agentic Session Tools"
       },
       "COMMAND_ID" : "aichat.mcp.servers",
-      "EXECUTION_MODE" : "exe_script_file",
+      "EXECUTION_MODE" : "exe_shell_script",
       "NAME" : "Cadabra"
     },
     {
@@ -336,7 +336,7 @@
         "WINDOW_TITLE" : "Cadabra — MCP Servers"
       },
       "COMMAND_ID" : "aichat.mcp.inspect",
-      "EXECUTION_MODE" : "exe_script_file",
+      "EXECUTION_MODE" : "exe_shell_script",
       "NAME" : "Cadabra"
     },
     {
@@ -380,7 +380,7 @@
         "WINDOW_TITLE" : "Cadabra Help"
       },
       "COMMAND_ID" : "aichat.model.help.dialog",
-      "EXECUTION_MODE" : "exe_script_file",
+      "EXECUTION_MODE" : "exe_shell_script",
       "NAME" : "Cadabra"
     },
     {
