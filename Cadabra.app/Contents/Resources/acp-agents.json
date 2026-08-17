@@ -21,9 +21,15 @@
     "the single space the old tab-separated table needed. url is the vendor's own information",
     "page, shown as a clickable link; every one was verified to resolve.",
     "",
-    "Rows are ordered alphabetically by label, with Custom pinned last, because the dialog renders",
-    "them in file order. Order carries no meaning: the selection is keyed by id, so rows can be",
-    "resorted freely.",
+    "Rows are ordered alphabetically by label because the dialog renders them in file order. Order",
+    "carries no meaning: the selection is keyed by id, so rows can be resorted freely. The agents",
+    "the user saves themselves are appended after this list at runtime, from settings.plist.",
+    "",
+    "The \"custom\" object is NOT an agent and is deliberately outside the agents list, so it can",
+    "never be selected as one. It is the prose the dialog shows while editing a saved agent of the",
+    "user's own, plus the default name a new one gets. It lives here rather than in the scripts for",
+    "the same reason the rows do: it is user-facing text and a URL, and URLs move - three of the",
+    "ones below already had.",
     "",
     "The five rows from the ACP registry (Codex, Cursor, GitHub Copilot, Mistral Vibe, Qwen Code)",
     "come from https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json, which is",
@@ -144,16 +150,12 @@
       "summary": "Alibaba's Qwen coding assistant.",
       "note": "Install the npm package @qwen-code/qwen-code, which provides the qwen command.",
       "verification": "NOT PROBED. ACP registry 0.21.12; bin name qwen confirmed from npm metadata. The registry also passes --experimental-skills, which Qwen's own config.ts marks Deprecated, ignored and hidden, so it is left out."
-    },
-    {
-      "id": "custom",
-      "label": "Custom",
-      "command": "",
-      "args": [],
-      "url": "https://agentclientprotocol.com/get-started/registry",
-      "summary": "Anything else that speaks the Agent Client Protocol over stdio.",
-      "note": "Type the full command and arguments yourself.",
-      "verification": "Not an agent - there is no invocation to verify."
     }
-  ]
+  ],
+  "custom": {
+    "label": "New Agent",
+    "url": "https://agentclientprotocol.com/get-started/registry",
+    "summary": "An agent you point Cadabra at yourself. Anything that speaks the Agent Client Protocol over stdio will do.",
+    "note": "Give it a name and type the command exactly as you would run it in Terminal, including any subcommand or flag that puts the agent into ACP mode. Quote a path that contains spaces."
+  }
 }

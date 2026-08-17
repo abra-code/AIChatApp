@@ -38,22 +38,49 @@
         }
       },
       {
-        "type": "Text",
+        "type": "HStack",
         "properties": {
-          "text": "Found on this Mac, plus known agents you can install.",
-          "font": "caption",
-          "foregroundStyle": "secondary",
-          "frame": {
-            "maxWidth": "infinity",
-            "alignment": "leading"
-          },
+          "spacing": 4,
           "padding": {
-            "leading": 8,
-            "trailing": 8,
-            "top": 6,
-            "bottom": 6
+            "leading": 6,
+            "trailing": 6,
+            "top": 4
           }
-        }
+        },
+        "children": [
+          {
+            "type": "Button",
+            "id": 14,
+            "properties": {
+              "systemImage": "plus",
+              "buttonStyle": "borderless",
+              "help": "Add an agent of your own",
+              "actionID": "aichat.select.external.agent.add",
+              "frame": {
+                "width": 24,
+                "height": 22
+              }
+            }
+          },
+          {
+            "type": "Button",
+            "id": 15,
+            "properties": {
+              "systemImage": "minus",
+              "buttonStyle": "borderless",
+              "help": "Remove the selected agent",
+              "disabled": true,
+              "actionID": "aichat.select.external.agent.remove",
+              "frame": {
+                "width": 24,
+                "height": 22
+              }
+            }
+          },
+          {
+            "type": "Spacer"
+          }
+        ]
       }
     ]
   },
@@ -69,9 +96,10 @@
     },
     "children": [
       {
-        "type": "GroupBox",
+        "type": "ZStack",
+        "id": 50,
         "properties": {
-          "title": "About This Agent",
+          "alignment": "topLeading",
           "frame": {
             "maxWidth": "infinity",
             "maxHeight": "infinity"
@@ -79,27 +107,128 @@
         },
         "children": [
           {
-            "type": "ScrollView",
+            "type": "Text",
+            "id": 55,
             "properties": {
+              "text": "",
+              "hidden": true,
+              "frame": {
+                "width": 0,
+                "height": 0
+              }
+            }
+          },
+          {
+            "type": "GroupBox",
+            "id": 51,
+            "properties": {
+              "title": "About This Agent",
               "frame": {
                 "maxWidth": "infinity",
                 "maxHeight": "infinity"
               }
             },
-            "content": {
-              "type": "Text",
-              "id": 12,
-              "properties": {
-                "text": "Select an agent from the list.",
-                "frame": {
-                  "maxWidth": "infinity",
-                  "maxHeight": "infinity",
-                  "alignment": "topLeading"
+            "children": [
+              {
+                "type": "ScrollView",
+                "properties": {
+                  "frame": {
+                    "maxWidth": "infinity",
+                    "maxHeight": "infinity"
+                  }
                 },
-                "textSelection": "enabled",
-                "foregroundStyle": "secondary"
+                "content": {
+                  "type": "Text",
+                  "id": 12,
+                  "properties": {
+                    "text": "Select an agent from the list.",
+                    "frame": {
+                      "maxWidth": "infinity",
+                      "maxHeight": "infinity",
+                      "alignment": "topLeading"
+                    },
+                    "textSelection": "enabled",
+                    "foregroundStyle": "secondary"
+                  }
+                }
               }
-            }
+            ]
+          },
+          {
+            "type": "GroupBox",
+            "id": 52,
+            "properties": {
+              "title": "Your Agent",
+              "hidden": true,
+              "frame": {
+                "maxWidth": "infinity",
+                "maxHeight": "infinity"
+              }
+            },
+            "children": [
+              {
+                "type": "VStack",
+                "properties": {
+                  "spacing": 10,
+                  "alignment": "leading",
+                  "frame": {
+                    "maxWidth": "infinity",
+                    "maxHeight": "infinity",
+                    "alignment": "topLeading"
+                  }
+                },
+                "children": [
+                  {
+                    "type": "HStack",
+                    "properties": {
+                      "spacing": 8
+                    },
+                    "children": [
+                      {
+                        "type": "Text",
+                        "properties": {
+                          "text": "Name"
+                        }
+                      },
+                      {
+                        "type": "TextField",
+                        "id": 53,
+                        "properties": {
+                          "prompt": "What you want to call it",
+                          "actionID": "aichat.select.external.agent.name.changed",
+                          "frame": {
+                            "maxWidth": "infinity"
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "type": "ScrollView",
+                    "properties": {
+                      "frame": {
+                        "maxWidth": "infinity",
+                        "maxHeight": "infinity"
+                      }
+                    },
+                    "content": {
+                      "type": "Text",
+                      "id": 54,
+                      "properties": {
+                        "text": "",
+                        "frame": {
+                          "maxWidth": "infinity",
+                          "maxHeight": "infinity",
+                          "alignment": "topLeading"
+                        },
+                        "textSelection": "enabled",
+                        "foregroundStyle": "secondary"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
           }
         ]
       },
@@ -133,6 +262,7 @@
                     "id": 20,
                     "properties": {
                       "prompt": "/path/to/agent acp",
+                      "actionID": "aichat.select.external.agent.command.changed",
                       "frame": {
                         "maxWidth": "infinity"
                       }
@@ -209,10 +339,10 @@
             "type": "Picker",
             "id": 30,
             "properties": {
-              "title": "Tools",
+              "title": "Use Tools",
               "options": [
                 { "title": "Off", "tag": "false" },
-                { "title": "Read-only Servers", "tag": "readonly" },
+                { "title": "Read-only MCP Servers", "tag": "readonly" },
                 { "title": "All", "tag": "true" }
               ],
               "pickerStyle": "menu"
@@ -225,7 +355,7 @@
             "type": "Button",
             "id": 3,
             "properties": {
-              "title": "Use This Agent",
+              "title": "Continue",
               "buttonStyle": "borderedProminent",
               "disabled": true,
               "actionID": "aichat.select.external.agent.ok"

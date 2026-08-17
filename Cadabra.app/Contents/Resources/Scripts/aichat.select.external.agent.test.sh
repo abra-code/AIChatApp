@@ -15,19 +15,34 @@
 
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.library.sh"
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.mcp.servers.library.sh"
-source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.acp.agents.library.sh"
+source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.select.external.agent.library.sh"
 
-RESULT_TEXT_ID=24
-dialog_tool="$OMC_OMC_SUPPORT_PATH/omc_dialog_control"
-window_uuid="$OMC_ACTIONUI_WINDOW_UUID"
 python3_bin="$OMC_APP_BUNDLE_PATH/Contents/Library/Python/bin/python3"
 [ -x "$python3_bin" ] || python3_bin=/usr/bin/python3
 
-command_line="${OMC_ACTIONUI_VIEW_20_VALUE:-}"
+# Cleaned, exactly as the Continue handler cleans it. Two reasons, and the second is the subtle
+# one: a field holding nothing but spaces passes a plain -z test and would be probed as a command
+# that shlex splits into no argv at all; and the identity this probe records at the end is keyed
+# BY the command string, so measuring the raw value while Continue stores the cleaned one means
+# the two never match again - and a command typed with a stray leading space would silently lose
+# the agent name and version the user just verified from the conversation info line.
+command_line=$(acp_clean_one_line "${OMC_ACTIONUI_VIEW_20_VALUE:-}")
 if [ -z "$command_line" ]; then
     "$dialog_tool" "$window_uuid" $RESULT_TEXT_ID "Enter a command first."
     exit 0
 fi
+
+# TESTING A SAVED AGENT SAVES IT FIRST. Clicking a button need not take focus off the field it
+# was typed into, so without this a user who types a command and immediately presses Test gets a
+# probe of what they typed and a record that never heard about it - and the next repaint of the
+# pane quietly puts the old command back, discarding the thing they just proved works. Testing
+# is part of editing, so it commits like the rest of editing.
+#
+# The failure is carried rather than reported here: this handler's job is the probe, and its
+# result belongs in the box at the end. A save failure is prepended to that result instead of
+# being written now and then overwritten by it a few seconds later.
+agent_save_pane_edits "$(agent_pane_owner)" "${OMC_ACTIONUI_VIEW_53_VALUE:-}" "$command_line"
+save_status=$?
 
 # The same workspace the agent will actually be launched in, so a probe that passes is a probe
 # of the real configuration (an agent may well refuse a directory it cannot read).
@@ -56,8 +71,13 @@ probe = os.path.join(os.environ["OMC_APP_BUNDLE_PATH"], "Contents/Resources/Scri
 # An OUTER timeout as well as the probe's own: the probe kills its agent's process group, but
 # this handler must return no matter what happens inside it - an OMC subcommand that never
 # exits leaves the dialog stuck on "Starting the agent..." with no way back.
+# -B because acp_probe.py imports acp_agent_env, and Python caches an imported module by
+# writing __pycache__ NEXT TO IT - which is inside the application bundle. Pressing Test then
+# leaves a .pyc in Contents/Resources/Scripts, dirtying the code signature of a signed app and
+# putting a build artifact in the repo of an unsigned one. The probe runs once per press, so
+# there is nothing to gain by caching it either.
 try:
-    out = subprocess.run([sys.executable, probe, cwd, "25", "--"] + argv,
+    out = subprocess.run([sys.executable, "-B", probe, cwd, "25", "--"] + argv,
                          capture_output=True, text=True, timeout=40)
     stdout = out.stdout
 except subprocess.TimeoutExpired:
@@ -189,6 +209,22 @@ elif tail_note:
 print(out)
 PY
 )
+
+# A save that went missing goes FIRST, above the probe result. The probe may well be green, and
+# a green result over a silently unsaved edit is the one combination that would send the user
+# away believing both halves worked - which is exactly why BOTH failure kinds are reported here
+# rather than only the writable one. A record that has been deleted out from under this window
+# fails just as silently and looks even more convincing, because nothing is wrong with the file.
+case "$save_status" in
+    1) report="**This agent is no longer in the list,** so nothing was saved - it was removed in another window, or the settings file was edited by hand. The test below still ran on what you typed.
+
+$report"
+       ;;
+    2) report="**This agent could not be saved.** Check that ~/Library/Application Support/Cadabra is writable - the test below still ran on what you typed.
+
+$report"
+       ;;
+esac
 
 "$dialog_tool" "$window_uuid" $RESULT_TEXT_ID markdown "$report"
 

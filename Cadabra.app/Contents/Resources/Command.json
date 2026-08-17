@@ -87,6 +87,26 @@
       "NAME" : "Cadabra"
     },
     {
+      "COMMAND_ID" : "aichat.select.external.agent.add",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "Cadabra"
+    },
+    {
+      "COMMAND_ID" : "aichat.select.external.agent.remove",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "Cadabra"
+    },
+    {
+      "COMMAND_ID" : "aichat.select.external.agent.name.changed",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "Cadabra"
+    },
+    {
+      "COMMAND_ID" : "aichat.select.external.agent.command.changed",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "Cadabra"
+    },
+    {
       "COMMAND_ID" : "aichat.select.external.agent.test",
       "EXECUTION_MODE" : "exe_script_file",
       "NAME" : "Cadabra"
