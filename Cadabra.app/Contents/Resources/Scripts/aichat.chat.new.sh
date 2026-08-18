@@ -17,6 +17,10 @@ ROW_BUTTONS="521 520 524"   # Rename Reveal Delete
 # start a fresh session on the next turn.
 chat_inject_empty "$win"
 pb_set "aichatv2_session_${win}" ""
+# Whatever the sidebar armed belongs to the conversation being left behind. The next turn mints a
+# new session and never looks at the flag, and the turn after that would fail its SID check - but
+# leaving a stale arm lying around to be refused later is not the same as clearing it.
+pb_set "aichatv2_resume_pending_${win}" ""
 
 # Retitle to whatever drives this window - the active model, or the external ACP agent, which
 # has no model path and so used to leave the previous conversation's title sitting there.

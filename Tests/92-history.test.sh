@@ -209,6 +209,78 @@ section "cumulative: no handler wrote to a view id the window does not declare"
 # Cumulative across the whole file, which is what makes one check at the end meaningful.
 # It was not always: ui_reset used to DELETE unknown_ids.log along with the windows, so this
 # covered only what happened since the last reset - close to nothing in a file that resets per
+section "the journal survives concurrent writers, and only content mints a session"
+# THE FAILURE THIS PREVENTS IS SILENT AND PERMANENT. `printf >>` flushes in ~1 KB stdio chunks, so
+# a large envelope is several write() calls; a second handler landing between two of them splices
+# the tail of one line onto the head of another, and _read_journal can only skip what it cannot
+# parse. Two of this user's saved conversations lost a message that way.
+H_PY="$OMC_APP_BUNDLE_PATH/Contents/Library/Python/bin/python3"
+H_STORE="$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/history_store.py"
+mk_session concurrent - - ; : > "$HROOT/concurrent/journal.jsonl"
+pad=$("$H_PY" -c 'import sys; sys.stdout.write("X" * 3000)')
+for w in A B C; do
+    (   i=0
+        while [ "$i" -lt 30 ]; do
+            hist history_append_journal "$HROOT/concurrent" \
+                "{\"type\":\"message\",\"w\":\"$w\",\"n\":$i,\"pad\":\"$pad\"}"
+            i=$((i + 1))
+        done ) &
+done
+wait
+check "every line written concurrently is still parseable" "90 0" \
+    "$("$H_PY" -c '
+import json, sys
+tot = bad = 0
+for line in open(sys.argv[1], encoding="utf-8"):
+    line = line.strip()
+    if not line: continue
+    tot += 1
+    try: json.loads(line)
+    except Exception: bad += 1
+sys.stdout.write("%d %d" % (tot, bad))' "$HROOT/concurrent/journal.jsonl")"
+check "  and the lock is not left behind" "0" \
+    "$([ -e "$HROOT/concurrent/.journal.lock" ] && echo 1 || echo 0)"
+
+# The agent announces itself with a `session` envelope that finalizes like any other entry. Minting
+# on it left a directory holding an announcement and no conversation - 21 of 183 real sessions.
+hist history_envelope_mints '{"type":"session","data":{"agentName":"mlx-agent"}}'
+check "an agent announcement does not mint a session" "1" "$?"
+hist history_envelope_mints '{"type":"usage","data":{"used":729}}'
+check "  nor does a usage update"                     "1" "$?"
+hist history_envelope_mints '{"type":"sessionEvent","data":{"type":"sessionEvent"}}'
+check "  nor does a session marker"                   "1" "$?"
+hist history_envelope_mints '{"type":"message","data":{"message":{"role":"local","text":"hi"}}}'
+check "a message does"                                "0" "$?"
+hist history_envelope_mints 'not json at all'
+check "  and unparseable input mints nothing"         "1" "$?"
+
+section "ChatView's own sessionEvent entry is rewrapped so the transcript still decodes"
+# ChatStore.swift hands fireEntry the bare SessionEvent instead of ChatItem.sessionEvent(event), so
+# its condense marker arrives with the payload directly in `data`, with no `type` discriminator.
+# Stored verbatim that is an item ChatItem's decoder throws on, and ChatTranscript decodes its items
+# as one array: the WHOLE conversation fails to restore, silently, because the host does `try?`.
+mk_session elementshape - '{"type":"message","id":"m1","data":{"type":"message","message":{"id":"m1","role":"local","text":"hi"}}}
+{"type":"sessionEvent","id":"c1","sequence":16,"data":{"id":"c1","kind":"resumed","timestamp":"2026-08-18T21:56:33Z","digest":{"decisions":[],"establishedFacts":[],"openThreads":[],"userPreferences":[],"droppedTurns":4,"summarizer":"apple-foundation-models"}}}'
+el_item() { "$H_PY" -c '
+import json, sys
+d = json.load(sys.stdin)
+ev = [i for i in d["items"] if i.get("type") == "sessionEvent"]
+sys.stdout.write(json.dumps(ev[0], sort_keys=True) if ev else "MISSING")
+'; }
+el_json=$("$H_PY" "$H_STORE" transcript "$HROOT/elementshape" | el_item)
+check "the marker carries the type discriminator" "1" "$(cad_has "$el_json" '"type": "sessionEvent"')"
+check "  with the payload under sessionEvent"     "1" "$(cad_has "$el_json" '"sessionEvent":')"
+check "  and its digest intact"                   "1" "$(cad_has "$el_json" '"droppedTurns": 4')"
+# No item may reach the element without a type: an untyped one is what throws, and one throw
+# takes the whole conversation with it.
+untyped_count() { "$H_PY" -c '
+import json, sys
+d = json.load(sys.stdin)
+sys.stdout.write(str(sum(1 for i in d["items"] if "type" not in i)))
+'; }
+check "no item in the transcript is untyped" "0" \
+    "$("$H_PY" "$H_STORE" transcript "$HROOT/elementshape" | untyped_count)"
+
 # section, and a handler scribbling on a made-up view id went entirely unnoticed. omctest API 4
 # carries the three diagnostic logs across a reset, and this lib asserts that minimum.
 check "no undeclared ids" "" "$(ui_unknown_writes)"

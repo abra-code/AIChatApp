@@ -30,6 +30,7 @@ if [ "$(pb_get "aichatv2_session_${win}")" = "$sid" ]; then
     summarize_hide "$win"
     chat_inject_empty "$win"
     pb_set "aichatv2_session_${win}" ""
+    pb_set "aichatv2_resume_pending_${win}" ""
     for b in 521 520 524; do "$dialog" "$win" "$b" omc_disable; done
     # The title tracks the loaded CONVERSATION (stamped by the selection handler), so it has
     # to fall back to the model here - otherwise the window keeps naming a chat that no

@@ -107,6 +107,54 @@ history_inject_content() {
     "$dialog" "$1" "$2" omc_set_state content "$transcript"
 }
 
+# history_append_journal <session-dir> <line> - append one finalized entry, atomically.
+#
+# NOT a plain `printf >> journal.jsonl`. The shell flushes in ~1 KB stdio chunks, so an envelope
+# bigger than that is several write() calls, and this handler re-fires several times per turn with
+# invocations that can overlap. A second writer landing between two chunks splices the tail of one
+# envelope onto the head of another, and both lines are lost - _read_journal can only skip what it
+# cannot parse. Two conversations in this user's history lost a message that way. Reproduced at 26
+# torn lines in 120 with three concurrent writers; zero with this lock.
+#
+# mkdir is the atomic primitive history_store.py's _journal_lock uses too, so both writers - this
+# one and the session markers - queue on the same door. The wait is bounded: a handler killed while
+# holding the lock would otherwise wedge the chat, and an interleaved line is recoverable where a
+# frozen window is not.
+history_append_journal() { # <session-dir> <line>
+    local lock="$1/.journal.lock" spins=0
+    while ! /bin/mkdir "$lock" 2>/dev/null; do
+        spins=$((spins + 1))
+        [ "$spins" -ge 2000 ] && break
+    done
+    printf '%s\n' "$2" >> "$1/journal.jsonl"
+    [ "$spins" -lt 2000 ] && /bin/rmdir "$lock" 2>/dev/null
+    return 0
+}
+
+# history_envelope_mints <envelope-json> - true when this entry is conversation CONTENT, and so
+# worth a session directory of its own.
+#
+# The agent announces itself with a `session` envelope, which finalizes as an entry like any other.
+# Minting on it produced a history dir holding one agent announcement and no conversation: 21 of
+# this user's 183 saved sessions were empty, showing as "(untitled)" rows that pushed real
+# conversations down the sidebar. Only content mints; a `session`, `usage` or `plan` envelope
+# arriving before there is anything to say is dropped, which costs nothing because none of the
+# three is read back into a transcript.
+#
+# Called ONLY while the window is unbound, so the python spawn happens a handful of times per
+# conversation rather than per entry - this handler is on the streaming path and its header asks
+# for it to stay cheap.
+history_envelope_mints() { # <envelope-json>
+    printf '%s' "$1" | "$history_py" -c '
+import json, sys
+try:
+    t = (json.load(sys.stdin) or {}).get("type")
+except Exception:
+    t = None
+sys.exit(0 if t in ("message", "thought", "toolCall", "image", "system", "error") else 1)
+' 2>/dev/null
+}
+
 # history_mark_session <sid> <started|resumed|modelChanged> [model-label] - record a session
 # boundary in a conversation's transcript.
 #

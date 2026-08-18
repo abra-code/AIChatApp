@@ -15,9 +15,6 @@
 # aichat.history.library.sh. Everything below the threshold, and everything already answered
 # for, stays exactly as seamless as it was.
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.history.library.sh"
-# For chat_engine_label: the marker names the model answering from here on, and only this app
-# knows it - mlx-agent advertises no configOptions, so the element is never told.
-source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.model.library.sh"
 
 win="$OMC_ACTIONUI_WINDOW_UUID"
 CHAT_VIEW_ID=1
@@ -40,10 +37,24 @@ if [ "$(pb_get "aichatv2_session_${win}")" = "$sid" ]; then
     exit 0
 fi
 
-# Record the resume BEFORE the transcript is read, so the marker is the last thing in it: the
-# reader sees the conversation, then "Resumed with <model>", then whatever they say next. It also
-# means the injection below already contains it, with no second write to the element.
-history_mark_session "$sid" resumed "$(chat_engine_label "$win")"
+# A RESUME IS THE FIRST MESSAGE SENT INTO A CONVERSATION, NOT THE CLICK THAT DISPLAYED IT. Marking
+# it here recorded one for every row the user touched, so browsing a handful of conversations left a
+# run of "Resumed with <model>" lines in each with nothing between them - a transcript claiming a
+# history of conversations that never happened. Clicking a row is reading, not resuming.
+#
+# So arm it here and let aichat.chat.entry.sh write the marker when a turn actually arrives. The
+# flag carries the SID rather than a bare 1, and that comparison does real work: the window is not
+# re-bound until further down this script, so for the few tens of milliseconds it takes to get there
+# the flag names the conversation being opened while the session still names the one being left. A
+# turn finalizing in that gap - the user clicks away while the agent is still answering - would
+# otherwise stamp a resume onto the conversation they just left. It also covers the easier case of a
+# conversation armed here and then abandoned (New Chat, another row, a delete).
+#
+# The marker therefore reaches the DISPLAY on the next load rather than immediately. That is already
+# true of the modelChanged marker in aichat.chat.switch.model.sh, and for the same reason: injected
+# content seeds both the display and the wire, so a line cannot be added to a live transcript
+# without re-priming the whole conversation.
+pb_set "aichatv2_resume_pending_${win}" "$sid"
 
 # Load the transcript into the chat (replaces whatever was shown) and bind the window to the
 # session so aichat.chat.entry.sh appends new turns to it instead of minting a new session.

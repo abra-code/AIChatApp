@@ -56,6 +56,47 @@ def _read_journal(session_dir):
         return
 
 
+def _journal_lock(session_dir):
+    """Take the per-session append lock, or give up after a bounded wait.
+
+    journal.jsonl is appended to by two writers - this module's session markers and the shell
+    handler that appends finalized entries - and `printf >>` from the shell flushes in ~1 KB
+    stdio chunks, so a large envelope is several write() calls. Without a lock a second writer
+    lands between two of them and both lines are destroyed: the tail of one envelope is spliced
+    onto the head of another and _read_journal drops the result. Two conversations in this
+    user's history lost a message that way before the lock existed.
+
+    mkdir is the atomic primitive available to both writers. A holder that dies leaves the
+    directory behind, so the wait is bounded: after that, write anyway. An interleaved line is
+    recoverable by a reader; a deadlocked chat is not.
+    """
+    path = os.path.join(session_dir, ".journal.lock")
+    for _ in range(2000):
+        try:
+            os.mkdir(path)
+            return path
+        except OSError:
+            time.sleep(0.001)
+    return None
+
+
+def _journal_unlock(token):
+    if token:
+        try:
+            os.rmdir(token)
+        except OSError:
+            pass
+
+
+def _journal_append(session_dir, line):
+    token = _journal_lock(session_dir)
+    try:
+        with open(os.path.join(session_dir, "journal.jsonl"), "a", encoding="utf-8") as fh:
+            fh.write(line)
+    finally:
+        _journal_unlock(token)
+
+
 def _read_meta(session_dir):
     try:
         with open(os.path.join(session_dir, "meta.json"), "r", encoding="utf-8") as fh:
@@ -156,6 +197,15 @@ def _build_transcript(session_dir):
         etype = env.get("type")
         data = env.get("data")
         if etype in ITEM_TYPES and isinstance(data, dict):
+            # ChatView writes its own sessionEvent entries (the marker after a condensed prime)
+            # with the payload directly in `data`, without the ChatItem wrapper every other item
+            # type carries - ChatStore.swift passes the bare SessionEvent to fireEntry instead of
+            # ChatItem.sessionEvent(event). Stored verbatim, that becomes an item with no `type`,
+            # and ChatItem's decoder does a plain decode of the discriminator: it throws, the
+            # WHOLE ChatTranscript fails, and the restore is a silent no-op. One condensed resume
+            # made its conversation unopenable. Wrap it back into the shape it should have had.
+            if etype == "sessionEvent" and "type" not in data and "kind" in data:
+                data = {"type": "sessionEvent", "sessionEvent": data}
             key = env.get("id")
             if not key:
                 pos += 1
@@ -445,8 +495,7 @@ def cmd_session_event(session_dir, kind, model=""):
     envelope = {"type": "sessionEvent", "id": event_id,
                 "data": {"type": "sessionEvent", "sessionEvent": event}}
     try:
-        with open(os.path.join(session_dir, "journal.jsonl"), "a", encoding="utf-8") as fh:
-            fh.write(json.dumps(envelope, ensure_ascii=False) + "\n")
+        _journal_append(session_dir, json.dumps(envelope, ensure_ascii=False) + "\n")
     except OSError:
         return 1
     return 0

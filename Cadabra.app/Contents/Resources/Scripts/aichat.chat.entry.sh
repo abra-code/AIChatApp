@@ -19,11 +19,21 @@ if [ -f /tmp/aichatv2_debug ]; then
     } >> /tmp/aichatv2_debug.log 2>&1
 fi
 
-# One session dir per chat window, id created on the first finalized entry.
+# The finalized-entry envelope arrives as the ActionUI trigger context. (The Chat element
+# has no scalar value - valueType is Void - so there is no OMC_ACTIONUI_VIEW_1_VALUE to fall
+# back to.) Read BEFORE the mint, because what it is decides whether a session is minted at all.
+envelope="$OMC_ACTIONUI_TRIGGER_CONTEXT"
+[ -z "$envelope" ] && exit 0
+
+# One session dir per chat window, id created on the first finalized entry OF CONTENT.
 session_key="aichatv2_session_${win}"
 sid=$(pb_get "$session_key")
 newly_minted=
 if [ -z "$sid" ]; then
+    # Not everything that finalizes is a conversation. The agent's own `session` announcement used
+    # to mint a directory holding nothing else, and those empty sessions accumulated at the top of
+    # the sidebar as "(untitled)". Nothing to persist yet, so there is nothing to persist it into.
+    history_envelope_mints "$envelope" || exit 0
     sid="$(/bin/date -u +%Y%m%dT%H%M%SZ)-$$"
     pb_set "$session_key" "$sid"
     /bin/mkdir -p "$history_root/$sid"
@@ -42,15 +52,23 @@ if [ -z "$sid" ]; then
     # truth the first time the conversation is resumed with another.
     history_mark_session "$sid" started "$(chat_engine_label "$win")"
     newly_minted=1
+else
+    # The other half of the same record: this conversation already existed, and if the sidebar armed
+    # a resume for it then THIS is the moment it became one - a turn is being appended to a
+    # conversation the user opened. Clearing the flag first, not last, NARROWS the window in which
+    # two overlapping invocations could each write a marker (usage/plan entries re-fire several
+    # times per turn); it does not close it. Measured, the gap is about 5 ms, and the first entry
+    # after a resume comes from a send, which is dispatched synchronously with nothing else queued.
+    resume_key="aichatv2_resume_pending_${win}"
+    if [ "$(pb_get "$resume_key")" = "$sid" ]; then
+        pb_set "$resume_key" ""
+        # The label is read NOW, not when the row was clicked, so a model switched in between is the
+        # one the marker names - which is the model that is about to answer.
+        history_mark_session "$sid" resumed "$(chat_engine_label "$win")"
+    fi
 fi
 
-# The finalized-entry envelope arrives as the ActionUI trigger context. (The Chat element
-# has no scalar value - valueType is Void - so there is no OMC_ACTIONUI_VIEW_1_VALUE to fall
-# back to.)
-envelope="$OMC_ACTIONUI_TRIGGER_CONTEXT"
-[ -z "$envelope" ] && exit 0
-
-printf '%s\n' "$envelope" >> "$history_root/$sid/journal.jsonl"
+history_append_journal "$history_root/$sid" "$envelope"
 
 # On the FIRST entry of a brand-new session (New Chat + typing, or the fresh-launch chat),
 # surface it in the sidebar immediately: repopulate the list and select the new row. The

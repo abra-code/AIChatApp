@@ -230,9 +230,76 @@ omc_run aichat.history.selection.changed
 check "a short one does not, whatever it stored"  "0" "$(cad_has "$(cad_injected)" 'condense')"
 unset OMC_ACTIONUI_TABLE_510_COLUMN_2_VALUE
 
-# And the resume left its own marker behind, which is the other half of this handler's job.
-check "the resume was recorded in the conversation" "1" \
-    "$(cad_has "$("$cad_py" "$cad_store" transcript "$cad_hist/asklong")" '"kind": "resumed"')"
+section "a resume is the first message sent, not the click that displayed the conversation"
+# Marking at selection time recorded a resume for every row the user touched, so browsing a few
+# conversations left a run of "Resumed with <model>" lines in each with nothing between them. The
+# selection handler now only ARMS the marker; chat.entry.sh writes it when a turn arrives.
+cad_mk_session browsed 3
+cad_browsed() { "$cad_py" "$cad_store" transcript "$cad_hist/browsed"; }
+win="$OMC_ACTIONUI_WINDOW_UUID"
+
+cad_pb_set "aichatv2_session_$win" ""
+export OMC_ACTIONUI_TABLE_510_COLUMN_2_VALUE=browsed
+omc_run aichat.history.selection.changed
+check "browsing a conversation records nothing" "0" "$(cad_has "$(cad_browsed)" '"kind": "resumed"')"
+check "  but arms the marker for this window"   "browsed" "$(cad_pb_get "aichatv2_resume_pending_$win")"
+
+# The turn arrives. THIS is the resume.
+cad_entry() { # <text>
+    ( export OMC_ACTIONUI_TRIGGER_CONTEXT="{\"sequence\":1,\"type\":\"message\",\"id\":\"$1\",\"data\":{\"type\":\"message\",\"message\":{\"role\":\"local\",\"text\":\"$1\"}}}"
+      omc_run aichat.chat.entry )
+}
+cad_marker_count() { # <sid>
+    "$cad_py" -c 'import json,sys; print(sum(1 for i in json.load(sys.stdin)["items"] if i.get("type")=="sessionEvent"))' <<EOF
+$("$cad_py" "$cad_store" transcript "$cad_hist/$1")
+EOF
+}
+# The engine label is stamped so the marker has something to name. An agent stamp rather than a
+# model path keeps chat_engine_label off the filesystem.
+cad_pb_set "aichatv2_agent_$win" "TestAgent"
+cad_entry hello
+check "sending into it records the resume"     "1" "$(cad_marker_count browsed)"
+# Counting sessionEvents is not enough: a marker of the wrong KIND, or one naming nothing, would
+# satisfy a count and tell the reader of the transcript nothing.
+check "  recorded as a resume"                 "1" "$(cad_has "$(cad_browsed)" '"kind": "resumed"')"
+check "  naming what is about to answer"       "1" "$(cad_has "$(cad_browsed)" '"model": "TestAgent"')"
+check "  and disarms, so the next turn is not another resume" "" \
+    "$(cad_pb_get "aichatv2_resume_pending_$win")"
+cad_entry again
+check "  a second turn adds no second marker"  "1" "$(cad_marker_count browsed)"
+
+# THE SID ON THE FLAG IS THE ONLY DEFENSE FOR PART OF EVERY SIDEBAR CLICK. Arming happens before
+# the window is re-bound, and three bundled-python3 calls run in between, so for a few tens of
+# milliseconds the flag names the conversation being opened while the session still names the one
+# being left. A turn finalizing in that gap - the user clicks away while the agent is still
+# answering - would otherwise stamp a resume onto the conversation they just left, which is the
+# exact bug this change exists to remove. Neither disarm path can help: nothing was abandoned.
+cad_mk_session leftbehind 3
+cad_pb_set "aichatv2_session_$win" "leftbehind"
+cad_pb_set "aichatv2_resume_pending_$win" "browsed"
+cad_entry straggler
+check "a turn into the conversation being left is not the resume" "0" "$(cad_marker_count leftbehind)"
+check "  and the arm still belongs to the one being opened" "browsed" \
+    "$(cad_pb_get "aichatv2_resume_pending_$win")"
+cad_pb_set "aichatv2_agent_$win" ""
+
+# Abandoning an armed conversation must not leave the flag set either.
+cad_pb_set "aichatv2_session_$win" ""
+export OMC_ACTIONUI_TABLE_510_COLUMN_2_VALUE=browsed
+omc_run aichat.history.selection.changed
+omc_run aichat.chat.new
+check "New Chat disarms the pending resume"    "" "$(cad_pb_get "aichatv2_resume_pending_$win")"
+
+# Deleting the loaded conversation is the other way to abandon one.
+cad_mk_session doomed 3
+cad_pb_set "aichatv2_session_$win" ""
+export OMC_ACTIONUI_TABLE_510_COLUMN_2_VALUE=doomed
+omc_run aichat.history.selection.changed
+alerts_reset; alert_answers_reset; alert_answer 0
+omc_run aichat.history.delete
+check "deleting it disarms the pending resume" "" "$(cad_pb_get "aichatv2_resume_pending_$win")"
+alerts_reset; alert_answers_reset
+unset OMC_ACTIONUI_TABLE_510_COLUMN_2_VALUE
 
 section "session markers are written by the app and survive a reload"
 # The reason they exist: the info pane names the model a conversation STARTED with, so a resume
