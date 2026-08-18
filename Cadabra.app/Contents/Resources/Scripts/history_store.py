@@ -29,17 +29,15 @@ import re
 import sys
 import time
 
-# ChatItem discriminators the Chat element accepts (ChatModel.swift ItemType). "usage" and
-# "plan" are transcript-level fields, not items.
-ITEM_TYPES = {"message", "thought", "toolCall", "image", "system", "error"}
+# ChatItem discriminators the Chat element accepts (ChatModel.swift ItemType), and therefore the
+# ones worth keeping: anything not named here is dropped when the journal is folded into a
+# transcript. "usage" and "plan" are transcript-level fields, not items.
+#
+# sessionEvent is a ChatView 0.5.0 item recording that the SESSION changed - started, resumed, or
+# handed to a different model - and it has to survive a reload or it answers nothing: the whole
+# point is that reopening a conversation tomorrow still says which model wrote which part.
+ITEM_TYPES = {"message", "thought", "toolCall", "image", "system", "error", "sessionEvent"}
 TITLE_MAX = 60
-
-# The assistant half of the primed pair, restated from mlx-agent's DigestRenderer rather than
-# read from it - there is no way to ask the binary for it, and the two must agree. Its job is to
-# preserve role alternation after the digest's user turn; anything longer would be text the model
-# reads as its own prior style. If mlx-agent changes it, this is the line to change.
-DIGEST_ACKNOWLEDGMENT = "Acknowledged."
-
 
 def _read_journal(session_dir):
     """Yield parsed envelopes from journal.jsonl in write order; skip malformed lines."""
@@ -234,7 +232,7 @@ def cmd_index(history_root):
     return 0
 
 
-def cmd_transcript(session_dir, prime=None):
+def cmd_transcript(session_dir, prime=None, condense_keep=None):
     transcript, _stats = _build_transcript(session_dir)
     # Transient restore directive for the Chat element (NOT part of the persisted
     # transcript; the element's codec drops the key): "defer" displays the conversation
@@ -243,6 +241,15 @@ def cmd_transcript(session_dir, prime=None):
     # with a fresh agent context (Read Only); true/absent replays it immediately.
     if prime is not None:
         transcript["prime"] = prime
+    # The other transient directive, and transient in the same way: the element drops it before
+    # anything is persisted, so it can never end up in a stored conversation.
+    #
+    # PRESENCE OF THE KEY IS THE REQUEST. An empty object means "summarize, your defaults", so
+    # this is emitted whenever condensation was asked for, with keepRecentTurns only when the
+    # caller pinned it. The SUMMARIZER is not here - that is the agent's --digest-backend, chosen
+    # when it launched - because the wire has no field for it.
+    if condense_keep is not None:
+        transcript["condense"] = {"keepRecentTurns": condense_keep} if condense_keep > 0 else {}
     json.dump(transcript, sys.stdout, ensure_ascii=False)
     sys.stdout.write("\n")
     return 0
@@ -277,6 +284,23 @@ def _preview_line(item):
         return "`tool: %s (%s)`" % (tc.get("title") or "?", tc.get("status") or "")
     if itype == "image":
         return "*[image]*"
+    if itype == "sessionEvent":
+        ev = item.get("sessionEvent") or {}
+        verb = {"started": "Started", "resumed": "Resumed",
+                "modelChanged": "Switched"}.get(ev.get("kind"), "Session")
+        model = ev.get("model") or ""
+        # The digest is the interesting part when there is one: a preview that said only
+        # "Resumed" would hide the fact that the model was handed a summary rather than the
+        # conversation above it.
+        digest = ev.get("digest") or {}
+        note = ""
+        if digest:
+            dropped = digest.get("droppedTurns")
+            note = " - %s earlier messages summarized" % dropped if dropped else " - summarized"
+            by = digest.get("summarizer")
+            if by:
+                note += " by %s" % by
+        return "*%s%s%s*" % (verb, (" with %s" % model) if model else "", note)
     return ""
 
 
@@ -393,44 +417,38 @@ def cmd_digest_input(session_dir, keep_recent):
     return 0
 
 
-def cmd_digest_transcript(session_dir, preamble_path, keep_recent, prime=None):
-    """Emit a ChatTranscript whose older half is the rendered digest.
+def cmd_session_event(session_dir, kind, model=""):
+    """Append a session marker to a conversation's journal.
 
-    Shape: the preamble as a USER turn, an assistant acknowledgment, then the recent messages
-    unmodified. The preamble has to be a user turn rather than a system notice, because
-    primeHistory keeps only local and agent items - a system item would display and never reach
-    the model, which is the failure mode where the summary is visible to the person and invisible
-    to the thing it was written for.
+    WRITTEN BY THE APP, NOT THE ELEMENT, and that split is deliberate. ChatView renders these and
+    emits its own only for what the AGENT tells it (a condensed prime, where the digest arrives on
+    the wire). Everything else - that a conversation started, was resumed, or was handed to another
+    model - is known here and nowhere else: mlx-agent advertises no configOptions, so the element is
+    never told which model is answering. The label comes from the app or from no one.
 
-    Nothing here writes to the journal. The stored conversation keeps every original turn, so
-    resuming the same session with a full reload restores it completely.
+    Appended in the journal's own envelope shape, so it folds into the transcript exactly like a
+    message and survives a reload. That is the entire point: the info pane names the model a
+    conversation STARTED with, so without a record in the transcript, resuming with a different
+    model leaves the second one's identity nowhere.
     """
+    if kind not in ("started", "resumed", "modelChanged"):
+        sys.stderr.write("session-event: unknown kind %s\n" % kind)
+        return 2
+    # Unique per marker, and never reused: _build_transcript dedups items by id with last-write-
+    # wins, so a fixed id would make every resume overwrite the previous one and the conversation
+    # would remember only its most recent opening.
+    event_id = "se-%d-%d" % (int(time.time() * 1000), os.getpid())
+    event = {"id": event_id, "kind": kind,
+             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    if model:
+        event["model"] = model
+    envelope = {"type": "sessionEvent", "id": event_id,
+                "data": {"type": "sessionEvent", "sessionEvent": event}}
     try:
-        with open(preamble_path, "r") as handle:
-            preamble = handle.read().strip()
-    except (IOError, OSError):
+        with open(os.path.join(session_dir, "journal.jsonl"), "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(envelope, ensure_ascii=False) + "\n")
+    except OSError:
         return 1
-    if not preamble:
-        return 1
-
-    transcript, stats = _build_transcript(session_dir)
-    wire = _wire_messages(transcript)
-    tail = [item for item, _role, _text in wire[-keep_recent:]] if keep_recent > 0 else []
-
-    items = [
-        {"type": "message", "message": {"role": "local", "text": preamble}},
-        {"type": "message", "message": {"role": "agent", "text": DIGEST_ACKNOWLEDGMENT}},
-    ]
-    items.extend(tail)
-
-    out = {"version": 1, "items": items}
-    title = stats.get("title")
-    if title and title != "(untitled)":
-        out["title"] = title
-    if prime is not None:
-        out["prime"] = prime
-    json.dump(out, sys.stdout, ensure_ascii=False)
-    sys.stdout.write("\n")
     return 0
 
 
@@ -465,7 +483,7 @@ def main(argv):
     if len(argv) < 2:
         sys.stderr.write(
             "usage: history_store.py {index|transcript|preview|info|title|meta-init|"
-            "meta-set|digest-input|digest-transcript} ...\n")
+            "meta-set|session-event|digest-input} ...\n")
         return 2
     cmd = argv[1]
     if cmd == "meta-init":
@@ -487,7 +505,16 @@ def main(argv):
         prime = None
         if len(argv) > 3:
             prime = {"true": True, "false": False, "defer": "defer"}.get(argv[3].lower())
-        return cmd_transcript(path, prime)
+        # Optional fourth positional: keepRecentTurns for a condensed restore. Absent means no
+        # condense key at all, which is the documented "replay everything" default.
+        condense_keep = None
+        if len(argv) > 4 and argv[4] != "":
+            try:
+                condense_keep = max(0, int(argv[4]))
+            except ValueError:
+                sys.stderr.write("transcript: condense keep must be a number\n")
+                return 2
+        return cmd_transcript(path, prime, condense_keep)
     if cmd == "preview":
         return cmd_preview(path)
     if cmd == "info":
@@ -503,21 +530,11 @@ def main(argv):
             sys.stderr.write("digest-input: keep-recent must be a number\n")
             return 2
         return cmd_digest_input(path, max(0, keep))
-    if cmd == "digest-transcript":
-        if len(argv) < 5:
-            sys.stderr.write(
-                "usage: history_store.py digest-transcript <dir> <preamble-file> "
-                "<keep-recent> [prime]\n")
+    if cmd == "session-event":
+        if len(argv) < 4:
+            sys.stderr.write("usage: history_store.py session-event <dir> <kind> [model]\n")
             return 2
-        try:
-            keep = int(argv[4])
-        except ValueError:
-            sys.stderr.write("digest-transcript: keep-recent must be a number\n")
-            return 2
-        prime = None
-        if len(argv) > 5:
-            prime = {"true": True, "false": False, "defer": "defer"}.get(argv[5].lower())
-        return cmd_digest_transcript(path, argv[3], max(0, keep), prime)
+        return cmd_session_event(path, argv[3], argv[4] if len(argv) > 4 else "")
     if cmd == "meta-set":
         if len(argv) < 5:
             sys.stderr.write("usage: history_store.py meta-set <dir> <key> <value>\n")

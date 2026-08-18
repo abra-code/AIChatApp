@@ -9,6 +9,8 @@
 # lets the frozen baseURL stay valid while other windows' servers keep running untouched.
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.server.library.sh"
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.model.library.sh"
+# For history_mark_session: the switch is recorded in the conversation's own transcript.
+source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.history.library.sh"
 
 MODEL_BTN_ID=530
 
@@ -35,6 +37,16 @@ launch_model_on_port "$model_path" "$target_win" "$target_port"
 if [ $? -eq 0 ]; then
     "$dialog" "$target_win" "$MODEL_BTN_ID" omc_set_property "title" "$LAUNCHED_MODEL_LABEL"
     chat_window_set_status "$target_win" "$LAUNCHED_MODEL_LABEL"
+    # The handover, recorded in the conversation it happened in. This is the case the info pane
+    # cannot describe at all: it names the model the session STARTED with, and an in-place switch
+    # keeps the same session, so without a marker the transcript has two stretches of assistant
+    # turns written by different models and nothing saying where one ends.
+    #
+    # It reaches the display on the next load, not now: an in-place switch deliberately does not
+    # re-inject the transcript (the same agent process continues), and re-injecting purely to show
+    # a marker would cost a re-prime of the whole conversation.
+    switch_sid=$(pb_get "aichatv2_session_${target_win}")
+    [ -n "$switch_sid" ] && history_mark_session "$switch_sid" modelChanged "$LAUNCHED_MODEL_LABEL"
     echo "switched to $LAUNCHED_MODEL_LABEL"
 else
     chat_window_set_status "$target_win" "failed to load model"

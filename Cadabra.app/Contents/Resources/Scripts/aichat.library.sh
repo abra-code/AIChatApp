@@ -234,6 +234,35 @@ cadabra_settings_init() {
     "$plister" set dict "$cadabra_settings" / >/dev/null 2>&1
 }
 
+# cad_digest_backend - which model summarizes a condensed restore, for the agents this app
+# launches from now on. One of auto | foundation | session | none; "auto" when unset.
+#
+# A LAUNCH-SCOPED SETTING, and that is a property of the protocol rather than a choice made here:
+# mlx-agent takes --digest-backend when it starts and session/prime's condense object carries only
+# bounds, so the summarizer belongs to the agent process while "summarize this restore or not"
+# belongs to the conversation. Changing this does not re-aim an agent already running; it applies
+# to the next chat window. What actually happened is reported after the fact - the prime response
+# names the summarizer, and the transcript marker shows it.
+#
+# "auto" is mlx-agent's own default and it MEASURES rather than preferring: it computes how many
+# slices the conversation needs under the on-device model's budget and picks accordingly. That is
+# a better default than any fixed choice this app could make, because the right answer depends on
+# the conversation's size and on what the machine has.
+#
+# READ ONLY - never calls cadabra_settings_init. A path that merely asks what the setting is must
+# not create the settings file as a side effect.
+cad_digest_backend() {
+    local value
+    value=$("$plister" get string "$cadabra_settings" "/digest-backend" 2>/dev/null)
+    case "$value" in
+        auto|foundation|session|none) printf '%s\n' "$value" ;;
+        # Anything else - unset, empty, or a value written by a newer build this one does not
+        # know - resolves to auto rather than being passed through. mlx-agent exits(2) on an
+        # unrecognized value, which would surface as a chat window whose agent never starts.
+        *) printf 'auto\n' ;;
+    esac
+}
+
 # process_start_stamp <pid> - the instant that pid started, whitespace-normalized, or nothing
 # if there is no such process.
 #

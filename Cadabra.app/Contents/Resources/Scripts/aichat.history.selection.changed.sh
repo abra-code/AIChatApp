@@ -15,6 +15,9 @@
 # aichat.history.library.sh. Everything below the threshold, and everything already answered
 # for, stays exactly as seamless as it was.
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.history.library.sh"
+# For chat_engine_label: the marker names the model answering from here on, and only this app
+# knows it - mlx-agent advertises no configOptions, so the element is never told.
+source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.model.library.sh"
 
 win="$OMC_ACTIONUI_WINDOW_UUID"
 CHAT_VIEW_ID=1
@@ -37,16 +40,30 @@ if [ "$(pb_get "aichatv2_session_${win}")" = "$sid" ]; then
     exit 0
 fi
 
+# Record the resume BEFORE the transcript is read, so the marker is the last thing in it: the
+# reader sees the conversation, then "Resumed with <model>", then whatever they say next. It also
+# means the injection below already contains it, with no second write to the element.
+history_mark_session "$sid" resumed "$(chat_engine_label "$win")"
+
 # Load the transcript into the chat (replaces whatever was shown) and bind the window to the
 # session so aichat.chat.entry.sh appends new turns to it instead of minting a new session.
-history_inject_content "$win" "$CHAT_VIEW_ID" "$sid" "defer"
+#
+# CONDENSATION IS ASKED FOR HERE AND PERFORMED BY THE AGENT. When this conversation is set to
+# summarize, the injected content carries a condense request alongside the defer directive, and
+# the agent summarizes at the next send - the same moment the deferred prime happens anyway. The
+# DISPLAY is untouched either way: the window keeps the whole conversation while the model is
+# given a summary of its older half, and the element appends a marker showing what that summary
+# said. Nothing here summarizes anything itself.
+#
+# An agent that does not understand condense primes the complete history and says so, so asking
+# costs nothing on a transport that cannot serve it.
+if [ "$(history_resume_mode "$sid")" = "full" ] || ! summarize_can_condense "$sid"; then
+    history_inject_content "$win" "$CHAT_VIEW_ID" "$sid" "defer"
+else
+    history_inject_content "$win" "$CHAT_VIEW_ID" "$sid" "defer" "$CAD_DIGEST_KEEP_RECENT"
+fi
 pb_set "aichatv2_session_${win}" "$sid"
 
-# What is displayed just changed, so any digest still running for the previous conversation is
-# now stale. Bumped UNCONDITIONALLY, before the checkbox is considered: doing it only when a
-# digest is about to start would leave the token unchanged on a switch to a SHORT conversation,
-# and the older job would sail through a guard that still matched.
-resume_epoch_bump "$win" >/dev/null
 
 # The Summarize checkbox belongs to a RESUME, so it is created here and nowhere else. A new
 # chat has no older half to summarize, and a checkbox offering to condense an empty

@@ -6,6 +6,8 @@
 # (history store section 3). Keep this cheap: usage/plan updates can fire several times
 # per turn. The transcript.json snapshot + restore path is added with the history UI.
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.history.library.sh"
+# For chat_engine_label, used by the opening session marker below.
+source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.model.library.sh"
 
 win="$OMC_ACTIONUI_WINDOW_UUID"
 
@@ -33,6 +35,12 @@ if [ -z "$sid" ]; then
     session_model_path=$(pb_get "aichatv2_modelpath_${win}")
     session_agent=$(pb_get "aichatv2_agent_${win}")
     history_init_meta "$history_root/$sid" "$sid" "$session_model_path" "$session_agent"
+    # Open the transcript with a record of what is answering it. Written BEFORE the first turn is
+    # appended below, so it leads the conversation rather than interrupting it, and it is why a
+    # conversation reopened months later can still say which model wrote its opening exchange -
+    # the info pane only ever names the model a session STARTED with, and stops being the whole
+    # truth the first time the conversation is resumed with another.
+    history_mark_session "$sid" started "$(chat_engine_label "$win")"
     newly_minted=1
 fi
 
