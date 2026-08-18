@@ -449,6 +449,11 @@
       "NAME" : "Cadabra"
     },
     {
+      "COMMAND_ID" : "aichat.chat.summarize.mode",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "Cadabra"
+    },
+    {
       "COMMAND_ID" : "app.did.launch",
       "EXECUTION_MODE" : "exe_script_file",
       "NAME" : "Cadabra"

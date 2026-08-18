@@ -172,6 +172,12 @@
             "maxHeight": "infinity"
           }
         }
+      },
+      {
+        "type": "VStack",
+        "id": 560,
+        "properties": { "spacing": 0 },
+        "children": [ { "type": "EmptyView" } ]
       }
         ]
       },

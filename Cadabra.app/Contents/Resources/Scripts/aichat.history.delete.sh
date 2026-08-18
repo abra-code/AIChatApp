@@ -24,6 +24,13 @@ esac
 # If the deleted conversation is the one currently loaded in this window, clear the chat and
 # unbind so a New Chat starts clean (no dangling binding to a now-gone session dir).
 if [ "$(pb_get "aichatv2_session_${win}")" = "$sid" ]; then
+    # BUMPED FIRST, before anything is cleared. Deleting the loaded conversation is the fourth
+    # thing that changes what this window shows, and a resume may have started a digest that is
+    # still running - it takes seconds. Its guard is the token, so without this bump the token
+    # still matches and the digest lands AFTER the delete: a summary of a conversation the user
+    # was just told could not be undone, back on screen and seeded into the model's context.
+    resume_epoch_bump "$win" >/dev/null
+    summarize_hide "$win"
     chat_inject_empty "$win"
     pb_set "aichatv2_session_${win}" ""
     for b in 521 520 524; do "$dialog" "$win" "$b" omc_disable; done

@@ -34,6 +34,12 @@ import time
 ITEM_TYPES = {"message", "thought", "toolCall", "image", "system", "error"}
 TITLE_MAX = 60
 
+# The assistant half of the primed pair, restated from mlx-agent's DigestRenderer rather than
+# read from it - there is no way to ask the binary for it, and the two must agree. Its job is to
+# preserve role alternation after the digest's user turn; anything longer would be text the model
+# reads as its own prior style. If mlx-agent changes it, this is the line to change.
+DIGEST_ACKNOWLEDGMENT = "Acknowledged."
+
 
 def _read_journal(session_dir):
     """Yield parsed envelopes from journal.jsonl in write order; skip malformed lines."""
@@ -345,10 +351,121 @@ def cmd_preview(session_dir, max_items=8):
     return 0
 
 
+# The model-facing view of a transcript, and the ONLY definition of it in this file.
+#
+# It mirrors what ACPChatTransport.primeHistory sends on the wire, deliberately and exactly:
+# message items whose role is local or agent, with non-empty text, mapped local -> user and
+# agent -> assistant. Thoughts, tool calls, images, system notices and P2P (.remote) lines are
+# display items - the model never produced or saw them - so summarizing them would put words in
+# the model's mouth that its own context never held.
+#
+# If that filter ever drifts from the transport's, the digest describes a conversation the model
+# did not have, which is worse than not digesting at all: it reads as authoritative.
+def _wire_messages(transcript):
+    out = []
+    for item in transcript.get("items", []):
+        if item.get("type") != "message":
+            continue
+        msg = item.get("message") or {}
+        role = msg.get("role")
+        text = msg.get("text") or ""
+        if role not in ("local", "agent") or not text:
+            continue
+        out.append((item, "user" if role == "local" else "assistant", text))
+    return out
+
+
+def cmd_digest_input(session_dir, keep_recent):
+    """Emit the mlx-agent digest wire array for a saved session.
+
+    Exit 3 - the same code mlx-agent uses for "not condensed" - when there is nothing worth
+    condensing, so the caller can fall back to a full replay without parsing a message. A
+    conversation that would keep every message verbatim has no older part to summarize, and
+    running a model over it would spend seconds to produce the transcript it started with.
+    """
+    transcript, _stats = _build_transcript(session_dir)
+    wire = _wire_messages(transcript)
+    if len(wire) <= keep_recent + 1:
+        return 3
+    json.dump([{"role": role, "content": text} for _item, role, text in wire],
+              sys.stdout, ensure_ascii=False)
+    sys.stdout.write("\n")
+    return 0
+
+
+def cmd_digest_transcript(session_dir, preamble_path, keep_recent, prime=None):
+    """Emit a ChatTranscript whose older half is the rendered digest.
+
+    Shape: the preamble as a USER turn, an assistant acknowledgment, then the recent messages
+    unmodified. The preamble has to be a user turn rather than a system notice, because
+    primeHistory keeps only local and agent items - a system item would display and never reach
+    the model, which is the failure mode where the summary is visible to the person and invisible
+    to the thing it was written for.
+
+    Nothing here writes to the journal. The stored conversation keeps every original turn, so
+    resuming the same session with a full reload restores it completely.
+    """
+    try:
+        with open(preamble_path, "r") as handle:
+            preamble = handle.read().strip()
+    except (IOError, OSError):
+        return 1
+    if not preamble:
+        return 1
+
+    transcript, stats = _build_transcript(session_dir)
+    wire = _wire_messages(transcript)
+    tail = [item for item, _role, _text in wire[-keep_recent:]] if keep_recent > 0 else []
+
+    items = [
+        {"type": "message", "message": {"role": "local", "text": preamble}},
+        {"type": "message", "message": {"role": "agent", "text": DIGEST_ACKNOWLEDGMENT}},
+    ]
+    items.extend(tail)
+
+    out = {"version": 1, "items": items}
+    title = stats.get("title")
+    if title and title != "(untitled)":
+        out["title"] = title
+    if prime is not None:
+        out["prime"] = prime
+    json.dump(out, sys.stdout, ensure_ascii=False)
+    sys.stdout.write("\n")
+    return 0
+
+
+def cmd_meta_set(session_dir, key, value):
+    """Set one string field in meta.json, preserving the rest.
+
+    Atomic for the same reason history_init_meta is: history_index scans these files
+    concurrently and must never read a torn one.
+    """
+    meta = _read_meta(session_dir)
+    if not isinstance(meta, dict):
+        meta = {}
+    meta[key] = value
+    # Suffixed with the pid rather than the bare "meta.json.tmp" that history_init_meta uses.
+    # Two writers sharing one temp path do not corrupt the file - the rename keeps readers safe -
+    # but they do interleave, and the loser's update vanishes with nothing to show for it.
+    tmp = os.path.join(session_dir, "meta.json.tmp.%d" % os.getpid())
+    try:
+        with open(tmp, "w") as handle:
+            json.dump(meta, handle, ensure_ascii=False)
+        os.rename(tmp, os.path.join(session_dir, "meta.json"))
+    except (IOError, OSError):
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        return 1
+    return 0
+
+
 def main(argv):
     if len(argv) < 2:
         sys.stderr.write(
-            "usage: history_store.py {index|transcript|preview|info|title|meta-init} ...\n")
+            "usage: history_store.py {index|transcript|preview|info|title|meta-init|"
+            "meta-set|digest-input|digest-transcript} ...\n")
         return 2
     cmd = argv[1]
     if cmd == "meta-init":
@@ -377,6 +494,35 @@ def main(argv):
         return cmd_info(path)
     if cmd == "title":
         return cmd_title(path)
+    if cmd == "digest-input":
+        # keep-recent is parsed defensively: a non-numeric value would otherwise raise and be
+        # reported as a broken session rather than a bad argument.
+        try:
+            keep = int(argv[3]) if len(argv) > 3 else 6
+        except ValueError:
+            sys.stderr.write("digest-input: keep-recent must be a number\n")
+            return 2
+        return cmd_digest_input(path, max(0, keep))
+    if cmd == "digest-transcript":
+        if len(argv) < 5:
+            sys.stderr.write(
+                "usage: history_store.py digest-transcript <dir> <preamble-file> "
+                "<keep-recent> [prime]\n")
+            return 2
+        try:
+            keep = int(argv[4])
+        except ValueError:
+            sys.stderr.write("digest-transcript: keep-recent must be a number\n")
+            return 2
+        prime = None
+        if len(argv) > 5:
+            prime = {"true": True, "false": False, "defer": "defer"}.get(argv[5].lower())
+        return cmd_digest_transcript(path, argv[3], max(0, keep), prime)
+    if cmd == "meta-set":
+        if len(argv) < 5:
+            sys.stderr.write("usage: history_store.py meta-set <dir> <key> <value>\n")
+            return 2
+        return cmd_meta_set(path, argv[3], argv[4])
     sys.stderr.write("unknown subcommand: %s\n" % cmd)
     return 2
 

@@ -27,6 +27,17 @@ label=$(chat_engine_label "$win")
 "$dialog" "$win" "$TABLE_ID" omc_deselect
 for b in $ROW_BUTTONS; do "$dialog" "$win" "$b" omc_disable; done
 
+# Remove the Summarize checkbox if a conversation was loaded here before. It belongs to a
+# resume: there is no older half of a new conversation to summarize, and the slot collapses to
+# nothing when the control is gone, so this leaves no empty row behind.
+#
+# The token is bumped for the same reason the checkbox handler bumps it: a digest started by the
+# resume may still be running, and this window is now a blank conversation. Unbinding the
+# session above already stops it, but that is a fact about a different key - saying so here means
+# the guard does not depend on which of the two happens to be checked.
+resume_epoch_bump "$win" >/dev/null
+summarize_hide "$win"
+
 # If the info strip is showing, refresh it to the "new conversation" state.
 if [ "$(pb_get "aichatv2_info_${win}")" = "1" ]; then
     "$dialog" "$win" "$INFO_TEXT_ID" "New conversation$(chat_engine_info_suffix "$win")"
