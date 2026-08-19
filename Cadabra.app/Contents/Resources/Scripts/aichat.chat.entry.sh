@@ -10,6 +10,7 @@ source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.history.library.s
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.model.library.sh"
 
 win="$OMC_ACTIONUI_WINDOW_UUID"
+CHAT_VIEW_ID=1
 
 # Optional instrumentation: `touch /tmp/aichatv2_debug` to capture the raw trigger env.
 if [ -f /tmp/aichatv2_debug ]; then
@@ -50,7 +51,7 @@ if [ -z "$sid" ]; then
     # conversation reopened months later can still say which model wrote its opening exchange -
     # the info pane only ever names the model a session STARTED with, and stops being the whole
     # truth the first time the conversation is resumed with another.
-    history_mark_session "$sid" started "$(chat_engine_label "$win")"
+    history_mark_and_show "$win" "$CHAT_VIEW_ID" "$sid" started "$(chat_engine_label "$win")"
     newly_minted=1
 else
     # The other half of the same record: this conversation already existed, and if the sidebar armed
@@ -64,7 +65,7 @@ else
         pb_set "$resume_key" ""
         # The label is read NOW, not when the row was clicked, so a model switched in between is the
         # one the marker names - which is the model that is about to answer.
-        history_mark_session "$sid" resumed "$(chat_engine_label "$win")"
+        history_mark_and_show "$win" "$CHAT_VIEW_ID" "$sid" resumed "$(chat_engine_label "$win")"
     fi
 fi
 

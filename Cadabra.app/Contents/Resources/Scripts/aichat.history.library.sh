@@ -165,10 +165,30 @@ sys.exit(0 if t in ("message", "thought", "toolCall", "image", "system", "error"
 #
 # Best-effort: a conversation is not worth failing to open because its marker could not be
 # written. The record is a convenience for the reader, not part of the conversation.
-history_mark_session() { # <sid> <kind> [model]
+history_mark_session() { # <sid> <kind> [model] -> the ChatItem JSON on stdout
     local dir
     dir=$(history_session_dir "$1") || return 0
     "$history_py" "$history_store" session-event "$dir" "$2" "${3:-}" 2>/dev/null
+    return 0
+}
+
+# history_mark_and_show <win> <chat-view-id> <sid> <kind> [model] - record the boundary AND put it
+# on screen now.
+#
+# Recording alone leaves the marker invisible until the conversation is next loaded, which is a poor
+# answer to "which model is answering me": the line explaining the handover shows up everywhere
+# except the moment it happens. states["content"] cannot help - injecting REPLACES the transcript
+# and re-primes the whole conversation - so ChatView 0.5.2 added states["append"] for exactly this:
+# one item, appended, no transport traffic.
+#
+# The journal write stays the source of truth. The element is TOLD about the item rather than asked
+# to persist it (the append state fires no entry), so there is one writer and no double-write. A
+# host running against an older ChatView simply ignores the state and the marker waits for the next
+# load, which is what it did before.
+history_mark_and_show() { # <win> <chat-view-id> <sid> <kind> [model]
+    local item
+    item=$(history_mark_session "$3" "$4" "${5:-}")
+    [ -n "$item" ] && "$dialog" "$1" "$2" omc_set_state append "$item"
     return 0
 }
 

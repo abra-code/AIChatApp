@@ -51,9 +51,9 @@ if [ $? -eq 0 ]; then
     # keeps the same session, so without a marker the transcript has two stretches of assistant
     # turns written by different models and nothing saying where one ends.
     #
-    # It reaches the display on the next load, not now: an in-place switch deliberately does not
-    # re-inject the transcript (the same agent process continues), and re-injecting purely to show
-    # a marker would cost a re-prime of the whole conversation.
+    # It reaches the display NOW, through the element's append state: an in-place switch
+    # deliberately does not re-inject the transcript (the same agent process continues), and
+    # re-injecting purely to show a marker would cost a re-prime of the whole conversation.
     #
     # Unless the conversation has not been spoken to yet. Switching models while merely LOOKING at a
     # conversation is the same non-event as clicking its row, and recording it would put a
@@ -62,7 +62,7 @@ if [ $? -eq 0 ]; then
     switch_sid=$(pb_get "aichatv2_session_${target_win}")
     if [ -n "$switch_sid" ] && \
        [ "$(pb_get "aichatv2_resume_pending_${target_win}")" != "$switch_sid" ]; then
-        history_mark_session "$switch_sid" modelChanged "$LAUNCHED_MODEL_LABEL"
+        history_mark_and_show "$target_win" 1 "$switch_sid" modelChanged "$LAUNCHED_MODEL_LABEL"
     fi
     echo "switched to $LAUNCHED_MODEL_LABEL"
 else

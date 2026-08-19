@@ -498,6 +498,11 @@ def cmd_session_event(session_dir, kind, model=""):
         _journal_append(session_dir, json.dumps(envelope, ensure_ascii=False) + "\n")
     except OSError:
         return 1
+    # Print the ChatItem - the envelope's `data`, not the envelope - so the caller can hand it
+    # straight to the element's append state and have the marker appear NOW rather than on the next
+    # load. Exactly what a restore would rebuild for this line, so showing it and reloading it
+    # produce the same transcript.
+    sys.stdout.write(json.dumps(envelope["data"], ensure_ascii=False))
     return 0
 
 

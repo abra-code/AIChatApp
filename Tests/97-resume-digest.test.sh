@@ -265,6 +265,19 @@ check "  recorded as a resume"                 "1" "$(cad_has "$(cad_browsed)" '
 check "  naming what is about to answer"       "1" "$(cad_has "$(cad_browsed)" '"model": "TestAgent"')"
 check "  and disarms, so the next turn is not another resume" "" \
     "$(cad_pb_get "aichatv2_resume_pending_$win")"
+# THE MARKER IS ALSO PUT ON SCREEN NOW. Recording it alone left the line explaining the handover
+# visible everywhere except the moment it happened - the user had to close and reopen the
+# conversation to learn which model was answering. states["content"] cannot serve this: injecting
+# replaces the transcript and re-primes the whole conversation.
+appended=$(cad_journal "$CHAT_ID" | /usr/bin/grep 'omc_set_state append' | /usr/bin/tail -1)
+check "  and reaches the live transcript"      "1" "$(cad_has "$appended" 'omc_set_state append')"
+check "    as a decodable ChatItem"            "1" "$(cad_has "$appended" '"type": "sessionEvent"')"
+# The ITEM, not the envelope that carried it to the journal. Both start with the same type, so a
+# check for the discriminator alone passes on either - and the envelope is not a ChatItem, so
+# ChatView would throw on it and drop the restore. The envelope's giveaway is its "data" key.
+check "    the item itself, not its envelope"  "0" "$(cad_has "$appended" '"data":')"
+check "    with the payload under sessionEvent" "1" "$(cad_has "$appended" '"sessionEvent":')"
+check "    naming the model"                   "1" "$(cad_has "$appended" 'TestAgent')"
 cad_entry again
 check "  a second turn adds no second marker"  "1" "$(cad_marker_count browsed)"
 
