@@ -923,6 +923,43 @@ codesign_app() {
             -type d -name '__pycache__' -prune -exec /bin/rm -rf {} + 2>/dev/null
     fi
 
+    # Tool residue: directories no part of this app ever creates, left behind when a shell or a
+    # coding agent runs with its working directory INSIDE the bundle. `.claude` is the one that
+    # has actually happened, repeatedly, and it is not a cosmetic problem: codesign refuses the
+    # whole bundle with "bundle format unrecognized, invalid, or unsuitable ... In subcomponent:
+    # .../.claude", which reads like a corrupt app rather than like an empty directory someone's
+    # tooling dropped in Resources/Scripts.
+    #
+    # Swept across the WHOLE bundle, unlike __pycache__ above: this residue appears wherever a
+    # command happened to be run, not in the two places Python writes. Add a name to the list
+    # when a new tool leaves its own.
+    local residue_dirs='.claude'
+    local name stray
+    for name in $residue_dirs; do
+        stray=$(/usr/bin/find "$APP_BUNDLE" -type d -name "$name" 2>/dev/null | /usr/bin/wc -l | /usr/bin/tr -d ' ')
+        if [ "$stray" != "0" ]; then
+            echo "  Removing $stray stray $name dir(s) before sealing"
+            /usr/bin/find "$APP_BUNDLE" -type d -name "$name" -prune -exec /bin/rm -rf {} + 2>/dev/null
+        fi
+    done
+
+    # Anything else dot-prefixed is reported, not deleted. The next tool to leave residue here
+    # will leave it under a name this script does not know, and a warning that names the path is
+    # what turns the next "codesign says the bundle is invalid" into a one-line fix. Not fatal:
+    # a signing run should not be blocked by a directory that might yet turn out to be legitimate.
+    #
+    # Contents/Library is excluded because pip-installed packages legitimately ship dot-dirs
+    # (typer has a .agents), and this bundle signs today with them in place. A warning that fires
+    # on every run is a warning nobody reads, which would defeat the point of having one.
+    local unknown
+    unknown=$(/usr/bin/find "$APP_BUNDLE" -path "$APP_BUNDLE/Contents/Library" -prune \
+        -o -type d -name '.*' -print 2>/dev/null)
+    if [ -n "$unknown" ]; then
+        echo "  ${YELLOW}WARNING${RESET}: unexpected dot-directories inside the bundle - codesign may refuse it:"
+        printf '    %s\n' $unknown
+        echo "    If they are residue, delete them and add the name to residue_dirs in codesign_app()."
+    fi
+
     # Beside this script at the repo root since the Cadabra rebrand; ../ is the
     # pre-rebrand location, kept as a fallback.
     local codesign_script="$SCRIPT_DIR/codesign_applet.sh"
