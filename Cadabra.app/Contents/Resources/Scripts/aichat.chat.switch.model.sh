@@ -66,14 +66,29 @@ if [ $? -eq 0 ]; then
     # deliberately does not re-inject the transcript (the same agent process continues), and
     # re-injecting purely to show a marker would cost a re-prime of the whole conversation.
     #
-    # Unless the conversation has not been spoken to yet. Switching models while merely LOOKING at a
-    # conversation is the same non-event as clicking its row, and recording it would put a
-    # modelChanged into a transcript nothing happened in. The pending resume already covers it: the
-    # marker written on the first turn reads the label after this switch, so it names this model.
-    switch_sid=$(pb_get "aichatv2_session_${target_win}")
-    if [ -n "$switch_sid" ] && \
-       [ "$(pb_get "aichatv2_resume_pending_${target_win}")" != "$switch_sid" ]; then
-        history_mark_and_show "$target_win" 1 "$switch_sid" modelChanged "$LAUNCHED_MODEL_LABEL"
+    # Unless this window is still holding the marker that OPENS its next stretch of conversation -
+    # it was shown when the window became able to answer, and nothing has been said into it since.
+    # Then the switch queues behind that marker instead of being recorded on its own: it is shown
+    # now, in the same place, and the pair is recorded together by the turn that finally arrives
+    # (aichat.chat.entry.sh). Recording it here could not work anyway - a brand-new window has no
+    # session directory to record into yet - and this is what keeps the transcript agreeing with
+    # what the user watched happen in the window.
+    if [ -n "$(history_marker_pending "$target_win")" ]; then
+        history_marker_show "$target_win" 1 modelChanged "$LAUNCHED_MODEL_LABEL"
+    else
+        # The ordinary case: a conversation that has been spoken to, being handed to another model
+        # between turns. The end of the transcript is exactly where this belongs, so it is recorded
+        # and shown in one step.
+        #
+        # The armed-resume check stays as a floor under the queue. A conversation opened in a
+        # window that had no engine to name shows no marker and queues nothing, so the queue alone
+        # would read that state as "spoken to" and record a switch into a transcript nothing has
+        # happened in - which is what this check has always been here to refuse.
+        switch_sid=$(pb_get "aichatv2_session_${target_win}")
+        if [ -n "$switch_sid" ] && \
+           [ "$(pb_get "aichatv2_resume_pending_${target_win}")" != "$switch_sid" ]; then
+            history_mark_and_show "$target_win" 1 "$switch_sid" modelChanged "$LAUNCHED_MODEL_LABEL"
+        fi
     fi
     echo "switched to $LAUNCHED_MODEL_LABEL"
 else

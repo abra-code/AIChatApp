@@ -39,6 +39,12 @@ if [ "$(pb_get "aichatv2_session_${win}")" = "$sid" ]; then
     # to prevent.
     engine_label=$(chat_engine_label "$win")
     chat_window_set_status "$win" "${engine_label:-$APPLET_NAME}"
+    # And the opening line of what this window is now: an empty conversation with the same engine.
+    # The markers it was holding described the transcript that was just cleared, so they go with
+    # it - recording them into whatever is typed next would open that conversation with a resume
+    # of a chat that no longer exists.
+    history_marker_clear "$win"
+    [ -n "$engine_label" ] && history_marker_show "$win" 1 started "$engine_label"
 fi
 
 "$next_command" "$OMC_CURRENT_COMMAND_GUID" "aichat.history.refresh"

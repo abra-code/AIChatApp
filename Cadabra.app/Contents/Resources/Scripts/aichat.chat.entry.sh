@@ -54,7 +54,16 @@ if [ -z "$sid" ]; then
     # conversation reopened months later can still say which model wrote its opening exchange -
     # the info pane only ever names the model a session STARTED with, and stops being the whole
     # truth the first time the conversation is resumed with another.
-    history_mark_and_show "$win" "$CHAT_VIEW_ID" "$sid" started "$(chat_engine_label "$win")"
+    #
+    # ALREADY ON SCREEN, since the moment this window became able to answer: what happens here is
+    # the recording of the line the user has been looking at, not its first appearance. That is the
+    # only way it can lead the conversation on screen as well as in the journal - the message this
+    # marker belongs in front of has been displayed since the user pressed Return, long before its
+    # entry finalized and got us here. The fallback covers a session minted in a window that never
+    # showed one (an error or system entry can mint one too); a conversation with no opening line
+    # is worse than one whose opening line arrives late.
+    history_marker_commit "$win" "$sid" || \
+        history_mark_and_show "$win" "$CHAT_VIEW_ID" "$sid" started "$(chat_engine_label "$win")"
     newly_minted=1
 else
     # The other half of the same record: this conversation already existed, and if the sidebar armed
@@ -66,9 +75,15 @@ else
     resume_key="aichatv2_resume_pending_${win}"
     if [ "$(pb_get "$resume_key")" = "$sid" ]; then
         pb_set "$resume_key" ""
-        # The label is read NOW, not when the row was clicked, so a model switched in between is the
-        # one the marker names - which is the model that is about to answer.
-        history_mark_and_show "$win" "$CHAT_VIEW_ID" "$sid" resumed "$(chat_engine_label "$win")"
+        # The marker was shown when the conversation was loaded, in front of the message that is
+        # being recorded below; this records it. A model switched between the click and this turn
+        # queued its own marker behind that one (aichat.chat.switch.model.sh), so the pair names
+        # what the user saw and what is about to answer.
+        #
+        # The fallback re-reads the label NOW, which is what it has always done, for the window
+        # that reached a turn with nothing queued.
+        history_marker_commit "$win" "$sid" || \
+            history_mark_and_show "$win" "$CHAT_VIEW_ID" "$sid" resumed "$(chat_engine_label "$win")"
     fi
 fi
 

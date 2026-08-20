@@ -63,6 +63,12 @@ else
         "$(summarize_request_backend "$resolved")"
 fi
 
+# The transcript that came back is the same conversation, so anything this window was holding for
+# it still applies - but the re-injection above replaced the items, taking the displayed session
+# markers with them. Put them back exactly as they were, so what the window shows and what the
+# next turn records stay the same pair of lines.
+history_marker_reshow "$win" "$CHAT_VIEW_ID"
+
 # A choice that could not be honored must not be left showing in the menu. Reachable only when the
 # window changed under the user between opening the menu and answering it - someone else's agent
 # took the window over, Apple Intelligence went away - but leaving meta.json saying one thing, the

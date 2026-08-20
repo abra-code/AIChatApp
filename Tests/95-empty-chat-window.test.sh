@@ -275,6 +275,7 @@ cad_pb_set "aichatv2_agent_" "SENTINEL"
 # only ever known at runtime. Declared here rather than silently tripping the undeclared-id
 # check, which no other file reaches because none of them loads an engine.
 ui_declare_ids "$BASE_CHAT_OVERLAY_ELEM_ID" "$HL_CAD_SUMMARIZE_PICKER_ID"
+cad_journal_reset
 eng chat_engine_load "$ENGWIN" "$MLXDIR" false false
 check_status "the engine loads"  0
 # The PHYSICAL directory, not the one handed in: the mlx branch resolves symlinks on purpose,
@@ -290,6 +291,36 @@ check "  nor on the agent's"                   "SENTINEL" "$(cad_pb_get "aichatv
 # from, and the answer the picker reads to decide this window is no longer empty.
 check "the window can name its engine" "Mlx-Test-Model" \
     "$(cad_call_lib aichat.model.library.sh chat_engine_label "$ENGWIN")"
+# AND THE CONVERSATION'S OPENING LINE, shown here rather than by the first turn. This is the only
+# moment it can lead the conversation: the append state appends, and the message a "started"
+# marker belongs in front of is on screen from the moment the user presses Return, long before
+# its entry finalizes. Held, not recorded - there is no conversation to record it into yet.
+engappend=$(cad_journal 1 | /usr/bin/grep "omc_set_state append")
+check "a ready engine shows the line the conversation opens with" "1" \
+    "$(cad_has "$engappend" '"kind": "started"')"
+check "  naming the engine it just loaded"     "1" "$(cad_has "$engappend" 'Mlx-Test-Model')"
+check "  and holds it for the first turn"      "1" \
+    "$(cad_has "$(cad_pb_get "aichatv2_pending_markers_$ENGWIN")" '"kind": "started"')"
+# And left the channel empty behind it, so the next states["content"] injection cannot re-deliver
+# this marker into whatever conversation that injection loads.
+check "  leaving the append channel empty"     "omc_set_state append " \
+    "$(cad_journal 1 | /usr/bin/grep 'omc_set_state append' | /usr/bin/tail -1)"
+
+# THE OTHER BRANCH OF THE SAME DECISION: this window is not starting a conversation, it is being
+# given the engine to continue one it is already showing - the empty window opened to READ a saved
+# chat. The click that loaded it could show no marker, because there was no model to name yet.
+RESUMEWIN="OMCTEST-engine-resume-$$"
+cad_pb_set "aichatv2_modelpath_$RESUMEWIN" ""
+cad_pb_set "aichatv2_agent_$RESUMEWIN" ""
+cad_pb_set "aichatv2_session_$RESUMEWIN" "some-saved-chat"
+cad_pb_set "aichatv2_resume_pending_$RESUMEWIN" "some-saved-chat"
+cad_pb_set "aichatv2_pending_markers_$RESUMEWIN" ""
+eng chat_engine_load "$RESUMEWIN" "$MLXDIR" false false
+check_status "the engine loads into it too" 0
+check "an armed window opens with a resume, not a start" "1" \
+    "$(cad_has "$(cad_pb_get "aichatv2_pending_markers_$RESUMEWIN")" '"kind": "resumed"')"
+check "  naming the model it was just given"   "1" \
+    "$(cad_has "$(cad_pb_get "aichatv2_pending_markers_$RESUMEWIN")" 'Mlx-Test-Model')"
 
 section "and a window that has one is not handed another"
 # Neither the picker nor the MCP servers dialog is modal, so a launch can be decided for a

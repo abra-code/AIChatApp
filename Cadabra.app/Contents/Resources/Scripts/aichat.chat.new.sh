@@ -30,6 +30,15 @@ pb_set "aichatv2_resume_pending_${win}" ""
 label=$(chat_engine_label "$win")
 chat_window_set_status "$win" "${label:-$APPLET_NAME}"
 
+# The new conversation's opening line, in front of the message that will start it. The inject
+# above emptied the transcript, so the markers shown for the conversation being left are off the
+# screen and must not be recorded into whatever this window types next - clear before showing.
+#
+# Nothing to show for a window with no engine: there would be no model to name, and the marker is
+# shown by chat_engine_load when one arrives.
+history_marker_clear "$win"
+[ -n "$label" ] && history_marker_show "$win" "$CHAT_VIEW_ID" started "$label"
+
 # Drop any selection and disable the row-action buttons (omc_deselect fires no actionID).
 "$dialog" "$win" "$TABLE_ID" omc_deselect
 for b in $ROW_BUTTONS; do "$dialog" "$win" "$b" omc_disable; done

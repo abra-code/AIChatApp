@@ -22,6 +22,9 @@ __AICHAT_CHAT_ENGINE_LIB=1
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.server.library.sh"
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.model.library.sh"
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.acp.agents.library.sh"
+# For history_marker_show: a window that can answer opens its conversation with a line saying
+# what is answering it. Both callers already source this; the guard inside makes that free.
+source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.history.library.sh"
 
 # The chat window's own ids, named here because this library writes to all three.
 CHAT_ELEMENT_ID=1
@@ -373,6 +376,31 @@ ${fm_summary}"
 		chat_model_bar_set "$win" "$model_label"
 		chat_engine_title "$win" "$model_label"
 		echo "chat ready ($engine, $model_label) - injected states[config]"
+		# THE CONVERSATION'S OPENING LINE, shown at the only moment it can LEAD the conversation
+		# instead of interrupting it: this window can answer as of the line above, and nothing has
+		# been said into it yet. It is recorded by the first turn that actually arrives - see the
+		# marker section in aichat.history.library.sh for why the two halves are split.
+		#
+		# "resumed" when a saved conversation is already loaded here. That is the empty window
+		# opened to READ one, now being handed its first model: the click that loaded the
+		# conversation could not show a marker, because there was no engine yet to name in it.
+		#
+		# DECIDED BY WHAT THE WINDOW IS SHOWING, not by what the sidebar armed, because the two can
+		# disagree. A click whose conversation fails to load clears the arm and leaves the PREVIOUS
+		# one displayed and bound (aichat.history.selection.changed.sh), so a window reading the arm
+		# would announce a fresh start at the bottom of a conversation it is still showing.
+		#
+		# And the arm is re-set from the binding, so the marker shown here is one a turn can
+		# actually record: aichat.chat.entry.sh commits only for the conversation the arm names.
+		# In the ordinary path this writes back the value that is already there.
+		local resume_sid
+		resume_sid=$(pb_get "aichatv2_session_${win}")
+		if [ -n "$resume_sid" ]; then
+			pb_set "aichatv2_resume_pending_${win}" "$resume_sid"
+			history_marker_show "$win" "$CHAT_ELEMENT_ID" resumed "$model_label"
+		else
+			history_marker_show "$win" "$CHAT_ELEMENT_ID" started "$model_label"
+		fi
 	else
 		# Every path that sets engine_ready=1 has already alerted: wait_for_server /
 		# report_server_launch_failure / the no-port branch on gguf, the empty-transport check on

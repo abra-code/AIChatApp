@@ -230,7 +230,139 @@ history_mark_session() { # <sid> <kind> [model] -> the ChatItem JSON on stdout
 history_mark_and_show() { # <win> <chat-view-id> <sid> <kind> [model]
     local item
     item=$(history_mark_session "$3" "$4" "${5:-}")
-    [ -n "$item" ] && "$dialog" "$1" "$2" omc_set_state append "$item"
+    [ -n "$item" ] && history_append_item "$1" "$2" "$item"
+    return 0
+}
+
+# history_append_item <win> <chat-view-id> <item-json> - append one ChatItem, then leave the
+# channel EMPTY.
+#
+# THE SECOND WRITE IS NOT TIDINESS, IT IS THE WHOLE POINT. The host bridge publishes one state
+# DICTIONARY, and every subscriber re-reads its own key on every change to it - so setting
+# states["content"] re-delivers whatever is still sitting in states["append"]. A restore clears
+# ChatView's append-dedup (correctly: the ids it described were just replaced), and the resting
+# value then arrives as a brand-new item and is appended to the conversation that was just loaded.
+# The user sees a marker from the previous conversation at the bottom of this one, no journal ever
+# holds it, and it vanishes on the next load.
+#
+# Leaving the channel empty makes that unreachable rather than unlikely: ChatView treats an empty
+# append value as "nothing here" and returns without so much as a warning, so a re-delivery of the
+# resting state is a no-op whatever order the subscribers happen to fire in.
+history_append_item() { # <win> <chat-view-id> <item-json>
+    "$dialog" "$1" "$2" omc_set_state append "$3"
+    "$dialog" "$1" "$2" omc_set_state append ""
+}
+
+# =============================================================================
+# A marker is SHOWN when the window can answer, and RECORDED when it answers
+# =============================================================================
+#
+# The two markers that OPEN a stretch of conversation - "started" and "resumed" - belong in front
+# of its first message, and history_mark_and_show cannot put them there. The append state appends:
+# by the time an entry finalizes and this app learns a turn happened, the message that triggered it
+# has been on screen since the user pressed Return, so the marker explaining what the message was
+# sent INTO landed underneath it. The conversation read as if it had been started by its own first
+# question. Recording had the ordering right all along (the journal write precedes the entry's), so
+# a reload disagreed with the live window about the order of its own first two lines.
+#
+# THE WINDOW KNOWS EARLIER THAN THE JOURNAL DOES. It becomes able to answer at a point with nothing
+# ambiguous about it - the engine is ready, or a saved conversation has just been loaded into it -
+# and that point is before any message of the coming stretch exists. So the marker is minted and
+# SHOWN there, into a transcript it can still lead, and held in a per-window queue until a turn
+# arrives to record it against. Same item both times (history_store.py mints id and timestamp once),
+# so the line the user saw is the line the next load rebuilds.
+#
+# RECORDING STAYS WHERE IT WAS, and that is the half that must not move: a conversation merely
+# LOOKED at is not resumed, and writing a marker for every row the user clicks left runs of
+# "Resumed with <model>" in conversations nothing happened in. Showing one costs nothing - the
+# display is rebuilt from the store on the next click - so the queue is dropped unrecorded when the
+# window moves on, and drained into the journal only by a turn that actually arrives.
+#
+# It also stopped the element mistrusting its own context. The append channel flips ChatView's
+# context indicator to "Context on next message" when the transcript has moved ahead of what the
+# agent was primed with, and mid-TURN that test is answered by a snapshot that only advances at the
+# turn's end - so appending a marker while the first answer was streaming made a brand-new chat
+# claim its context was unsynced, and cost a needless re-prime of the whole conversation on the
+# second message. Nothing is appended mid-turn any more.
+
+# The per-window queue of shown-but-unrecorded markers: ChatItem JSON, one per line (the JSON
+# encoder escapes newlines, so a line is always exactly one marker).
+CAD_PENDING_MARKERS_PREFIX="aichatv2_pending_markers_"
+
+# history_marker_show <win> <chat-view-id> <kind> [model] - put a session marker on screen now and
+# hold it for the turn that will record it.
+#
+# Best-effort in the same way history_mark_session is: a window is not worth failing to open
+# because the line naming its model could not be minted.
+history_marker_show() { # <win> <chat-view-id> <kind> [model]
+    local item queue
+    item=$("$history_py" "$history_store" session-event-item "$3" "${4:-}" 2>/dev/null)
+    [ -n "$item" ] || return 0
+    history_append_item "$1" "$2" "$item"
+    queue=$(pb_get "${CAD_PENDING_MARKERS_PREFIX}${1}")
+    if [ -n "$queue" ]; then
+        # An in-place model switch before the first message queues a second marker behind the
+        # first, and the conversation is opened by both - which is what the window showed.
+        pb_set "${CAD_PENDING_MARKERS_PREFIX}${1}" "$queue
+$item"
+    else
+        pb_set "${CAD_PENDING_MARKERS_PREFIX}${1}" "$item"
+    fi
+    return 0
+}
+
+# history_marker_pending <win> - the markers this window has shown and not yet recorded.
+history_marker_pending() { # <win>
+    pb_get "${CAD_PENDING_MARKERS_PREFIX}${1}"
+}
+
+# history_marker_reshow <win> <chat-view-id> - put the held markers back on screen, unchanged.
+#
+# For a re-injection that REPLACES the transcript with the same conversation (the Summarize menu
+# re-asks the agent for a restore the display cannot tell apart). The markers went off the screen
+# with the items around them, and re-minting would move them: same lines, new ids, a timestamp
+# from now. Re-appending the held items keeps the queue describing exactly what is displayed,
+# which is the property the recording later depends on. ChatView drops its append-dedup on every
+# restore, so an id it has already seen is accepted again into the new transcript.
+history_marker_reshow() { # <win> <chat-view-id>
+    local queue
+    queue=$(history_marker_pending "$1")
+    [ -n "$queue" ] || return 0
+    printf '%s\n' "$queue" | while IFS= read -r item; do
+        [ -n "$item" ] && history_append_item "$1" "$2" "$item"
+    done
+    return 0
+}
+
+# history_marker_clear <win> - forget them, because the transcript that held them is gone.
+#
+# Called wherever the display is REPLACED (New Chat, loading another conversation): those markers
+# are off the screen, so recording them later would put lines in a journal that no window ever
+# showed - and in the case of a resume, would record a resume that never happened.
+history_marker_clear() { # <win>
+    pb_set "${CAD_PENDING_MARKERS_PREFIX}${1}" ""
+}
+
+# history_marker_commit <win> <sid> - record this window's shown markers into a conversation.
+#
+# Returns 0 when something was recorded, 1 when the queue was empty - which is what lets the caller
+# fall back to marking the old way rather than opening a conversation with no marker at all.
+#
+# The queue is cleared BEFORE the write, not after: the entry handler can re-enter (usage and plan
+# envelopes re-fire several times a turn), and a queue still armed while python runs is a queue two
+# invocations can both drain. Clearing first turns that into one write and one no-op. A write that
+# then fails loses a cosmetic line; a double write would put the marker in the transcript twice.
+history_marker_commit() { # <win> <sid>
+    local dir queue
+    queue=$(history_marker_pending "$1")
+    [ -n "$queue" ] || return 1
+    history_marker_clear "$1"
+    # Non-zero, so the caller still falls back. The queue is already gone either way (see above),
+    # but a conversation whose id will not resolve is one the fallback cannot help with EITHER -
+    # it validates the same id - so this is about not reporting a write that did not happen.
+    dir=$(history_session_dir "$2") || return 1
+    printf '%s\n' "$queue" \
+        | "$history_py" "$history_store" session-event-record "$dir" 2>/dev/null
     return 0
 }
 

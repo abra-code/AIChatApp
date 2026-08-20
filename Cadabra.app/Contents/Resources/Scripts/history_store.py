@@ -75,8 +75,14 @@ def _journal_lock(session_dir):
         try:
             os.mkdir(path)
             return path
-        except OSError:
+        except FileExistsError:
             time.sleep(0.001)
+        except OSError:
+            # NOT "someone else is holding it". The session directory is gone (another window
+            # deleted this conversation) or is not writable, and no amount of waiting changes
+            # either - while the wait itself is two seconds of a handler that runs on the
+            # streaming path. Give up now and let the caller's own open() report it.
+            return None
     return None
 
 
@@ -475,8 +481,84 @@ def cmd_digest_input(session_dir, keep_recent):
     return 0
 
 
+def _session_event_item(kind, model=""):
+    """Mint one session-marker ChatItem, or None when the kind is not one of ours.
+
+    The marker's IDENTITY is minted here - id and timestamp both - and that matters because a
+    marker is now shown to the user before it is recorded (see history_marker_show in
+    aichat.history.library.sh). The item that reaches the display is the item that later reaches
+    the journal, byte for byte, so what a conversation shows live and what it shows on the next
+    load are the same line rather than two lines that merely describe the same event.
+
+    Unique per marker, and never reused: _build_transcript dedups items by id with last-write-
+    wins, so a fixed id would make every resume overwrite the previous one and the conversation
+    would remember only its most recent opening.
+    """
+    if kind not in ("started", "resumed", "modelChanged"):
+        return None
+    event_id = "se-%d-%d" % (int(time.time() * 1000), os.getpid())
+    event = {"id": event_id, "kind": kind,
+             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    if model:
+        event["model"] = model
+    return {"type": "sessionEvent", "sessionEvent": event}
+
+
+def _session_event_item_checked(item):
+    """The marker this store would have minted for <item>, or None if it would not have minted it.
+
+    THE JOURNAL IS APPEND-ONLY, which is what makes this validation rather than tidiness. Anything
+    written here is in that conversation for good, and the items arrive from a pasteboard any
+    process in the login session can write - so the recording path re-asks every question the mint
+    answered instead of trusting the shape it is handed.
+
+    It REBUILDS rather than approves, because approving field by field is a list that has to be
+    kept in step with a Codable struct in another language. SessionEvent's optionals are typed
+    (`timestamp: String?`, `model: String?`), and Swift's synthesized decoder THROWS on a JSON
+    number where it expects a string - so `{"kind": "started", "timestamp": 123}` passes any check
+    that only looks at id and kind, and then decodes as nothing: a permanent unreadable-item row in
+    that conversation, with no way to remove it from inside the app. Returning a dict assembled
+    from validated pieces means only shapes _session_event_item could have produced are ever
+    recorded, and a field added there is a field this has to be taught about deliberately.
+
+    The id is the one field that can break the store itself rather than the element: it keys
+    _build_transcript's dedup dictionary, so a list or dict raises TypeError and the conversation
+    stops opening at all.
+    """
+    if not isinstance(item, dict) or item.get("type") != "sessionEvent":
+        return None
+    event = item.get("sessionEvent")
+    if not isinstance(event, dict):
+        return None
+    event_id = event.get("id")
+    if not isinstance(event_id, str) or not event_id:
+        return None
+    if event.get("kind") not in ("started", "resumed", "modelChanged"):
+        return None
+    timestamp = event.get("timestamp")
+    if not isinstance(timestamp, str) or not timestamp:
+        return None
+    model = event.get("model")
+    if model is not None and not isinstance(model, str):
+        return None
+    rebuilt = {"id": event_id, "kind": event["kind"], "timestamp": timestamp}
+    if model:
+        rebuilt["model"] = model
+    return {"type": "sessionEvent", "sessionEvent": rebuilt}
+
+
+def _session_event_envelope(item):
+    """The journal envelope carrying one session-marker ChatItem.
+
+    The journal stores envelopes ({type, id, data}); the element is handed ChatItems (the `data`).
+    Building the envelope from the item - rather than the pair being built together - is what lets
+    a marker be shown now and journaled later from the same value.
+    """
+    return {"type": "sessionEvent", "id": item["sessionEvent"]["id"], "data": item}
+
+
 def cmd_session_event(session_dir, kind, model=""):
-    """Append a session marker to a conversation's journal.
+    """Append a session marker to a conversation's journal, and print it for the display.
 
     WRITTEN BY THE APP, NOT THE ELEMENT, and that split is deliberate. ChatView renders these and
     emits its own only for what the AGENT tells it (a condensed prime, where the digest arrives on
@@ -488,29 +570,87 @@ def cmd_session_event(session_dir, kind, model=""):
     message and survives a reload. That is the entire point: the info pane names the model a
     conversation STARTED with, so without a record in the transcript, resuming with a different
     model leaves the second one's identity nowhere.
+
+    THE SHOW-NOW-RECORD-NOW PATH, for a marker whose place in the transcript is the end: an
+    in-place model switch, which happens between turns. A marker that OPENS a stretch of
+    conversation cannot use it - by the time the first turn of that stretch finalizes, the message
+    it belongs in front of is already on screen - so those are minted by session-event-item, shown
+    immediately, and recorded by session-event-record when the turn arrives.
     """
-    if kind not in ("started", "resumed", "modelChanged"):
+    item = _session_event_item(kind, model)
+    if item is None:
         sys.stderr.write("session-event: unknown kind %s\n" % kind)
         return 2
-    # Unique per marker, and never reused: _build_transcript dedups items by id with last-write-
-    # wins, so a fixed id would make every resume overwrite the previous one and the conversation
-    # would remember only its most recent opening.
-    event_id = "se-%d-%d" % (int(time.time() * 1000), os.getpid())
-    event = {"id": event_id, "kind": kind,
-             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
-    if model:
-        event["model"] = model
-    envelope = {"type": "sessionEvent", "id": event_id,
-                "data": {"type": "sessionEvent", "sessionEvent": event}}
     try:
-        _journal_append(session_dir, json.dumps(envelope, ensure_ascii=False) + "\n")
+        _journal_append(session_dir,
+                        json.dumps(_session_event_envelope(item), ensure_ascii=False) + "\n")
     except OSError:
         return 1
     # Print the ChatItem - the envelope's `data`, not the envelope - so the caller can hand it
     # straight to the element's append state and have the marker appear NOW rather than on the next
     # load. Exactly what a restore would rebuild for this line, so showing it and reloading it
     # produce the same transcript.
-    sys.stdout.write(json.dumps(envelope["data"], ensure_ascii=False))
+    sys.stdout.write(json.dumps(item, ensure_ascii=False))
+    return 0
+
+
+def cmd_session_event_item(kind, model=""):
+    """Mint a session marker WITHOUT recording it: print the ChatItem and touch no journal.
+
+    For the markers that open a stretch of conversation ("started", "resumed"). They belong in
+    front of the first message of that stretch, which is a place the append state cannot reach
+    once the message is on screen - and the message is on screen before its entry ever finalizes.
+    So the window shows the marker at the moment it becomes able to answer, and holds the item
+    until a turn arrives to record it against (session-event-record). No session directory is
+    needed or touched here, which is the point: at that moment there may not be one yet.
+    """
+    item = _session_event_item(kind, model)
+    if item is None:
+        sys.stderr.write("session-event-item: unknown kind %s\n" % kind)
+        return 2
+    sys.stdout.write(json.dumps(item, ensure_ascii=False))
+    return 0
+
+
+def cmd_session_event_record(session_dir):
+    """Record markers that were already SHOWN: one ChatItem JSON per line on stdin.
+
+    The other half of session-event-item. Written in one locked append so the markers land in the
+    order the window showed them, and BEFORE the entry that triggered the recording (the caller
+    journals that next) - which is the whole point of the split: the marker leads the message it
+    opened instead of trailing it.
+
+    A line that is not one of our markers is skipped rather than fatal. This runs on the first turn
+    of a conversation, and refusing to record a marker is a cosmetic loss; refusing to record the
+    conversation is not.
+    """
+    # split("\n"), NOT splitlines(). The queue is built and read with "\n" on the shell side, while
+    # splitlines() ALSO breaks on U+0085, U+2028 and U+2029 - the three that survive
+    # ensure_ascii=False unescaped (everything below 0x20 is escaped whatever that flag says). A
+    # model label carrying one of them, from a .gguf filename or a typed agent name, would leave
+    # the two halves disagreeing about how many markers they are looking at, and every fragment
+    # would then be discarded as unparseable - shown to the user, and silently never recorded.
+    lines = []
+    for raw in sys.stdin.read().split("\n"):
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            item = json.loads(raw)
+        except ValueError:
+            sys.stderr.write("session-event-record: not JSON, skipping a line\n")
+            continue
+        checked = _session_event_item_checked(item)
+        if checked is None:
+            sys.stderr.write("session-event-record: not a session marker, skipping a line\n")
+            continue
+        lines.append(json.dumps(_session_event_envelope(checked), ensure_ascii=False) + "\n")
+    if not lines:
+        return 0
+    try:
+        _journal_append(session_dir, "".join(lines))
+    except OSError:
+        return 1
     return 0
 
 
@@ -545,7 +685,8 @@ def main(argv):
     if len(argv) < 2:
         sys.stderr.write(
             "usage: history_store.py {index|transcript|preview|info|title|meta-init|"
-            "meta-set|session-event|digest-input} ...\n")
+            "meta-set|session-event|session-event-item|session-event-record|"
+            "digest-input} ...\n")
         return 2
     cmd = argv[1]
     if cmd == "meta-init":
@@ -554,6 +695,13 @@ def main(argv):
             return 2
         return cmd_meta_init(argv[2], argv[3] if len(argv) > 3 else "",
                              argv[4] if len(argv) > 4 else "")
+    # Takes a KIND where every other subcommand takes a session directory - it mints a marker for
+    # a window that may not have a session yet - so it is dispatched here, above the path check.
+    if cmd == "session-event-item":
+        if len(argv) < 3:
+            sys.stderr.write("usage: history_store.py session-event-item <kind> [model]\n")
+            return 2
+        return cmd_session_event_item(argv[2], argv[3] if len(argv) > 3 else "")
     if len(argv) < 3:
         sys.stderr.write("usage: history_store.py %s <path>\n" % cmd)
         return 2
@@ -601,6 +749,8 @@ def main(argv):
             sys.stderr.write("usage: history_store.py session-event <dir> <kind> [model]\n")
             return 2
         return cmd_session_event(path, argv[3], argv[4] if len(argv) > 4 else "")
+    if cmd == "session-event-record":
+        return cmd_session_event_record(path)
     if cmd == "meta-set":
         if len(argv) < 5:
             sys.stderr.write("usage: history_store.py meta-set <dir> <key> <value>\n")
