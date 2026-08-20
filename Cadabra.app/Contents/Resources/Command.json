@@ -431,12 +431,20 @@
       "NAME" : "Cadabra"
     },
     {
-      "COMMAND_ID" : "aichat.chat.info.toggle",
+      "COMMAND_ID" : "aichat.model.switch",
       "EXECUTION_MODE" : "exe_script_file",
       "NAME" : "Cadabra"
     },
     {
-      "COMMAND_ID" : "aichat.model.switch",
+      "COMMAND_ID" : "aichat.chat.window",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "Cadabra"
+    },
+    {
+      "COMMAND_ID" : "aichat.chat.load.model",
+      "ENVIRONMENT_VARIABLES" : {
+        "OMC_FRONT_PROCESS_ID" : ""
+      },
       "EXECUTION_MODE" : "exe_script_file",
       "NAME" : "Cadabra"
     },

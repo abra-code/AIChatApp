@@ -121,18 +121,8 @@ cad_pb_set "aichatv2_agent_$W" "Claude Code"
 # leave these call sites with a bare "New conversation" and nothing after it.
 check "an agent wins over a stale model path" "Claude Code" \
     "$(cad_call_lib aichat.model.library.sh chat_engine_label "$W")"
-
-section "the info strip's suffix"
-# The separator is U+00B7 written as its UTF-8 bytes, so this file stays ASCII while still
-# asserting the exact string the applet emits.
-sep=$(printf '\302\267')
-check "for an agent" "   $sep   Agent: Claude Code" \
-    "$(cad_call_lib aichat.model.library.sh chat_engine_info_suffix "$W")"
 cad_pb_set "aichatv2_agent_$W" ""
-check "for a model" "   $sep   Model: Qwen3-4B-Q5_K_S" \
-    "$(cad_call_lib aichat.model.library.sh chat_engine_info_suffix "$W")"
 cad_pb_set "aichatv2_modelpath_$W" ""
-check "for neither" "" "$(cad_call_lib aichat.model.library.sh chat_engine_info_suffix "$W")"
 
 section "whether to offer the on-device model at all"
 # A DENYLIST, and the direction is the whole design. Reasons arrive from the agent verbatim,

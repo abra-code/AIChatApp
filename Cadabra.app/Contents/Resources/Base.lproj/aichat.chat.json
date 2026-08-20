@@ -15,39 +15,19 @@
   },
   "toolbar": [
     {
-      "type": "ToolbarItemGroup",
+      "type": "ToolbarItem",
       "id": 91,
       "properties": { "placement": "primaryAction" },
-      "children": [
-        {
-          "type": "Button",
-          "id": 530,
-          "properties": {
-            "title": "Model",
-            "systemImage": "cpu",
-            "actionID": "aichat.model.switch",
-            "help": "Switch the active model (the conversation continues with it)"
-          }
-        },
-        {
-          "type": "Button",
-          "id": 531,
-          "properties": {
-            "systemImage": "info.circle",
-            "actionID": "aichat.chat.info.toggle",
-            "help": "Show or hide conversation info"
-          }
-        },
-        {
-          "type": "Button",
-          "id": 501,
-          "properties": {
-            "systemImage": "square.and.pencil",
-            "actionID": "aichat.chat.new",
-            "help": "Start a new conversation with the current model"
-          }
+      "content": {
+        "type": "Button",
+        "id": 501,
+        "properties": {
+          "title": "New Chat",
+          "systemImage": "square.and.pencil",
+          "actionID": "aichat.chat.new",
+          "help": "Start a new conversation with the current model"
         }
-      ]
+      }
     }
   ],
   "sidebar": {
@@ -138,53 +118,91 @@
           {
             "type": "VStack",
             "id": 541,
-        "properties": { "spacing": 0 },
-        "children": [ { "type": "EmptyView" } ]
-      },
-      {
-        "type": "Chat",
-        "id": 1,
-        "properties": {
-          "appearance": {
-            "alignment": "single",
-            "showRoleLabels": true,
-            "theme": "auto"
+            "properties": { "spacing": 0 },
+            "children": [
+              {
+                "type": "HStack",
+                "properties": {
+                  "spacing": 10,
+                  "padding": { "top": 6, "leading": 12, "bottom": 6, "trailing": 14 },
+                  "frame": { "maxWidth": "infinity", "alignment": "leading" }
+                },
+                "children": [
+                  {
+                    "type": "Button",
+                    "id": 542,
+                    "properties": {
+                      "title": "Choose a Model\u2026",
+                      "systemImage": "cpu",
+                      "buttonStyle": "bordered",
+                      "controlSize": "small",
+                      "actionID": "aichat.model.switch",
+                      "help": "Choose which model answers in this window"
+                    }
+                  },
+                  { "type": "Spacer" },
+                  {
+                    "type": "Text",
+                    "id": 540,
+                    "properties": {
+                      "text": "New conversation",
+                      "font": "footnote",
+                      "foregroundStyle": "secondary",
+                      "textSelection": "enabled"
+                    }
+                  }
+                ]
+              },
+              { "type": "Divider" }
+            ]
           },
-          "roles": {
-            "local": { "label": "You", "tint": "accent" },
-            "agent": { "label": "Assistant", "tint": "secondary" }
+          {
+            "type": "Chat",
+            "id": 1,
+            "properties": {
+              "appearance": {
+                "alignment": "single",
+                "showRoleLabels": true,
+                "theme": "auto"
+              },
+              "roles": {
+                "local": { "label": "You", "tint": "accent" },
+                "agent": { "label": "Assistant", "tint": "secondary" }
+              },
+              "input": {
+                "enabled": true,
+                "placeholder": "Message",
+                "submitOn": "return"
+              },
+              "surfaces": {
+                "thoughts": "collapsed",
+                "toolCalls": "inline"
+              },
+              "entryActionID": "aichat.chat.entry",
+              "errorActionID": "aichat.chat.error",
+              "readOnly": false,
+              "frame": {
+                "minHeight": 160,
+                "maxWidth": "infinity",
+                "maxHeight": "infinity"
+              }
+            }
           },
-          "input": {
-            "enabled": true,
-            "placeholder": "Message",
-            "submitOn": "return"
-          },
-          "surfaces": {
-            "thoughts": "collapsed",
-            "toolCalls": "inline"
-          },
-          "entryActionID": "aichat.chat.entry",
-          "errorActionID": "aichat.chat.error",
-          "readOnly": false,
-          "frame": {
-            "minHeight": 400,
-            "maxWidth": "infinity",
-            "maxHeight": "infinity"
+          {
+            "type": "VStack",
+            "id": 560,
+            "properties": { "spacing": 0 },
+            "children": [ { "type": "EmptyView" } ]
           }
-        }
-      },
-      {
-        "type": "VStack",
-        "id": 560,
-        "properties": { "spacing": 0 },
-        "children": [ { "type": "EmptyView" } ]
-      }
         ]
       },
       {
         "type": "VStack",
         "id": 550,
-        "properties": { "spacing": 0 },
+        "properties": {
+          "spacing": 0,
+          "frame": { "maxWidth": "infinity", "maxHeight": "infinity" }
+        },
         "children": [ { "type": "EmptyView" } ]
       }
     ]

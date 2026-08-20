@@ -7,12 +7,12 @@
 # is needed - the same window and conversation continue with the new model. No new window.
 # The window's port was claimed and stashed at init (aichatv2_port_<win>); reusing it is what
 # lets the frozen baseURL stay valid while other windows' servers keep running untouched.
+source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.chat.engine.library.sh"
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.server.library.sh"
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.model.library.sh"
 # For history_mark_session: the switch is recorded in the conversation's own transcript.
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.history.library.sh"
 
-MODEL_BTN_ID=530
 
 target_win=$(pb_get "aichatv2_switch_target")
 pb_set "aichatv2_switch_target" ""
@@ -29,7 +29,12 @@ target_port=$(pb_get "aichatv2_port_${target_win}")
 [ -n "$target_port" ] || { echo "no stashed port for window $target_win; cannot switch in place"; exit 0; }
 
 echo "switching window $target_win to model $model_path on port $target_port"
-chat_window_set_status "$target_win" "loading model…"
+# The TITLE is the conversation's, when there is one. chat_engine_title is what keeps that
+# true here: this handler used to overwrite it with the model at every step, so switching
+# models inside a named conversation left the model's name where the user's title had been,
+# until they clicked the row again to get it back. The model has a place of its own now, and
+# it is updated below; a switch in progress shows in the loading overlay.
+chat_engine_title "$target_win" "loading model…"
 # Stamped BEFORE the launch because a launch can run for minutes (up to a 300 s wait for a large
 # --no-mmap model) and other handlers in this window read the stamp while it is in flight. Nothing
 # between here and the launch reads it - the overlay and the button are passed their labels - so the
@@ -44,8 +49,8 @@ chat_loading_overlay_show "$target_win" "$(model_display_label "$model_path")"
 
 launch_model_on_port "$model_path" "$target_win" "$target_port"
 if [ $? -eq 0 ]; then
-    "$dialog" "$target_win" "$MODEL_BTN_ID" omc_set_property "title" "$LAUNCHED_MODEL_LABEL"
-    chat_window_set_status "$target_win" "$LAUNCHED_MODEL_LABEL"
+    chat_model_bar_set "$target_win" "$LAUNCHED_MODEL_LABEL"
+    chat_engine_title "$target_win" "$LAUNCHED_MODEL_LABEL"
     # The handover, recorded in the conversation it happened in. This is the case the info pane
     # cannot describe at all: it names the model the session STARTED with, and an in-place switch
     # keeps the same session, so without a marker the transcript has two stretches of assistant
@@ -68,7 +73,7 @@ if [ $? -eq 0 ]; then
 else
     # The previous server is ALREADY GONE: launch_model_on_port frees the port first, terminating
     # the outgoing llama-server before it spawns anything. So the stamp goes back to the model that
-    # the 530 button is still showing, the only model this window can honestly claim.
+    # the model bar is still showing, the only model this window can honestly claim.
     #
     # THE TIMEOUT IS NOT AN EXCEPTION, though it looks like one. wait_for_server's 13 is a /health
     # poll that never checks the pid, so a model that died during tensor load reports exactly like
@@ -77,6 +82,6 @@ else
     # is unregistered, unreachable and about to be killed - and would leave prev_model_path pointing
     # at it, so the NEXT failed switch would roll back to a model that never loaded either.
     pb_set "aichatv2_modelpath_${target_win}" "$prev_model_path"
-    chat_window_set_status "$target_win" "failed to load model"
+    chat_engine_title "$target_win" "failed to load model"
 fi
 chat_loading_overlay_hide "$target_win"

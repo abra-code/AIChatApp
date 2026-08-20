@@ -78,6 +78,11 @@ mcp_refresh_path_table "$window_uuid" $RO_TABLE_ID servers/local/allowed-read
 CONFIRM_BTN_ID=393
 queued=$(launch_queue_consume)
 pb_set "aichatv2_launch_${window_uuid}" "$queued"
+# The launch's destination travels with it, for the same reason and by the same route: a
+# launch aimed at an already-open window (File > New Chat Window, then a model) must not
+# still be aimed there if this dialog is cancelled, or the next ordinary pick would be
+# delivered into that window instead of opening its own.
+pb_set "aichatv2_loadtarget_${window_uuid}" "$(load_target_consume)"
 if [ -n "$queued" ]; then
     "$dialog" "$window_uuid" $CONFIRM_BTN_ID omc_set_property "title" "Start"
 else

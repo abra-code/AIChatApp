@@ -80,13 +80,25 @@ history_append_journal "$history_root/$sid" "$envelope"
 # so it only highlights the row - it does NOT re-inject content over the live conversation.
 if [ -n "$newly_minted" ]; then
     TABLE_ID=510
-    INFO_TEXT_ID=540
     ROW_BUTTONS="521 520 524"   # Rename Reveal Delete
     history_populate_table "$win" "$TABLE_ID"
     "$dialog" "$win" "$TABLE_ID" omc_select_row 0
     for b in $ROW_BUTTONS; do "$dialog" "$win" "$b" omc_enable; done
-    if [ "$(pb_get "aichatv2_info_${win}")" = "1" ]; then
-        info=$(history_info_line "$sid")
-        [ -n "$info" ] && "$dialog" "$win" "$INFO_TEXT_ID" "$info"
-    fi
+    # And the facts line, which until this moment read "New conversation". Stated here as well
+    # as in the case below because a session can be minted by an entry that is not a message.
+    chat_info_refresh "$win"
 fi
+
+# The message count in the model bar goes stale the moment a turn lands, and the line is
+# permanently on screen now - a visibly wrong number is worse than the old hidden one. So
+# restate it per MESSAGE, which is twice a turn.
+#
+# The `case` is a deliberately cheap pre-filter and not a parser. This handler is on the
+# streaming path and its header asks it to stay cheap; history_info_line spawns python and
+# reads the whole journal, so doing it for every finalized entry (thoughts, tool calls, and
+# the usage/plan envelopes that re-fire several times a turn) is exactly what must not happen.
+# If the envelope's spelling ever changes this simply stops matching, and the line falls back
+# to refreshing when a row is clicked - the behavior it had before this existed.
+case "$envelope" in
+    *'"type":"message"'*|*'"type": "message"'*) chat_info_refresh "$win" ;;
+esac

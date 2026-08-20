@@ -385,15 +385,15 @@ def cmd_meta_init(sid, model_path, agent=""):
 
 
 def cmd_info(session_dir):
-    """One compact line for the info strip above the chat: original model, start date,
-    message count. The active model lives in the toolbar; this reflects the conversation's
-    own recorded metadata."""
+    """One compact line about a saved conversation - when it started, how much was said.
+
+    It named the conversation's original model too, until the model bar started showing the
+    window's CURRENT one immediately to its left. Two model names in one row is a question
+    ("which of these is answering me?"), not information, and the transcript already answers
+    it properly: the opening session marker records the model the conversation started with,
+    and a marker records every switch since."""
     _transcript, stats = _build_transcript(session_dir)
     bits = []
-    if stats.get("agent"):
-        bits.append("Agent: %s" % stats["agent"])
-    elif stats.get("model"):
-        bits.append("Model: %s" % stats["model"])
     created = stats.get("created") or ""
     if created:
         if created.endswith("Z"):
