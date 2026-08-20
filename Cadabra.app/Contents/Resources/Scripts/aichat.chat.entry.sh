@@ -30,6 +30,9 @@ envelope="$OMC_ACTIONUI_TRIGGER_CONTEXT"
 session_key="aichatv2_session_${win}"
 sid=$(pb_get "$session_key")
 newly_minted=
+# Initialized for the same reason newly_minted is: these are read as "did the block above run",
+# and an exported variable of the same name in the environment answers yes before it has.
+info_stated=
 if [ -z "$sid" ]; then
     # Not everything that finalizes is a conversation. The agent's own `session` announcement used
     # to mint a directory holding nothing else, and those empty sessions accumulated at the top of
@@ -85,8 +88,11 @@ if [ -n "$newly_minted" ]; then
     "$dialog" "$win" "$TABLE_ID" omc_select_row 0
     for b in $ROW_BUTTONS; do "$dialog" "$win" "$b" omc_enable; done
     # And the facts line, which until this moment read "New conversation". Stated here as well
-    # as in the case below because a session can be minted by an entry that is not a message.
+    # as in the case below because a session can be minted by an entry that is not a message -
+    # and marked done, because the minting entry USUALLY is one, and running the journal through
+    # python twice for a single entry is the cost this handler is least able to afford.
     chat_info_refresh "$win"
+    info_stated=1
 fi
 
 # The message count in the model bar goes stale the moment a turn lands, and the line is
@@ -99,6 +105,8 @@ fi
 # the usage/plan envelopes that re-fire several times a turn) is exactly what must not happen.
 # If the envelope's spelling ever changes this simply stops matching, and the line falls back
 # to refreshing when a row is clicked - the behavior it had before this existed.
-case "$envelope" in
-    *'"type":"message"'*|*'"type": "message"'*) chat_info_refresh "$win" ;;
-esac
+if [ -z "$info_stated" ]; then
+    case "$envelope" in
+        *'"type":"message"'*|*'"type": "message"'*) chat_info_refresh "$win" ;;
+    esac
+fi

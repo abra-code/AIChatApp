@@ -320,10 +320,17 @@ summarize_can_condense() { # <sid>
 #
 # The one case it does not cover is an EXTERNAL ACP agent: its command line is the user's own, so
 # it need not be mlx-agent, need not understand `condense.backend`, and this app has no idea what
-# would summarize there. That is what the stamp below distinguishes - it is set only for a window
+# would summarize there. That is what the agent stamp distinguishes - it is set only for a window
 # driven by someone else's agent.
+#
+# AND THERE HAS TO BE A MODEL AT ALL. Since File > New Chat Window a window can be driven by
+# NEITHER - no model, no agent - and a bare "not somebody else's agent" answered yes for it, so
+# opening a saved conversation in an empty window offered to summarize it "with the model in this
+# chat" and recorded that choice for a chat that has none. Nothing breaks downstream (no transport
+# exists until a model arrives, and the choice is stored per conversation), but the menu named a
+# model that does not exist, which is the thing the rest of this function exists to avoid.
 summarize_session_own_model() { # <win>
-    [ -z "$(pb_get "aichatv2_agent_$1")" ]
+    [ -z "$(pb_get "aichatv2_agent_$1")" ] && [ -n "$(pb_get "aichatv2_modelpath_$1")" ]
 }
 
 # summarize_foundation_ok - true when Apple's on-device model can summarize here.

@@ -20,6 +20,12 @@ model_path=$("$pasteboard" "AICHATV2_MODEL_PATH" get)
 "$pasteboard" "AICHATV2_MODEL_PATH" set ""
 
 [ -n "$target_win" ] || { echo "no target window for switch"; exit 0; }
+# And it has to still be there. The selector is modeless and now owns its arm for its whole
+# life, so the window that asked for the switch can be closed while the user is still choosing.
+# The stashed port key outlives the window, so without this the switch would relaunch a
+# llama-server on it for nobody - registered to a host that is alive, therefore protected from
+# the orphan reaper, and freed only when the app quits.
+chat_window_is_open "$target_win" || { echo "window $target_win is gone; not switching"; exit 0; }
 [ -n "$model_path" ] || { echo "no model for switch"; exit 0; }
 
 # The window's frozen baseURL points at this port; the switch MUST reuse it or the window

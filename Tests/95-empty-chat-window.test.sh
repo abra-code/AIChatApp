@@ -20,11 +20,35 @@
 
 cad_import_ids aichat.chat.engine.library.sh CE_
 cad_import_ids aichat.history.library.sh HL_
+cad_import_ids aichat.library.sh BASE_
 check "the model bar's button resolved" "542" "$CE_CHAT_MODEL_BTN_ID"
 check "and the facts line beside it"    "540" "$HL_CHAT_INFO_TEXT_ID"
+# The literal below is asserted, not read from the applet; this is the one check that reports a
+# rename once instead of turning that assertion vacuously true.
+check "the app calls itself what the tests do" "Cadabra" \
+    "$(cad_lib_var APPLET_NAME aichat.library.sh)"
+# Both runtime-inserted ids this file's handlers reach: the loading spinner, and the summarize
+# picker that New Chat removes. Neither is in the JSON, so neither is known until declared.
+check "and the two runtime-inserted ids" "550 551 561" \
+    "$BASE_CHAT_OVERLAY_SLOT_ID $BASE_CHAT_OVERLAY_ELEM_ID $HL_CAD_SUMMARIZE_PICKER_ID"
 
 lib() { cad_call_lib aichat.library.sh "$@"; }
 hist() { cad_call_lib aichat.history.library.sh "$@"; }
+
+# eng <function> [args...] - the chat engine library, with its two teardown calls neutered.
+#
+# NOT OPTIONAL. chat_engine_load reaps orphaned processes before it launches anything, and the
+# reaper walks `ps` for paths under the REAL $OMC_APP_BUNDLE_PATH - which on a developer's
+# machine is their own running copy of this app. The registry seam already fails closed
+# (see cad_model_call); this closes the pgrep-based half the same way. Overridden AFTER the
+# source, which is what lets it work without a seam in the applet.
+eng() {
+    ( . "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.chat.engine.library.sh" >/dev/null 2>&1
+      prefs="${CAD_PREFS_OVERRIDE:-$OMCTEST_WORK/no-such-registry.plist}"
+      stop_orphaned_servers() { :; }
+      reap_orphaned_bundle_processes() { :; }
+      "$@" )
+}
 
 # json_prop <view-id> <property> - what the window DECLARES for a control, found by id rather
 # than by position: the tree is rearranged often enough that a path would be asserting about
@@ -67,7 +91,10 @@ empty_window() {
 
 # arm_pick <tools> - the model bar's button, then a row picked in the selector.
 arm_pick() {
-    cad_pb_set "aichatv2_model_switch" "$CHATWIN|$(/bin/date +%s)"
+    # Where the SELECTOR looks: its init captures the global arm into its own scope, and the OK
+    # handler below runs as that selector window. Arming the global key here would be arming a
+    # doorstep nobody is standing on.
+    cad_pb_set "aichatv2_switcharm_$OMC_ACTIONUI_WINDOW_UUID" "$CHATWIN|$(/bin/date +%s)"
     cad_pb_set "aichatv2_load_target" ""
     lib launch_queue_clear
     omc_table_cell 10 3 "$GGUF"
@@ -218,6 +245,149 @@ arm_pick false
 cad_pb_set "aichatv2_agent_$CHATWIN" "Claude Code"
 omc_run aichat.select.local.model.ok
 check "it is not given a first engine" "0" "$(chain_asked aichat.chat.load.model)"
+
+# ---------------------------------------------------------------------------
+section "loading an engine stamps the window it was loaded INTO"
+# The bug this section exists for shipped invisible. chat_engine_load was lifted out of chat
+# init, and five pasteboard keys kept interpolating ${chat_window_uuid} - a global that exists
+# only in the init script - so from the new handler every stamp landed on a suffixless key and
+# the window it had just loaded still looked empty. Nothing visible broke: the model answered.
+# Then the next pick from that window's model bar was read as a FIRST load again, and started a
+# second llama-server for a window whose transport was already frozen on the first.
+#
+# Run on the mlx branch, the one engine that launches no server: mlx-agent maps the weights
+# itself, so the transport is complete as soon as the directory can be named.
+MLXDIR="$MODELS/Mlx-Test-Model"
+/bin/mkdir -p "$MLXDIR"
+printf '{}' > "$MLXDIR/config.json"
+/usr/bin/head -c 512 /dev/zero > "$MLXDIR/model.safetensors"
+ENGWIN="OMCTEST-engine-$$"
+cad_pb_set "aichatv2_modelpath_$ENGWIN" ""
+# PLANTED, not blank. Asserting the agent stamp is empty afterwards proves nothing when it was
+# empty to begin with - the load has to be seen clearing it for THIS window.
+cad_pb_set "aichatv2_agent_$ENGWIN" "STALE"
+cad_pb_set "aichatv2_session_$ENGWIN" ""
+# A sentinel on the key the bug wrote to. Asserting the right key holds the right value is not
+# enough - it was ALSO true before the fix, of a key belonging to nobody.
+cad_pb_set "aichatv2_modelpath_" "SENTINEL"
+cad_pb_set "aichatv2_agent_" "SENTINEL"
+# The loading overlay is inserted into declared slot 550 and removed again, so its own id is
+# only ever known at runtime. Declared here rather than silently tripping the undeclared-id
+# check, which no other file reaches because none of them loads an engine.
+ui_declare_ids "$BASE_CHAT_OVERLAY_ELEM_ID" "$HL_CAD_SUMMARIZE_PICKER_ID"
+eng chat_engine_load "$ENGWIN" "$MLXDIR" false false
+check_status "the engine loads"  0
+# The PHYSICAL directory, not the one handed in: the mlx branch resolves symlinks on purpose,
+# because mlx-swift-lm cannot map sharded weights through a symlinked model dir and reports it
+# as a missing tensor. Under the harness $TMPDIR that is a real difference (/var -> /private/var),
+# which is exactly why the stamp is asserted against the resolved form rather than the input.
+MLXREAL=$(cd "$MLXDIR" && pwd -P)
+check "the model is stamped for that window" "$MLXREAL" "$(cad_pb_get "aichatv2_modelpath_$ENGWIN")"
+check "the agent stamp is blanked for it"    ""        "$(cad_pb_get "aichatv2_agent_$ENGWIN")"
+check "and nothing landed on a suffixless key" "SENTINEL" "$(cad_pb_get "aichatv2_modelpath_")"
+check "  nor on the agent's"                   "SENTINEL" "$(cad_pb_get "aichatv2_agent_")"
+# What the stamp is FOR, end to end: the label the session marker and meta.json are written
+# from, and the answer the picker reads to decide this window is no longer empty.
+check "the window can name its engine" "Mlx-Test-Model" \
+    "$(cad_call_lib aichat.model.library.sh chat_engine_label "$ENGWIN")"
+
+section "and a window that has one is not handed another"
+# Neither the picker nor the MCP servers dialog is modal, so a launch can be decided for a
+# window that acquires an engine while the choosing is still going on. Delivering it anyway
+# claims a second port and starts a second llama-server that nothing owns: the element froze
+# its transport on the first config and ignores the second.
+chains_reset
+ui_reset
+cad_pb_set "aichatv2_open_$ENGWIN" "1"
+cad_pb_set "aichatv2_load_target" "$ENGWIN"
+# A DIFFERENT model, and an MLX one. Different, because the stamp is the discriminating
+# assertion and queueing the model the window already has would satisfy it whether the guard
+# held or not. MLX, because this section drives the real handler - the eng() seam above does
+# not cover it - and a queued gguf getting past the guard would take chat_engine_load all the
+# way into launch_model_on_port and spawn a real llama-server against the developer's own
+# bundle. The mlx branch launches nothing even when it runs.
+OTHERMLX="$MODELS/Mlx-Other-Model"
+/bin/mkdir -p "$OTHERMLX"
+printf '{}' > "$OTHERMLX/config.json"
+/usr/bin/head -c 512 /dev/zero > "$OTHERMLX/model.safetensors"
+lib launch_queue_arm "$OTHERMLX" false
+omc_run aichat.chat.load.model
+check_status "the handler succeeds" 0
+# THE DISCRIMINATING ONE. The two below are true either way: launch_queue_consume clears the
+# queue before it validates, and a refusal and a completed load both end with no second config
+# injected. What only the refusal leaves behind is the FIRST engine's stamp, still naming the
+# model this window actually has.
+check "the window keeps the engine it has" "$MLXREAL" "$(cad_pb_get "aichatv2_modelpath_$ENGWIN")"
+check "the launch is dropped"       "" "$(cad_pb_get aichatv2_launch_queue)"
+check "and no second engine is prepared" "0" "$(ui_calls omc_set_state)"
+
+# ---------------------------------------------------------------------------
+section "a load that fails leaves the window as empty as it found it"
+# STAMPED BEFORE IT CAN FAIL. chat_engine_load claims the window - model path, agent, port -
+# ahead of the five branches that can still refuse, and until the stamps named the right window
+# a failed first load was invisible: the window stayed empty and the user simply tried again.
+# Now it would stay claimed by a model it never loaded, and that is not untidy, it is stuck.
+# The picker reads exactly this pair to decide the window is empty, so the same model is
+# refused as "unchanged", a different gguf is routed to the in-place switch - which relaunches
+# a server under a Chat element that never got a config - and the first-load path refuses it
+# as already-engined. Three doors, all closed, on a window that has nothing.
+#
+# Forced through the EXTERNAL branch with no agent command configured. That failure lands after
+# the stamps and before anything is launched, so it exercises the rollback without a server, an
+# agent binary or a probe that answers differently on different machines.
+ui_reset
+FAILWIN="OMCTEST-failedload-$$"
+cad_pb_set "aichatv2_modelpath_$FAILWIN" ""
+cad_pb_set "aichatv2_agent_$FAILWIN" ""
+cad_pb_set "aichatv2_port_$FAILWIN" ""
+cad_pb_set "aichatv2_session_$FAILWIN" ""
+# The exit code directly: OMCTEST_STATUS is what omc_run leaves behind, and this is a library
+# call, not a dispatch.
+eng chat_engine_load "$FAILWIN" "" false true
+fail_rc=$?
+check "the load reports failure" "1" "$fail_rc"
+check "the model stamp is put back"  "" "$(cad_pb_get "aichatv2_modelpath_$FAILWIN")"
+check "  and the agent stamp"        "" "$(cad_pb_get "aichatv2_agent_$FAILWIN")"
+check "  and the port"               "" "$(cad_pb_get "aichatv2_port_$FAILWIN")"
+check "so the window still reads as empty" "" \
+    "$(cad_call_lib aichat.model.library.sh chat_engine_label "$FAILWIN")"
+
+# ---------------------------------------------------------------------------
+section "a pick for a window that closed opens a new one, rather than nothing"
+# The selector owns its arm for its whole life, so the chat window that asked for the model can
+# be closed while the user is still choosing - and the chat window's close cannot reach an arm
+# held inside a selector. Both delivery handlers then refuse, correctly and SILENTLY: the
+# selector closed and nothing happened at all. The pick is worth more than that - the user
+# asked for this model, and only the window they asked it for is gone.
+chains_reset
+CLOSEDWIN="OMCTEST-closed-$$"
+cad_pb_set "aichatv2_modelpath_$CLOSEDWIN" ""
+cad_pb_set "aichatv2_agent_$CLOSEDWIN" ""
+cad_pb_set "aichatv2_open_$CLOSEDWIN" ""      # closed while the selector was open
+cad_pb_set "aichatv2_switcharm_$OMC_ACTIONUI_WINDOW_UUID" "$CLOSEDWIN|$(/bin/date +%s)"
+cad_pb_set "aichatv2_load_target" ""
+lib launch_queue_clear
+omc_table_cell 10 3 "$GGUF"
+omc_control 30 false
+omc_run aichat.select.local.model.ok
+check "the model still opens a window" "1" "$(chain_asked aichat.chat)"
+check "  not a load into a dead one"   "0" "$(chain_asked aichat.chat.load.model)"
+check "  and nothing is left aimed"    ""  "$(cad_pb_get aichatv2_load_target)"
+
+# ---------------------------------------------------------------------------
+section "an empty window does not keep a cleared conversation's name"
+# chat_engine_label answers nothing for a window with no engine, and both callers used to
+# retitle only when it answered something - so New Chat cleared the transcript and reset the
+# facts line while the title went on naming the conversation that had just been left.
+ui_reset
+cad_pb_set "aichatv2_modelpath_$OMC_ACTIONUI_WINDOW_UUID" ""
+cad_pb_set "aichatv2_agent_$OMC_ACTIONUI_WINDOW_UUID" ""
+cad_pb_set "aichatv2_session_$OMC_ACTIONUI_WINDOW_UUID" "20260101T000000Z-1"
+omc_run aichat.chat.new
+check_status "New Chat succeeds with no engine" 0
+check "the window is retitled"  "1"        "$(ui_calls omc_window)"
+check "  to the app's own name" "Cadabra"  "$(ui_title)"
+check "and the facts line resets" "New conversation" "$(ui_value "$HL_CHAT_INFO_TEXT_ID")"
 
 # ---------------------------------------------------------------------------
 section "closing a chat window disarms a launch aimed at it"

@@ -23,8 +23,12 @@ pb_set "aichatv2_resume_pending_${win}" ""
 
 # Retitle to whatever drives this window - the active model, or the external ACP agent, which
 # has no model path and so used to leave the previous conversation's title sitting there.
+# Falls back to the app's own name rather than doing nothing. chat_engine_label answers
+# nothing for a window that has no engine yet - an ordinary state since File > New Chat Window
+# - and "do nothing" there left the cleared conversation's title sitting above an empty
+# transcript, naming a chat this window is no longer showing.
 label=$(chat_engine_label "$win")
-[ -n "$label" ] && chat_window_set_status "$win" "$label"
+chat_window_set_status "$win" "${label:-$APPLET_NAME}"
 
 # Drop any selection and disable the row-action buttons (omc_deselect fires no actionID).
 "$dialog" "$win" "$TABLE_ID" omc_deselect

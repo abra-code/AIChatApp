@@ -26,6 +26,23 @@ CHAT_ID=1
 SLOT_ID=560
 PICKER_ID=561
 
+# EVERY WINDOW IN THIS FILE RUNS ITS OWN LOCAL MODEL, and now has to say so.
+#
+# This file is about what a window may offer to summarize WITH, and "the model in this chat"
+# requires there to be a model: since File > New Chat Window a window can be driven by neither a
+# model nor an agent, and a bare "no foreign agent" answered yes for that case too - offering to
+# summarize with a model the window does not have. The stamp is what chat_engine_load writes for
+# every local engine, so a window without it is not a window this file means to describe.
+#
+# Applied through this wrapper rather than once at the top, because omc_window_switch mints a new
+# uuid and the stamp is per window - a single stamp would cover only the first section.
+# The sections that model an EXTERNAL agent stamp that too, and the agent still wins.
+cad_model_window() { # <label>
+    omc_window_switch "$1"
+    cad_pb_set "aichatv2_modelpath_$OMC_ACTIONUI_WINDOW_UUID" "/models/Tiny-Q4_K_M.gguf"
+}
+cad_pb_set "aichatv2_modelpath_$OMC_ACTIONUI_WINDOW_UUID" "/models/Tiny-Q4_K_M.gguf"
+
 cad_hist="$HOME/Library/Application Support/Cadabra/History"
 cad_py="$OMC_APP_BUNDLE_PATH/Contents/Library/Python/bin/python3"
 cad_store="$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/history_store.py"
@@ -94,7 +111,7 @@ check "a non-numeric bound is refused, not sent" "2" \
 
 section "the menu is built from what this machine can actually do"
 cad_mk_session short 4
-omc_window_switch menu
+cad_model_window menu
 ui_declare_ids "$PICKER_ID"
 cad_pb_set "aichatv2_session_$OMC_ACTIONUI_WINDOW_UUID" long
 cad_journal_reset
@@ -145,7 +162,7 @@ section "a conversation with nothing to summarize offers an inert menu, not a tr
 cad_mk_session justshort 3     # 6 messages: keep-recent + 1 or fewer, no older half
 check "6 messages cannot be condensed" "1" \
     "$(cad_hist_call summarize_can_condense justshort >/dev/null 2>&1; [ $? -ne 0 ] && echo 1 || echo 0)"
-omc_window_switch inert
+cad_model_window inert
 ui_declare_ids "$PICKER_ID"
 cad_journal_reset
 CAD_FM_OK=1 cad_hist_call summarize_show "$OMC_ACTIONUI_WINDOW_UUID" justshort
@@ -191,7 +208,7 @@ check "  and the transport is still built"    "1" "$(cad_has "$(cad_argv)" '"--m
 # 2, prints nothing, and the window displays no conversation at all. Asserted through the SHELL,
 # because calling the store directly with an explicit empty argument tests the store's guard and
 # not the one that would break.
-omc_window_switch argvthread
+cad_model_window argvthread
 ui_declare_ids "$PICKER_ID"
 cad_journal_reset
 cad_hist_call history_inject_content "$OMC_ACTIONUI_WINDOW_UUID" "$CHAT_ID" long defer "" session
@@ -205,7 +222,7 @@ section "a choice this window cannot honor demotes to auto, and never reaches a 
 # summarizer would throw away the half of the answer that is still honorable, on a conversation
 # long enough that the user asked for one.
 cad_mk_session demote 20
-omc_window_switch demotion
+cad_model_window demotion
 ui_declare_ids "$PICKER_ID"
 win="$OMC_ACTIONUI_WINDOW_UUID"
 
@@ -244,7 +261,7 @@ section "the menu handler records the choice, through the real dispatch"
 # wrong order, which parses, exits successfully, and stores nothing - green tests, and every
 # window summarizing with something the user had not picked.
 cad_mk_session pick 20
-omc_window_switch modechoice
+cad_model_window modechoice
 ui_declare_ids "$PICKER_ID"
 cad_pb_set "aichatv2_session_$OMC_ACTIONUI_WINDOW_UUID" pick
 # No external agent stamped on this window, so "the model in this chat" is a choice it can offer.
@@ -305,7 +322,7 @@ section "resuming asks only when this conversation has an older half"
 # The resume handler gates on TWO things - the stored mode, and whether there is anything to
 # condense - where the menu handler gates on the mode alone. Both halves are asserted here
 # because neither was dispatched by any test before.
-omc_window_switch resumeask
+cad_model_window resumeask
 ui_declare_ids "$PICKER_ID"
 cad_mk_session asklong 20
 cad_mk_session askshort 3

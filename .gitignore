@@ -32,6 +32,9 @@ AIChat.app/Contents/Library/Packages
 
 ## Cadabra.app (native-chat V2, rebranded; coexists with root AIChat.app 1.x) — track only source under Contents/Resources + Info.plist/PkgInfo
 Cadabra.app/Contents/_CodeSignature
+# The stapled notarization ticket. A build artifact like _CodeSignature beside it, and it is
+# NOT in that directory - which is how it slipped into the tree once already.
+Cadabra.app/Contents/CodeResources
 Cadabra.app/Contents/Frameworks
 Cadabra.app/Contents/MacOS
 Cadabra.app/Contents/Library

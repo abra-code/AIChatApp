@@ -20,6 +20,11 @@ TABLE_ID=10
 dialog_tool="$OMC_OMC_SUPPORT_PATH/omc_dialog_control"
 window_uuid="$OMC_ACTIONUI_WINDOW_UUID"
 
+# Take ownership of an arm from a chat window's model bar, moving it out of the global key and
+# into this selector's own scope - see model_switch_capture. A no-op when the selector was
+# opened from the menu with nothing armed.
+model_switch_capture "$window_uuid"
+
 # Column 3 (path) is hidden - rows carry 3 tab-separated values but only 2 headers exist.
 "$dialog_tool" "$window_uuid" $TABLE_ID omc_table_set_columns "Model" "Size"
 "$dialog_tool" "$window_uuid" $TABLE_ID omc_table_set_column_widths 390 70

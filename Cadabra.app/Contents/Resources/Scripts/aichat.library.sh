@@ -51,13 +51,10 @@ model_switch_disarm_for() {
     case "$val" in "$1|"*) pb_set "$MODEL_SWITCH_KEY" "" ;; esac
 }
 
-# model_switch_consume — read+CLEAR the handoff; echo the chat window UUID only if armed
-# within MODEL_SWITCH_TTL seconds, else "" (stale/malformed handoffs are dropped). Window
-# UUIDs never contain "|".
-model_switch_consume() {
-    local val win epoch now age
-    val=$(pb_get "$MODEL_SWITCH_KEY")
-    pb_set "$MODEL_SWITCH_KEY" ""
+# model_switch_valid <armed-value> — echo the chat window UUID if the arm is well-formed and
+# within MODEL_SWITCH_TTL seconds, else nothing. Window UUIDs never contain "|".
+model_switch_valid() {
+    local val="$1" win epoch now age
     [ -n "$val" ] || return 0
     win=${val%|*}
     epoch=${val##*|}
@@ -68,6 +65,67 @@ model_switch_consume() {
         echo "$win"
     fi
 }
+
+# Where a selector keeps the arm it owns. One spelling, because six call sites spelled it by
+# hand and a seventh would have been a silent no-op.
+MODEL_SWITCH_ARM_PREFIX="aichatv2_switcharm_"
+
+# model_switch_capture <selector_window_uuid> — the selector takes ownership of the arm at its
+# own init, moving it out of the global key into one scoped to this selector window.
+#
+# THE GLOBAL KEY HOLDS ONE ARM, AND THERE CAN BE MORE THAN ONE SELECTOR. Opening a window
+# before choosing its model is the ordinary way to work now, so two empty windows each sending
+# their model bar to a selector is an ordinary thing to do - and while the arm was global the
+# second one overwrote the first, so the model landed in the window the user was not looking
+# at, and the first selector's later pick found nothing armed and opened a third window. The
+# selector's Cancel had the mirror of it: it cleared the global key, disarming somebody else.
+#
+# Same move the MCP servers dialog makes with a queued launch, for the same reason: state that
+# belongs to a dialog should live exactly as long as that dialog.
+#
+# THE SECOND GUARD IS THE CORRECTNESS ONE. The selector's init is a plain command in the SAME
+# window, so Reload and Delete re-run it - and an unconditional capture then copied the (by now
+# empty) doorstep over the arm this selector was already holding, losing the pick silently.
+# That path is not hypothetical: the on-device model's own alert tells the user to press Reload
+# and pick again.
+#   - already holding one     -> it is ours; a doorstep arm belongs to a selector still opening
+#   - nothing on the doorstep -> nothing to take. This one only saves two pasteboard forks per
+#     menu-opened init; with it removed the function would write two empty values over two
+#     already-empty keys. Kept for the cost, not claimed as a guard.
+#
+# WHAT THIS DOES NOT CLOSE: two model bars pressed before either selector's init runs. The
+# doorstep holds one arm and model_switch_arm overwrites it, so the first window's arm is lost
+# and the first selector captures the second window's. Scoping narrows that window from the
+# whole life of both dialogs to the gap between arming and an init that does a full model-cache
+# discovery - a real reduction, and not a fix. Closing it properly means making the doorstep a
+# queue that inits drain in order.
+model_switch_capture() {
+    local pending
+    pending=$(pb_get "$MODEL_SWITCH_KEY")
+    [ -n "$pending" ] || return 0
+    [ -z "$(pb_get "${MODEL_SWITCH_ARM_PREFIX}${1}")" ] || return 0
+    pb_set "${MODEL_SWITCH_ARM_PREFIX}${1}" "$pending"
+    pb_set "$MODEL_SWITCH_KEY" ""
+}
+
+# model_switch_consume_for <selector_window_uuid> — read+CLEAR this selector's own arm; echo
+# the chat window UUID it names, or nothing when it is absent, malformed or stale.
+model_switch_consume_for() {
+    local val
+    val=$(pb_get "${MODEL_SWITCH_ARM_PREFIX}${1}")
+    pb_set "${MODEL_SWITCH_ARM_PREFIX}${1}" ""
+    model_switch_valid "$val"
+}
+
+# model_switch_rearm_for <selector_window_uuid> <chat_window_uuid> — put an arm back, stamped
+# now. For a pick this selector declined to carry out (the RAM warning), where the user is
+# expected to choose again in the same selector.
+model_switch_rearm_for() {
+    pb_set "${MODEL_SWITCH_ARM_PREFIX}${1}" "$2|$(/bin/date +%s)"
+}
+
+# model_switch_release_for <selector_window_uuid> — drop this selector's arm and nobody else's.
+model_switch_release_for() { pb_set "${MODEL_SWITCH_ARM_PREFIX}${1}" ""; }
 
 # ──────────────────────────────────────────────────────────────
 # First-model handoff (an empty chat window is handed its engine)
@@ -113,6 +171,16 @@ load_target_consume() {
 #
 # Marked positively, by the window itself. A "this one is dead" marker would read as alive for
 # any window whose init never ran at all.
+#
+# A BARE MARK, and the staleness argument is a bound rather than a mechanism. The pasteboard
+# outlives the app and only the close handler clears this, so a crash leaves a "1" behind
+# forever. That cannot mislead anyone: window uuids are freshly minted per window and never
+# reused, so a stale mark names a uuid nothing will ever ask about again. For it to do harm the
+# GLOBAL load target would have to name that same dead uuid at the same time - and the one path
+# that can park a launch past a window's death, the MCP servers dialog, dies with the app that
+# crashed. Verifying the mark instead would mean recording the app's pid, and this engine gives
+# a handler no reliable way to learn it: OMC_FRONT_PROCESS_ID is the FRONTMOST app, which on a
+# background quit is somebody else (see the note on stop_all_bundle_servers).
 chat_window_open_mark()  { pb_set "aichatv2_open_${1}" "1"; }
 chat_window_open_clear() { pb_set "aichatv2_open_${1}" ""; }
 chat_window_is_open()    { [ "$(pb_get "aichatv2_open_${1}")" = "1" ]; }

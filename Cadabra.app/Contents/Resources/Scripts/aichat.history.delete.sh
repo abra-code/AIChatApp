@@ -35,8 +35,10 @@ if [ "$(pb_get "aichatv2_session_${win}")" = "$sid" ]; then
     # The title tracks the loaded CONVERSATION (stamped by the selection handler), so it has
     # to fall back to the model here - otherwise the window keeps naming a chat that no
     # longer exists. Same end state as New Chat: empty chat, unbound, titled by model.
+        # No engine yet means no label, and doing nothing then is exactly what this block exists
+    # to prevent.
     engine_label=$(chat_engine_label "$win")
-    [ -n "$engine_label" ] && chat_window_set_status "$win" "$engine_label"
+    chat_window_set_status "$win" "${engine_label:-$APPLET_NAME}"
 fi
 
 "$next_command" "$OMC_CURRENT_COMMAND_GUID" "aichat.history.refresh"

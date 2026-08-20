@@ -23,6 +23,9 @@ section "the harness and the applet agree on the handoff keys"
 check "keys and TTLs are the ones under test" \
     "$MODEL_SWITCH_KEY $LAUNCH_QUEUE_KEY $TTL $TTL" \
     "$(cad_lib_var MODEL_SWITCH_KEY) $(cad_lib_var LAUNCH_QUEUE_KEY) $(cad_lib_var MODEL_SWITCH_TTL) $(cad_lib_var LAUNCH_QUEUE_TTL)"
+# The per-selector arm is a PREFIX rather than a key, and the sections below write it by hand.
+ARM=aichatv2_switcharm_
+check "and the per-selector arm's prefix" "$ARM" "$(cad_lib_var MODEL_SWITCH_ARM_PREFIX)"
 
 section "the settings file is created once, and only by a writer"
 cad_reset
@@ -50,11 +53,19 @@ check "a window's config dir" \
     "$HOME/Library/Application Support/Cadabra/Sessions/WIN-1" \
     "$(cad_call aichat_session_config_dir WIN-1)"
 
-section "the model-switch handoff"
+section "the model-switch handoff, which a selector takes ownership of"
+# ARMED GLOBALLY, OWNED PER SELECTOR. The chat window's model bar arms the one global key on
+# its way to opening a selector, and the selector's init moves it into its own scope. Two
+# selectors can be open at once now - opening a window before choosing its model is the
+# ordinary way to work - so the global key is a doorstep, not a home.
+SEL=sel-1
 cad_pb_set "$MODEL_SWITCH_KEY" ""
+cad_pb_set "$ARM$SEL" ""
 cad_call model_switch_arm "win-A"
-check "an armed handoff names its window" "win-A" "$(cad_call model_switch_consume)"
-check "  and consuming it clears it"      ""      "$(cad_call model_switch_consume)"
+cad_call model_switch_capture "$SEL"
+check "capturing empties the doorstep"  ""      "$(cad_pb_get "$MODEL_SWITCH_KEY")"
+check "an armed handoff names its window" "win-A" "$(cad_call model_switch_consume_for "$SEL")"
+check "  and consuming it clears it"      ""      "$(cad_call model_switch_consume_for "$SEL")"
 
 now=$(/bin/date +%s)
 # AT the boundary, near enough to mean it. A +-10s fixture leaves a nine-second slack window in
@@ -63,37 +74,90 @@ now=$(/bin/date +%s)
 # comparison running; the refuse side needs none, so it is exact. An `-le` to `-lt` flip is one
 # second wide and is not reachable without freezing the clock, which needs a seam the applet
 # does not have.
-cad_pb_set "$MODEL_SWITCH_KEY" "win-A|$((now - TTL + 2))"
-check "just inside the TTL is honored" "win-A" "$(cad_call model_switch_consume)"
-cad_pb_set "$MODEL_SWITCH_KEY" "win-A|$((now - TTL - 1))"
-check "just outside it is refused"     ""      "$(cad_call model_switch_consume)"
-# A refused handoff must still be cleared. Otherwise a Model-button-then-Cancel leaves a dead
+cad_pb_set "$ARM$SEL" "win-A|$((now - TTL + 2))"
+check "just inside the TTL is honored" "win-A" "$(cad_call model_switch_consume_for "$SEL")"
+cad_pb_set "$ARM$SEL" "win-A|$((now - TTL - 1))"
+check "just outside it is refused"     ""      "$(cad_call model_switch_consume_for "$SEL")"
+# A refused handoff must still be cleared. Otherwise a model-bar-then-Cancel leaves a dead
 # window armed on the pasteboard forever, and the next first-launch model pick reads it.
-cad_pb_set "$MODEL_SWITCH_KEY" "win-A|$((now - TTL - 1))"
-cad_call model_switch_consume >/dev/null
-check "  and a refused one is cleared anyway" "" "$(cad_pb_get "$MODEL_SWITCH_KEY")"
-cad_pb_set "$MODEL_SWITCH_KEY" "win-A|not-a-number"
-check "a malformed epoch is refused"   ""      "$(cad_call model_switch_consume)"
-cad_pb_set "$MODEL_SWITCH_KEY" "win-A"
-check "no epoch at all is refused"     ""      "$(cad_call model_switch_consume)"
+cad_pb_set "$ARM$SEL" "win-A|$((now - TTL - 1))"
+cad_call model_switch_consume_for "$SEL" >/dev/null
+check "  and a refused one is cleared anyway" "" "$(cad_pb_get "$ARM$SEL")"
+cad_pb_set "$ARM$SEL" "win-A|not-a-number"
+check "a malformed epoch is refused"   ""      "$(cad_call model_switch_consume_for "$SEL")"
+cad_pb_set "$ARM$SEL" "win-A"
+check "no epoch at all is refused"     ""      "$(cad_call model_switch_consume_for "$SEL")"
 # age must be >= 0, not merely <= TTL. A clock that moved backwards - or a handoff written by a
 # machine ahead of this one - would otherwise be accepted forever.
-cad_pb_set "$MODEL_SWITCH_KEY" "win-A|$((now + 3600))"
-check "an epoch in the future is refused" ""   "$(cad_call model_switch_consume)"
+cad_pb_set "$ARM$SEL" "win-A|$((now + 3600))"
+check "an epoch in the future is refused" ""   "$(cad_call model_switch_consume_for "$SEL")"
 
-section "disarming targets one window, by whole name"
+section "two selectors, each open, do not answer for each other"
+# The bug the per-selector scope exists to prevent, and it is reachable in one gesture now:
+# two empty windows, each sending its model bar to a selector. While the arm was global the
+# second overwrote the first, so the model landed in the window the user was not looking at -
+# and either selector's Cancel disarmed the other.
+#
+# ONCE EACH SELECTOR HOLDS ITS OWN, which is what these arm-then-capture pairs set up and is
+# the honest limit of what they prove. Both bars pressed BEFORE either init runs is still a
+# race the doorstep cannot survive - see the note on model_switch_capture. Writing that
+# interleaving here as a passing test would mean claiming it was fixed.
+cad_pb_set "${ARM}sel-A" ""
+cad_pb_set "${ARM}sel-B" ""
+cad_call model_switch_arm "win-A"; cad_call model_switch_capture "sel-A"
+cad_call model_switch_arm "win-B"; cad_call model_switch_capture "sel-B"
+check "each selector kept its own window" "win-A" "$(cad_call model_switch_consume_for sel-A)"
+check "  and the second is untouched"     "win-B" "$(cad_call model_switch_consume_for sel-B)"
+cad_call model_switch_arm "win-A"; cad_call model_switch_capture "sel-A"
+cad_call model_switch_arm "win-B"; cad_call model_switch_capture "sel-B"
+cad_call model_switch_release_for sel-B
+check "cancelling one leaves the other armed" "win-A" "$(cad_call model_switch_consume_for sel-A)"
+
+section "a selector that re-inits keeps the arm it is holding"
+# Note which guard each check below exercises: "a re-init does not lose it" passes with EITHER
+# guard alone, so it proves only that some guard exists. "does not steal the next one" is the
+# discriminating one, and it is the second guard that makes it pass.
+# THE SELECTOR'S INIT RUNS MORE THAN ONCE. It is a plain command in the SAME window, so Reload
+# and Delete re-run it - and an unconditional capture then copied the by-now-empty doorstep
+# over the arm this selector was already holding. The pick was lost silently: OK opened a
+# second chat window and the empty one stayed empty. Not hypothetical - the on-device model's
+# own alert tells the user to press Reload and pick the model again.
+cad_pb_set "$MODEL_SWITCH_KEY" ""
+cad_pb_set "${ARM}sel-A" ""
+cad_call model_switch_arm "win-A"
+cad_call model_switch_capture sel-A
+cad_call model_switch_capture sel-A            # Reload
+cad_call model_switch_capture sel-A            # and again
+check "a re-init does not lose it" "win-A" "$(cad_call model_switch_consume_for sel-A)"
+
+# The mirror: a selector already holding an arm must not swallow one left on the doorstep for
+# a selector that has not opened yet.
+cad_pb_set "$MODEL_SWITCH_KEY" ""
+cad_pb_set "${ARM}sel-A" ""
+cad_call model_switch_arm "win-A"; cad_call model_switch_capture sel-A
+cad_call model_switch_arm "win-B"              # a second empty window sends its model bar
+cad_call model_switch_capture sel-A            # ...and sel-A happens to Reload first
+check "and does not steal the next one"   "win-A" "$(cad_call model_switch_consume_for sel-A)"
+check "  which is still on the doorstep"  "1"     "$(cad_has "$(cad_pb_get "$MODEL_SWITCH_KEY")" "win-B|")"
+
+section "disarming on the doorstep targets one window, by whole name"
+# The window closing between arming and the selector's init is the only moment this can act,
+# but it is the moment that matters: the selector has not taken ownership yet.
 cad_call model_switch_arm "win-A"
 cad_call model_switch_disarm_for "win-B"
-check "another window's close leaves it armed" "win-A" "$(cad_call model_switch_consume)"
+cad_call model_switch_capture "$SEL"
+check "another window's close leaves it armed" "win-A" "$(cad_call model_switch_consume_for "$SEL")"
 cad_call model_switch_arm "win-A"
 cad_call model_switch_disarm_for "win-A"
-check "its own window's close disarms it"      ""      "$(cad_call model_switch_consume)"
+cad_call model_switch_capture "$SEL"
+check "its own window's close disarms it"      ""      "$(cad_call model_switch_consume_for "$SEL")"
 # The match is on "<window>|", not on a bare prefix: window uuids share prefixes routinely
 # (OMCTEST-foo-123 and OMCTEST-foo-1234), and a prefix match would let one window's close
 # disarm another's pending switch.
 cad_call model_switch_arm "win-A2"
 cad_call model_switch_disarm_for "win-A"
-check "a window whose name is a prefix does not" "win-A2" "$(cad_call model_switch_consume)"
+cad_call model_switch_capture "$SEL"
+check "a window whose name is a prefix does not" "win-A2" "$(cad_call model_switch_consume_for "$SEL")"
 
 section "the launch queue carries the model and its tools decision together"
 cad_pb_set "$LAUNCH_QUEUE_KEY" ""

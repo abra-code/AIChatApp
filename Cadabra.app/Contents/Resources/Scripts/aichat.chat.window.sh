@@ -20,4 +20,7 @@ source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.library.sh"
 echo "[$(/usr/bin/basename "$0")]"
 
 launch_queue_clear
+# The queue's destination goes with it. These two are read as a pair, and clearing only one
+# leaves a launch aimed at a window that is not the one about to open.
+load_target_arm ""
 "$next_command" "$OMC_CURRENT_COMMAND_GUID" "aichat.chat"

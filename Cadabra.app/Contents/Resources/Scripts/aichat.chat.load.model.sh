@@ -23,6 +23,20 @@ echo "[$(/usr/bin/basename "$0")]"
 target_win=$(load_target_consume)
 [ -n "$target_win" ] || { echo "no target window for a first model load"; exit 0; }
 
+# SHAPED LIKE A WINDOW UUID. This value comes off the pasteboard and is interpolated into a
+# filesystem path downstream - the agent's per-session config dir, which the tools-off path
+# removes - so it is checked here for the same reason session ids are, and with the same rule:
+# nothing with a slash, a "..", or a leading dot. Every window uuid the engine mints passes.
+case "$target_win" in
+	*/*|*..*|.*)
+		echo "refusing a target window that is not shaped like a window: $target_win"
+		# Dropping the launch with it, like the two refusals below. The target was consumed
+		# above, so a queue left armed here is a model with nowhere to go that the next
+		# window to open would inherit.
+		launch_queue_clear
+		exit 0 ;;
+esac
+
 # STILL THERE? A launch routed through the MCP servers dialog can be parked for minutes, and
 # that dialog holds it in its own scope where the closing window's disarm cannot reach it. This
 # is not a cosmetic check: chat_engine_load would launch a real llama-server for a window that
@@ -34,6 +48,24 @@ if ! chat_window_is_open "$target_win"; then
 	exit 0
 fi
 
+# STILL EMPTY? The other half of the same question, and it needs asking for the same reason:
+# neither the picker nor the MCP servers dialog is modal, so the window is live and usable the
+# whole time a launch is being decided for it. Pick a model with tools ON, leave that dialog
+# open, pick a second model with tools off in the same window - and the first launch arrives
+# afterwards, at a window that now has a frozen transport. Injecting a second config would be
+# ignored (the element freezes on the first), but chat_engine_load would still claim a port and
+# start a second llama-server that nothing owns and nothing tears down.
+#
+# The window's own stamps are the authority, read HERE rather than trusted from when the pick
+# was made. Exactly the pair aichat.select.local.model.ok.sh reads to decide this is a first
+# load at all - by the time delivery happens that decision can simply have expired.
+if [ -n "$(pb_get "aichatv2_modelpath_${target_win}")" ] || \
+   [ -n "$(pb_get "aichatv2_agent_${target_win}")" ]; then
+	echo "window $target_win already has an engine - dropping the launch it no longer needs"
+	launch_queue_clear
+	exit 0
+fi
+
 queued=$(launch_queue_consume)
 [ -n "$queued" ] || { echo "no queued model for window $target_win"; exit 0; }
 model_path=$(launch_queue_model "$queued")
@@ -41,11 +73,6 @@ use_tools=$(launch_queue_tools "$queued")
 [ -n "$model_path" ] || { echo "queued launch for window $target_win carries no model"; exit 0; }
 
 echo "loading $model_path into window $target_win (use_tools=$use_tools)"
-
-# The same clean slate a new window gets before it launches a server. This window skipped it
-# at init, because at init there was nothing to launch.
-stop_orphaned_servers
-reap_orphaned_bundle_processes
 
 chat_engine_load "$target_win" "$model_path" "$use_tools" "false"
 

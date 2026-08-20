@@ -124,30 +124,24 @@ fi
 # arrives (it defers building the transport until then), and the model bar's button carries
 # the invitation. aichat.chat.load.model.sh is what finishes the job later.
 #
-# AND NOTHING IS WRITTEN HERE. Everything this state needs to say is already declared in
-# aichat.chat.json and in the command's WINDOW_TITLE - the button reads "Choose a Model", the
-# facts line reads "New conversation", the window is called Cadabra - so the correct branch is
-# an empty one. That is not only tidiness. This is the shortest path there has ever been
-# between a chat window being created and its init finishing, and a write issued in that gap
-# can be refused ("error sending request to dialog port") by a window that is not serving yet.
-# Every other branch below spends seconds loading an engine first, which is why nothing has
-# had to think about it before.
+# AND NOTHING IS WRITTEN HERE, because there is nothing left to say: aichat.chat.json and the
+# command's WINDOW_TITLE already declare this exact state - the button reads "Choose a Model",
+# the facts line reads "New conversation", the window is called Cadabra. Writing it again would
+# be restating a constant to a window that already shows it.
+#
+# Worth more than tidiness, on the evidence. Instrumenting a running copy showed writes issued
+# on this branch being refused ("error sending request to dialog port") by a window not yet
+# serving, and which of the three was refused moved between runs. This is the shortest path
+# there has ever been between a chat window being created and its init finishing - every other
+# branch spends seconds on an engine first - so it is the branch most exposed to that race, and
+# these were the writes that could simply be dropped. It does NOT make the branch race-free:
+# the sidebar populate above is a dialog call on this same path, and it has to stay.
 if [ -z "$AICHAT_MODEL_PATH" ] && [ "$external_agent_active" != "true" ]; then
 	echo "no model and no external agent - opening an empty chat window"
 	exit 0
 fi
 
 echo "AICHAT_MODEL_PATH = $AICHAT_MODEL_PATH"
-
-# Remove stale keys left by older schema versions (no-op when already absent).
-[ -f "$prefs" ] && "$plister" delete "$prefs" "/server-windows" 2>/dev/null
-
-stop_orphaned_servers
-
-# Safety net: kill any of this bundle's llama-server / MCP server / mlx-agent processes that a
-# previous session orphaned onto launchd. Pairs with the registry-based stop_orphaned_servers
-# above, and runs before this session launches its server for a clean slate.
-reap_orphaned_bundle_processes
 
 # Everything that has to be true before this window can talk, in one place - the same code the
 # empty window runs when it is handed its first model (aichat.chat.load.model.sh).

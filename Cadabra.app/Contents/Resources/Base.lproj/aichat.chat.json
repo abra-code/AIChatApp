@@ -104,7 +104,7 @@
     "type": "ZStack",
     "id": 505,
     "properties": {
-      "frame": { "minWidth": 460, "maxWidth": "infinity", "maxHeight": "infinity" }
+      "frame": { "minWidth": 460, "maxWidth": "infinity", "maxHeight": "infinity", "alignment": "top" }
     },
     "children": [
       {
@@ -201,7 +201,7 @@
         "id": 550,
         "properties": {
           "spacing": 0,
-          "frame": { "maxWidth": "infinity", "maxHeight": "infinity" }
+          "frame": { "maxWidth": "infinity", "maxHeight": "infinity", "alignment": "center" }
         },
         "children": [ { "type": "EmptyView" } ]
       }

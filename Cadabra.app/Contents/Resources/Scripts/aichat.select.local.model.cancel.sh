@@ -5,7 +5,10 @@
 # pick into an in-place switch of the wrong window (the arm is otherwise only consumed on OK).
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.library.sh"
 
-pb_set "$MODEL_SWITCH_KEY" ""
+# THIS selector's arm. It used to clear the global key, which with two selectors open meant
+# cancelling one disarmed the other - and the window behind it then opened a second window
+# instead of taking the model it asked for.
+model_switch_release_for "$OMC_ACTIONUI_WINDOW_UUID"
 # Benchmark-pane state is per-window; drop it so keys don't accumulate across lifetimes.
 pb_set "aichatv2_selected_model_${OMC_ACTIONUI_WINDOW_UUID}" ""
 pb_set "aichatv2_bench_running_${OMC_ACTIONUI_WINDOW_UUID}" ""

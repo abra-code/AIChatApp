@@ -100,10 +100,25 @@ Check Apple Intelligence in System Settings, or try again after a macOS update."
 fi
 
 # ── In-place model switch? ────────────────────────────────────────────────────
-# Armed by a chat window's Model button (aichat.model.switch). Instead of opening a new
+# Armed by a chat window's model bar (aichat.model.switch) and captured by this selector's own
+# init, so two selectors open at once cannot answer for each other. Instead of opening a new
 # chat window, restart the pinned-port server for THAT window and let its frozen transport
 # continue against the new model (see aichat.chat.switch.model.sh).
-switch_win=$(model_switch_consume)
+switch_win=$(model_switch_consume_for "$window_uuid")
+
+# STILL THERE? The selector owns its arm for its whole life now, so the chat window that asked
+# for this can be closed while the user is still choosing - and the close cannot reach an arm
+# held in here. Both branches below end at a handler that checks the window is open and drops
+# the launch, which is right, but silently: the selector closed and nothing happened at all.
+#
+# Dropping the arm instead sends the pick down the ordinary new-window path below, which is
+# what a model pick meant before any of this existed and is the only useful thing left to do
+# with it - the user asked for this model, and the window they asked it FOR is gone.
+if [ -n "$switch_win" ] && ! chat_window_is_open "$switch_win"; then
+    echo "chat window $switch_win closed while its model was being chosen - opening a new one"
+    switch_win=""
+fi
+
 if [ -n "$switch_win" ]; then
     current=$(pb_get "aichatv2_modelpath_${switch_win}")
 
@@ -125,10 +140,15 @@ if [ -n "$switch_win" ]; then
         warn_ram_pressure_for_new_model "$first_bytes" "$first_label"
         if [ $? -ne 0 ]; then
             echo "first model load cancelled at RAM-pressure warning"
-            model_switch_arm "$switch_win"   # re-arm so another pick still lands here
+            model_switch_rearm_for "$window_uuid" "$switch_win"   # still ours to carry out
             exit 0
         fi
         echo "first model for empty window $switch_win: $selected_path"
+        # The same rule the new-window path states below: choosing a local model turns the
+        # stored external ACP agent off. This window is unaffected either way (the load is
+        # dispatched with external=false), but the PREFERENCE is app-wide, so leaving it on
+        # means the next File > New Chat Window opens on the agent the user just chose against.
+        acp_agent_disable
         "$dialog_tool" "$window_uuid" omc_window omc_terminate_ok
         load_target_arm "$switch_win"
         launch_queue_arm "$selected_path" "${OMC_ACTIONUI_VIEW_30_VALUE:-false}"
@@ -172,7 +192,7 @@ if [ -n "$switch_win" ]; then
         warn_ram_pressure_for_new_model "$new_bytes" "$model_label"
         if [ $? -ne 0 ]; then
             echo "switch cancelled at RAM-pressure warning"
-            model_switch_arm "$switch_win"   # re-arm so another pick still switches
+            model_switch_rearm_for "$window_uuid" "$switch_win"   # still ours to carry out
             exit 0
         fi
         "$dialog_tool" "$window_uuid" omc_window omc_terminate_ok

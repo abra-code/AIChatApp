@@ -63,6 +63,21 @@ chat_engine_load() {
 
 	chat_engine_title "$win" "loading model…"
 
+	# ── A clean slate before anything of ours is launched ────────────────────────
+	# Both callers need this and neither should have to remember it, which is why it sits
+	# inside the load rather than in front of the two calls to it. It also has to come AFTER
+	# the title above: reaping walks every process on the machine and can spend a TERM, a
+	# sleep and a KILL on each orphan it finds, and while that runs the window would otherwise
+	# sit under its plain name saying nothing at all.
+	[ -f "$prefs" ] && "$plister" delete "$prefs" "/server-windows" 2>/dev/null
+
+	stop_orphaned_servers
+
+	# Safety net: kill any of this bundle's llama-server / MCP server / mlx-agent processes that
+	# a previous session orphaned onto launchd. Pairs with the registry-based
+	# stop_orphaned_servers above, and runs before this session launches its server.
+	reap_orphaned_bundle_processes
+
 	# ── Which engine? ─────────────────────────────────────────────────────────────
 	# The model's SHAPE decides, not a setting: a .gguf FILE runs on llama-server (this applet
 	# owns the server; mlx-agent reaches it with --backend openai), while a safetensors
@@ -123,11 +138,28 @@ Expected either a .gguf file, or a folder containing config.json and .safetensor
 	fi
 	echo "engine = $engine, model_label = $model_label"
 
+	# WHAT THIS WINDOW CLAIMED BEFORE WE TOUCHED IT, so a load that fails can put it back. The
+	# stamps below go in BEFORE the five branches that can fail (no free port, a launch that
+	# never answers, a transport that comes back empty on mlx / external / foundation), and a
+	# window left stamped with a model it never loaded is not merely untidy - it is stuck. The
+	# picker reads exactly this pair to decide a window is still empty, so the retry is refused
+	# as "model unchanged", and a retry with a DIFFERENT gguf is routed to the in-place switch,
+	# which relaunches a server under a Chat element that never received a config: a window
+	# naming a loaded model over a composer that can never enable.
+	#
+	# aichat.chat.switch.model.sh has carried this rollback since the day a failed switch could
+	# strand a window; a first load needs it for the same reason and could not have it until the
+	# stamps started naming the right window.
+	local prev_model_path prev_agent prev_port
+	prev_model_path=$(pb_get "aichatv2_modelpath_${win}")
+	prev_agent=$(pb_get "aichatv2_agent_${win}")
+	prev_port=$(pb_get "aichatv2_port_${win}")
+
 	# Stamp the model path for this window so the history entry handler (aichat.chat.entry.sh)
 	# can record it in the session's meta.json (list display + info line) and so the model
 	# switch handler can compare against the currently-loaded model. Stamped AFTER the mlx
 	# symlink resolution above, so the comparison is against the path actually loaded.
-	pb_set "aichatv2_modelpath_${chat_window_uuid}" "$model_path"
+	pb_set "aichatv2_modelpath_${win}" "$model_path"
 
 	# The same stamp for the other kind of conversation. An external agent has no model path, so
 	# without this the entry handler recorded an EMPTY model into meta.json and every external
@@ -140,7 +172,7 @@ Expected either a .gguf file, or a folder containing config.json and .safetensor
 		# the Test dialog writes verifiedVersion, so a badly timed press between them would
 		# reintroduce exactly the title-versus-stamp mismatch this pairing exists to prevent. One
 		# read, one value, and the agreement is structural instead of coincidental.
-		pb_set "aichatv2_agent_${chat_window_uuid}" "$model_label"
+		pb_set "aichatv2_agent_${win}" "$model_label"
 		# And blank the model path, so the exclusivity the readers rely on is ENFORCED here rather
 		# than merely documented. AICHAT_MODEL_PATH is normally already empty on this path, but it
 		# is resolved after the explicit-model-wins override above, so a stale legacy pasteboard
@@ -154,9 +186,9 @@ Expected either a .gguf file, or a folder containing config.json and .safetensor
 		# the new-window path, where acp_agent_disable runs. Without the blanking, a stale value
 		# could let an external window hot-swap in place, leaving the agent stamp attached to a
 		# conversation the local model produced.
-		pb_set "aichatv2_modelpath_${chat_window_uuid}" ""
+		pb_set "aichatv2_modelpath_${win}" ""
 	else
-		pb_set "aichatv2_agent_${chat_window_uuid}" ""
+		pb_set "aichatv2_agent_${win}" ""
 	fi
 
 	# Persist model path as a recent if it lives outside the standard caches.
@@ -312,7 +344,7 @@ ${fm_summary}"
 			"$alert" --level "stop" --title "$APPLET_NAME" --ok "OK" \
 				"Too many models are already running. Close a model window and try again."
 		else
-			pb_set "aichatv2_port_${chat_window_uuid}" "$port_num"
+			pb_set "aichatv2_port_${win}" "$port_num"
 			base_url="http://127.0.0.1:${port_num}/v1"
 
 			echo "Starting llama-server on port $port_num..."
@@ -345,6 +377,15 @@ ${fm_summary}"
 		# Every path that sets engine_ready=1 has already alerted: wait_for_server /
 		# report_server_launch_failure / the no-port branch on gguf, the empty-transport check on
 		# mlx, and the availability refusal or empty-transport check on foundation.
+		#
+		# Un-claim the window first. Nothing was injected, so it is driving nothing, and the
+		# stamps are what every other handler reads to decide what it is driving - leaving them
+		# set describes a model that is not loaded and locks the window out of a second attempt.
+		# The port goes back too: it was claimed before the launch that failed, and a stamped
+		# port is what lets the in-place switch believe this window has a server to restart.
+		pb_set "aichatv2_modelpath_${win}" "$prev_model_path"
+		pb_set "aichatv2_agent_${win}" "$prev_agent"
+		pb_set "aichatv2_port_${win}" "$prev_port"
 		chat_engine_title "$win" "failed to load model"
 		echo "engine load failed (engine=$engine, engine_ready=$engine_ready)"
 	fi
