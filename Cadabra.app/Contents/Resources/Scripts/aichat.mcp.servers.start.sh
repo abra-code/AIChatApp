@@ -32,7 +32,17 @@ echo "saved MCP prefs: allow-network=${OMC_ACTIONUI_VIEW_240_VALUE} time=${OMC_A
 # window on it.
 queued=$(pb_get "aichatv2_launch_${window_uuid}")
 pb_set "aichatv2_launch_${window_uuid}" ""
+load_target=$(pb_get "aichatv2_loadtarget_${window_uuid}")
+pb_set "aichatv2_loadtarget_${window_uuid}" ""
 if [ -n "$queued" ]; then
     launch_queue_arm "$(launch_queue_model "$queued")" "$(launch_queue_tools "$queued")"
-    "$next_command" "$OMC_CURRENT_COMMAND_GUID" "aichat.chat"
+    # A launch that names a window goes INTO it - that window is open, empty, and waiting for
+    # its first engine. Everything else opens a window of its own, which is what a launch
+    # meant before empty windows existed.
+    if [ -n "$load_target" ]; then
+        load_target_arm "$load_target"
+        "$next_command" "$OMC_CURRENT_COMMAND_GUID" "aichat.chat.load.model"
+    else
+        "$next_command" "$OMC_CURRENT_COMMAND_GUID" "aichat.chat"
+    fi
 fi

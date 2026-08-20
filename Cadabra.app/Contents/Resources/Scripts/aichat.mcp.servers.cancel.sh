@@ -9,3 +9,4 @@ source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.library.sh"
 echo "[$(/usr/bin/basename "$0")]"
 
 pb_set "aichatv2_launch_${OMC_ACTIONUI_WINDOW_UUID}" ""
+pb_set "aichatv2_loadtarget_${OMC_ACTIONUI_WINDOW_UUID}" ""

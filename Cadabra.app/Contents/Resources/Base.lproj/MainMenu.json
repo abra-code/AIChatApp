@@ -4,9 +4,14 @@
     "properties": { "placement": "replacing", "placementTarget": "new" },
     "children": [
       { "type": "Button", "properties": {
-          "title": "Select Local Model",
-          "actionID": "aichat.select.local.model",
+          "title": "New Chat Window",
+          "actionID": "aichat.chat.window",
           "keyboardShortcut": { "key": "n" }
+      } },
+      { "type": "Divider" },
+      { "type": "Button", "properties": {
+          "title": "Select Local Model",
+          "actionID": "aichat.select.local.model"
       } },
       { "type": "Button", "properties": {
           "title": "Select ACP Agent",

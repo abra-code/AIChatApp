@@ -11,6 +11,13 @@ echo "OMC_ACTIONUI_WINDOW_UUID: $OMC_ACTIONUI_WINDOW_UUID"
 # If this window's Model button armed an in-place switch that was never consumed, drop it:
 # the selector must not offer to "switch" a conversation that no longer exists.
 model_switch_disarm_for "$OMC_ACTIONUI_WINDOW_UUID"
+# Same for a first-model launch aimed at this window: it would be delivered to a window that
+# is gone, and until something consumed it the next ordinary model pick would be diverted
+# here instead of opening its own window.
+load_target_disarm_for "$OMC_ACTIONUI_WINDOW_UUID"
+# And say so, for the launch that disarming cannot reach: one parked in the MCP servers dialog
+# is held in that dialog's own scope and will be delivered from there regardless.
+chat_window_open_clear "$OMC_ACTIONUI_WINDOW_UUID"
 srvlog "WINDOW-CANCEL enter front=${OMC_FRONT_PROCESS_ID} win=$OMC_ACTIONUI_WINDOW_UUID app_pids=[$(srvlog_apppids)] hosts=[$(srvlog_hosts)] v2_servers=[$(srvlog_servers)]"
 
 if [ -f "$prefs" ]; then

@@ -15,11 +15,14 @@
 # CHAT_VIEW_ID and a CHAT_ prefix would produce CHAT_CHAT_VIEW_ID - leaving $CHAT_VIEW_ID empty
 # and every write below going to view id "", which ui_unknown_writes does not flag.
 cad_import_ids aichat.chat.new.sh HC_
+# The facts line's id lives with the function that writes it, not with a handler.
+cad_import_ids aichat.history.library.sh HL_
 
 section "the ids this file drives are the ones the window declares"
 # The guard the header argues for: an id that fails to import is empty, every write goes to view
 # "", and ui_unknown_writes does not flag that - so nothing else in this file would notice.
 check "the chat view and sidebar resolved" "1 510" "$HC_CHAT_VIEW_ID $HC_TABLE_ID"
+check "and the facts line"                  "540"    "$HL_CHAT_INFO_TEXT_ID"
 
 HROOT="$HOME/Library/Application Support/Cadabra/History"
 hist() { cad_call_lib aichat.history.library.sh "$@"; }
@@ -172,14 +175,33 @@ check "an absent key"       "" "$(hist history_meta_field fresh nosuchkey)"
 mk_session broken 'this is not json' -
 check "an unparseable meta" "" "$(hist history_meta_field broken id)"
 
-section "the info line names the model, when to start and how much was said"
+section "the facts line says when a conversation started and how much was said"
 /bin/rm -rf "$HROOT"
 mk_session chat1 '{"id":"chat1","created":"2026-05-04T10:11:12Z","modelPath":"/m/Tiny-Q4_K_M.gguf","model":"Tiny-Q4_K_M"}' \
     "$(local_msg '"one"')"
 line=$(hist history_info_line chat1)
-check "it names the model"   "1" "$(cad_has "$line" "Model: Tiny-Q4_K_M")"
 check "it says when"         "1" "$(cad_has "$line" "Started: 2026-05-04 10:11:12")"
 check "and how many messages" "1" "$(cad_has "$line" "Messages: 1")"
+# NOT the model, even though the session records one. It sits immediately right of the model
+# bar's button, which names the model this window is talking to NOW - and two model names in
+# one row is a question rather than an answer. Which model started the conversation is in the
+# transcript's opening session marker, where a switch since is also recorded.
+check "but not the model"    "0" "$(cad_has "$line" "Tiny-Q4_K_M")"
+
+section "and it is stated for whatever the window is showing"
+ui_reset
+cad_pb_set "aichatv2_session_$OMC_ACTIONUI_WINDOW_UUID" chat1
+hist chat_info_refresh "$OMC_ACTIONUI_WINDOW_UUID"
+check "a bound conversation" "1" "$(cad_has "$(ui_value "$HL_CHAT_INFO_TEXT_ID")" "Messages: 1")"
+ui_reset
+cad_pb_set "aichatv2_session_$OMC_ACTIONUI_WINDOW_UUID" ""
+hist chat_info_refresh "$OMC_ACTIONUI_WINDOW_UUID"
+check "an unbound window"    "New conversation" "$(ui_value "$HL_CHAT_INFO_TEXT_ID")"
+ui_reset
+cad_pb_set "aichatv2_session_$OMC_ACTIONUI_WINDOW_UUID" nosuchsession
+hist chat_info_refresh "$OMC_ACTIONUI_WINDOW_UUID"
+check "  and one bound to a session that is gone" "New conversation" "$(ui_value "$HL_CHAT_INFO_TEXT_ID")"
+cad_pb_set "aichatv2_session_$OMC_ACTIONUI_WINDOW_UUID" ""
 
 section "restoring a conversation into the chat"
 ui_reset

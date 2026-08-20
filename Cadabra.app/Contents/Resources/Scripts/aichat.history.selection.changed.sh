@@ -18,7 +18,6 @@ source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.history.library.s
 
 win="$OMC_ACTIONUI_WINDOW_UUID"
 CHAT_VIEW_ID=1
-INFO_TEXT_ID=540
 ROW_BUTTONS="521 520 524"   # Rename Reveal Delete
 
 # Column 2 (hidden trailing field) holds the session id.
@@ -92,8 +91,6 @@ chat_window_set_status "$win" "$title"
 
 for b in $ROW_BUTTONS; do "$dialog" "$win" "$b" omc_enable; done
 
-# Refresh the info strip if it is showing.
-if [ "$(pb_get "aichatv2_info_${win}")" = "1" ]; then
-    info=$(history_info_line "$sid")
-    [ -n "$info" ] && "$dialog" "$win" "$INFO_TEXT_ID" "$info"
-fi
+# The facts line now describes the conversation that was just loaded. Called after the window
+# was rebound above, which is what makes it name this conversation rather than the last one.
+chat_info_refresh "$win"

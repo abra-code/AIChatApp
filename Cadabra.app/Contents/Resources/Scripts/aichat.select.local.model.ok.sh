@@ -3,7 +3,10 @@
 # Loads the selected model in a NEW chat window, coexisting with any models already running
 # (each window gets its own llama-server on its own port; RAM permitting - the caller already
 # warned). If the SAME model is already loaded, activates that window instead of duplicating
-# it. An armed in-place switch (Model button) is the one path that reuses the current window.
+# it. An armed handoff from a chat window's model bar is what reuses an existing window
+# instead: an in-place switch when that window already has a model, and a first engine when it
+# has none (File > New Chat Window). Both branches are below, and only the switch is
+# restricted - see each for why.
 
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.model.library.sh"
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.acp.agents.library.sh"
@@ -103,6 +106,43 @@ fi
 switch_win=$(model_switch_consume)
 if [ -n "$switch_win" ]; then
     current=$(pb_get "aichatv2_modelpath_${switch_win}")
+
+    # ── An EMPTY window's first model, which is not a switch ─────────────────
+    # File > New Chat Window opens with no engine at all, and its model bar button routes
+    # here through the very same arming the toolbar used to do - so this branch has to tell
+    # "change the model of a running conversation" from "give this window one to begin with".
+    # Both stamps empty is that second thing, and only that: chat init stamps exactly one of
+    # the pair for every engine it starts, INCLUDING the external agent (which is why the
+    # agent is checked here at all - an external window has no model path either).
+    #
+    # It is also the branch with none of the switch's restrictions. Nothing is frozen yet, so
+    # all four engines are reachable and the tools checkbox still means something; the load
+    # goes through the ordinary launch queue, aimed at this window instead of a new one.
+    if [ -z "$current" ] && [ -z "$(pb_get "aichatv2_agent_${switch_win}")" ]; then
+        first_engine=$(model_engine "$selected_path")
+        first_bytes=$(model_bytes "$selected_path" "$first_engine")
+        first_label=$(model_display_label "$selected_path")
+        warn_ram_pressure_for_new_model "$first_bytes" "$first_label"
+        if [ $? -ne 0 ]; then
+            echo "first model load cancelled at RAM-pressure warning"
+            model_switch_arm "$switch_win"   # re-arm so another pick still lands here
+            exit 0
+        fi
+        echo "first model for empty window $switch_win: $selected_path"
+        "$dialog_tool" "$window_uuid" omc_window omc_terminate_ok
+        load_target_arm "$switch_win"
+        launch_queue_arm "$selected_path" "${OMC_ACTIONUI_VIEW_30_VALUE:-false}"
+        # Tools on routes through the MCP servers dialog exactly as a new window's launch
+        # does - the servers and sandbox paths are decided before the transport freezes, and
+        # its Start hands the launch back with the window still named.
+        if [ "${OMC_ACTIONUI_VIEW_30_VALUE:-false}" = "true" ]; then
+            "$next_command" "$OMC_CURRENT_COMMAND_GUID" "aichat.mcp.servers"
+        else
+            "$next_command" "$OMC_CURRENT_COMMAND_GUID" "aichat.chat.load.model"
+        fi
+        exit 0
+    fi
+
     if [ "$current" = "$selected_path" ]; then
         echo "model unchanged; closing selector"
         "$dialog_tool" "$window_uuid" omc_window omc_terminate_ok

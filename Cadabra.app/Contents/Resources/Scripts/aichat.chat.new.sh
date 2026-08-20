@@ -10,7 +10,6 @@ source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.model.library.sh"
 win="$OMC_ACTIONUI_WINDOW_UUID"
 CHAT_VIEW_ID=1
 TABLE_ID=510
-INFO_TEXT_ID=540
 ROW_BUTTONS="521 520 524"   # Rename Reveal Delete
 
 # Clear the chat view (distinguishing empty transcript so a repeat clear is not deduped) and
@@ -36,7 +35,6 @@ for b in $ROW_BUTTONS; do "$dialog" "$win" "$b" omc_disable; done
 # nothing when the control is gone, so this leaves no empty row behind.
 summarize_hide "$win"
 
-# If the info strip is showing, refresh it to the "new conversation" state.
-if [ "$(pb_get "aichatv2_info_${win}")" = "1" ]; then
-    "$dialog" "$win" "$INFO_TEXT_ID" "New conversation$(chat_engine_info_suffix "$win")"
-fi
+# The facts line, back to the state it describes. The session key was unbound above, so this
+# resolves to "New conversation" on its own - it is not told what to say.
+chat_info_refresh "$win"

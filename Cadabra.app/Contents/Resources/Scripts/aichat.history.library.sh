@@ -53,11 +53,40 @@ history_transcript_json() {
     "$history_py" "$history_store" transcript "$1" ${2:+"$2"} ${3:+"$3"}
 }
 
-# history_info_line <sid> — one compact "Model · Started · Messages" line for the info strip.
+# history_info_line <sid> — one compact "Started · Messages" line about a saved conversation.
 history_info_line() {
     local dir
     dir=$(history_session_dir "$1") || return 1
     "$history_py" "$history_store" info "$dir"
+}
+
+# The facts line in the model bar (aichat.chat.json), beside the model name.
+CHAT_INFO_TEXT_ID=540
+
+# chat_info_refresh <win> — restate what the chat window is showing.
+#
+# ONE function because there are now five callers and the line is PERMANENT. It used to be
+# toggled by an (i) button, so each caller could reasonably guard on "is it even visible" and
+# they drifted: New Chat rebuilt the line one way, the sidebar another, and the first turn a
+# third. Nothing is hidden any more, so a caller that forgets to refresh leaves a line that is
+# simply wrong - which is worse than the old failure of leaving one that was not shown.
+#
+# What it says is decided here rather than passed in: whichever conversation this window is
+# bound to, or "New conversation" when it is bound to none (a fresh window, or one just
+# cleared). The model is NOT named - it is the button immediately to the left, and naming it
+# twice in one row was the first thing this line did that nobody wanted.
+chat_info_refresh() {
+    local win="$1" sid info=""
+    sid=$(pb_get "aichatv2_session_${win}")
+    # The DIRECTORY, not just a well-formed id. history_info_line summarizes whatever it can
+    # read and a session that is no longer on disk reads as an empty one, so a window still
+    # bound to a deleted conversation would announce "Messages: 0" as though that were a fact
+    # about it. There is nothing to say about a conversation that is gone.
+    if [ -n "$sid" ] && history_valid_sid "$sid" && [ -d "$history_root/$sid" ]; then
+        info=$(history_info_line "$sid")
+    fi
+    [ -n "$info" ] || info="New conversation"
+    "$dialog" "$win" "$CHAT_INFO_TEXT_ID" "$info"
 }
 
 # history_title <sid> — display title (meta.title, else first user line, else "(untitled)").

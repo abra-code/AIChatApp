@@ -70,6 +70,62 @@ model_switch_consume() {
 }
 
 # ──────────────────────────────────────────────────────────────
+# First-model handoff (an empty chat window is handed its engine)
+# ──────────────────────────────────────────────────────────────
+# Which window a queued launch belongs to, when it belongs to one that is ALREADY OPEN. Empty
+# is the normal case and means "open a new window for it", which is what every launch meant
+# before File > New Chat Window existed.
+#
+# Deliberately a sibling of the launch queue rather than a field in it: the queue's format is
+# read by four handlers and the MCP dialog moves it around, and widening it to carry a window
+# would make every one of those a place where a window uuid could be dropped or mistaken for a
+# tools flag. Two keys that travel together are easier to keep honest than one that means two
+# things - and the one place they must travel together (the MCP servers dialog, which can hold
+# a launch for minutes) moves both into its own window scope for exactly the same reason.
+#
+# No TTL of its own. Staleness is the QUEUE's question and it answers it with an epoch; this
+# only says where. What it does need is disarming when its window closes, which is the chat
+# window's cancel handler, below.
+LOAD_TARGET_KEY="aichatv2_load_target"
+
+# load_target_arm <chat_window_uuid> — the next queued launch lands in THIS window.
+load_target_arm() { pb_set "$LOAD_TARGET_KEY" "$1"; }
+
+# load_target_consume — read+CLEAR; echoes the window uuid, or nothing.
+load_target_consume() {
+    local val
+    val=$(pb_get "$LOAD_TARGET_KEY")
+    pb_set "$LOAD_TARGET_KEY" ""
+    printf '%s' "$val"
+}
+
+# chat_window_open_mark <win> / chat_window_open_clear <win> / chat_window_is_open <win>
+#
+# Whether a chat window is still on screen, which nothing else here can answer: a window uuid
+# is just a string, and omc_dialog_control writing to a window that is gone succeeds quietly.
+#
+# It exists for ONE hole, and disarming does not close that hole. A first-model launch with
+# tools on is parked inside the MCP servers dialog for as long as the user needs there, in that
+# dialog's OWN window scope - so a chat window closing meanwhile clears the global key and
+# finds nothing to disarm. The launch then arrives for a window that no longer exists, and the
+# damage is not a no-op write: chat_engine_load would start a real llama-server for it and
+# leave the process orphaned. So the delivery end asks, rather than the closing end telling.
+#
+# Marked positively, by the window itself. A "this one is dead" marker would read as alive for
+# any window whose init never ran at all.
+chat_window_open_mark()  { pb_set "aichatv2_open_${1}" "1"; }
+chat_window_open_clear() { pb_set "aichatv2_open_${1}" ""; }
+chat_window_is_open()    { [ "$(pb_get "aichatv2_open_${1}")" = "1" ]; }
+
+# load_target_disarm_for <chat_window_uuid> — drop the handoff iff it names this window.
+# Called when a chat window closes: a launch aimed at a window that no longer exists would
+# otherwise be delivered to nothing, and - worse - would divert the NEXT ordinary model pick
+# away from opening its own window.
+load_target_disarm_for() {
+    case "$(pb_get "$LOAD_TARGET_KEY")" in "$1") pb_set "$LOAD_TARGET_KEY" "" ;; esac
+}
+
+# ──────────────────────────────────────────────────────────────
 # Launch handoff (model selector / Open... -> chat window)
 # ──────────────────────────────────────────────────────────────
 # ONE pasteboard entry carries a queued model launch: "model_path|use_tools|epoch". A single
