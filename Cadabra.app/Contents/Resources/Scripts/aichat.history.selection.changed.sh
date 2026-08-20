@@ -66,12 +66,35 @@ pb_set "aichatv2_resume_pending_${win}" "$sid"
 # given a summary of its older half, and the element appends a marker showing what that summary
 # said. Nothing here summarizes anything itself.
 #
+# The request names WHICH model summarizes, which is why the menu under the chat means what it
+# says. It used to name only "summarize", leaving the summarizer to a flag fixed when the agent
+# launched - so the conversation could be summarized by a model the user had not chosen, and the
+# only sign of it was the name in the marker afterwards.
+#
 # An agent that does not understand condense primes the complete history and says so, so asking
 # costs nothing on a transport that cannot serve it.
-if [ "$(history_resume_mode "$sid")" = "full" ] || ! summarize_can_condense "$sid"; then
+resolved=$(summarize_resolve "$win" "$sid")
+resume_mode=${resolved%% *}
+if [ "$resume_mode" = "full" ]; then
     history_inject_content "$win" "$CHAT_VIEW_ID" "$sid" "defer"
+    loaded=$?
 else
-    history_inject_content "$win" "$CHAT_VIEW_ID" "$sid" "defer" "$CAD_DIGEST_KEEP_RECENT"
+    history_inject_content "$win" "$CHAT_VIEW_ID" "$sid" "defer" "$CAD_DIGEST_KEEP_RECENT" \
+        "$(summarize_request_backend "$resolved")"
+    loaded=$?
+fi
+# BINDING FOLLOWS THE DISPLAY. history_inject_content fails when the conversation could not be
+# read at all, and binding anyway would leave the window showing the previous conversation while
+# every message typed into it was appended to this one. Disarm the resume with it: nothing was
+# resumed.
+#
+# The status is captured on the spot rather than read after the `fi`, which would work today and
+# stop working the moment anything is added below either branch.
+if [ "$loaded" -ne 0 ]; then
+    pb_set "aichatv2_resume_pending_${win}" ""
+    chat_window_set_status "$win" "could not open this conversation"
+    for b in $ROW_BUTTONS; do "$dialog" "$win" "$b" omc_enable; done
+    exit 0
 fi
 pb_set "aichatv2_session_${win}" "$sid"
 
@@ -80,11 +103,14 @@ pb_set "aichatv2_session_${win}" "$sid"
 # chat has no older half to summarize, and a checkbox offering to condense an empty
 # conversation would be a control that cannot do anything.
 #
-# Checked by default only when the conversation is long enough to be worth it - that is the
+# Set by default only when the conversation is long enough to be worth it - that is the
 # recommendation the number supports, not a preference. An earlier answer for this conversation
-# wins over the recommendation, because a user who unchecked it once should not have to keep
-# unchecking it.
-summarize_show "$win" "$sid"
+# wins over the recommendation, because a user who answered once should not have to keep
+# answering.
+#
+# Handed the resolution the restore above was built from, so the control cannot show one thing
+# while the agent was asked for another.
+summarize_show "$win" "$sid" "$resolved"
 
 # Title: which conversation is loaded (context state shows in the chat's status bar).
 title=$(history_title "$sid")

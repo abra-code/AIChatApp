@@ -13,8 +13,8 @@
 #    not - a stray condense key would summarize a conversation the user asked to see in full.
 # 2. THE MENU. Built from what this machine can do (Apple Intelligence is macOS 26+), and inert
 #    when the conversation has no older half rather than offering something that will decline.
-# 3. THE SUMMARIZER. --digest-backend is a LAUNCH flag, so it is read from the settings file and
-#    validated: an unrecognized value makes mlx-agent exit(2) and the window never gets an agent.
+# 3. THE SUMMARIZER. Which model writes the summary rides on the restore that asked for it, so
+#    the choice reaches the conversation in front of the user rather than the next window.
 # 4. THE MARKERS. Session boundaries are written by this app, and must survive a reload - which
 #    is the whole reason they exist.
 #
@@ -59,6 +59,14 @@ cad_hist_call() {
           1) summarize_foundation_ok() { return 0; } ;;
       esac
       "$@" )
+}
+
+# The mode field of a resolve, which is what the handlers read off it. Asserted through the real
+# function rather than a wrapper written for the tests: a helper only the suite calls is a helper
+# that can keep passing after production stops using it.
+cad_resolved_mode() { # <win> <sid> [lazy]
+    set -- $(cad_hist_call summarize_resolve "$@")
+    printf '%s\n' "${1:-}"
 }
 
 cad_menu_options() { cad_journal "$SLOT_ID"; }
@@ -107,12 +115,12 @@ check "with Apple Intelligence it is offered" "1" "$(cad_has "$(cad_menu_options
 # "The model in this chat" is offered for EVERY engine this app launches, not just gguf. That is
 # the fix for a gate that predated the live path: when a separate process did the summarizing,
 # borrowing an MLX model meant loading it twice, so the option was hidden behind a running
-# llama-server. --digest-backend session uses the agent's own loaded model, so it is free for all
+# llama-server. The `session` summarizer uses the agent's own loaded model, so it is free for all
 # of them, and an MLX window was being denied a choice that works.
 check "  and so is the chat's own model"     "1" "$(cad_has "$(cad_menu_options)" '"tag":"session"')"
 
-# The exception is an external ACP agent: its command line is the user's, so this app passes it
-# no --digest-backend and cannot say what would summarize.
+# The exception is an external ACP agent: its command line is the user's, so it need not be
+# mlx-agent, need not know these words, and this app cannot say what would summarize there.
 ui_reset
 ui_reset_diagnostics
 ui_declare_ids "$PICKER_ID"
@@ -147,62 +155,151 @@ check "  set to replaying in full"         "full" "$(cad_menu_selected)"
 check "  and disabled, so it cannot flash" "1" "$(cad_has "$(cad_journal "$PICKER_ID")" 'omc_disable')"
 check "  and it says why"                  "1" "$(cad_has "$(cad_menu_options)" 'no older part to summarize')"
 
-section "the summarizer is a launch flag, read and validated before it reaches the agent"
-# An unrecognized value makes mlx-agent exit(2) on a usage error, which would present as a chat
-# window whose agent never starts - a long way from the setting that caused it.
-check "unset resolves to auto"        "auto"       "$(cad_call_lib aichat.library.sh cad_digest_backend)"
-"$cad_plister" set dict "$cad_settings" / >/dev/null 2>&1
-"$cad_plister" set string foundation "$cad_settings" /digest-backend >/dev/null 2>&1
-check "a stored choice is honored"    "foundation" "$(cad_call_lib aichat.library.sh cad_digest_backend)"
-"$cad_plister" set string nonsense "$cad_settings" /digest-backend >/dev/null 2>&1
-check "an unknown value is not passed through" "auto" "$(cad_call_lib aichat.library.sh cad_digest_backend)"
-"$cad_plister" delete "$cad_settings" /digest-backend >/dev/null 2>&1
+section "the summarizer rides on the restore that asked for it"
+# THE USER-VISIBLE BUG THIS SECTION EXISTS FOR: pick "summarize with the model in this chat",
+# send a message, and the marker afterwards named apple-foundation-models. WHO summarizes used to
+# be --digest-backend, fixed when the agent launched and shared by every window, so a choice made
+# in this conversation could not reach the agent already serving it - it applied to the NEXT chat
+# window, with nothing on screen saying so.
+cad_ask() { "$cad_py" "$cad_store" transcript "$cad_hist/long" defer "$@"; }
+check "the chosen summarizer is on the content" "1" \
+    "$(cad_has "$(cad_ask 6 session)" '"backend": "session"')"
+check "  next to the bound it was asked with"   "1" \
+    "$(cad_has "$(cad_ask 6 session)" '"keepRecentTurns": 6')"
+# Absent means "however the agent is configured", which is what a conversation nobody has answered
+# for should get - not a summarizer this app invented for it.
+check "no choice sends no summarizer"           "0" "$(cad_has "$(cad_ask 6)" 'backend')"
+check "  on a document that was actually produced" "1" "$(cad_has "$(cad_ask 6)" '"keepRecentTurns": 6')"
+# A summarizer with no request to summarize is not a request: the condense object is what asks,
+# and a naked backend on a full replay would describe work nobody wanted done.
+check "and it never travels without a request"  "0" "$(cad_has "$(cad_ask "" session)" 'backend')"
+check "  on a document that was actually produced" "1" "$(cad_has "$(cad_ask "" session)" '"version": 1')"
 
-# And that it actually reaches the argv the agent is launched with.
+# THE LAUNCH FLAG IS GONE, and its absence is half the fix. A --digest-backend here would answer
+# for every conversation the window ever opens, which is exactly the shape that could disagree
+# with the menu.
 cad_argv() {
     "$cad_py" "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/acp_transport_json.py" \
-        /bin/echo mlx /models/m.gguf "$OMCTEST_WORK/no-such-mcp.json" "$OMCTEST_WORK" true "$1" 2>/dev/null
+        /bin/echo mlx /models/m.gguf "$OMCTEST_WORK/no-such-mcp.json" "$OMCTEST_WORK" true 2>/dev/null
 }
-check "the backend is passed to the agent"    "1" "$(cad_has "$(cad_argv session)" '"--digest-backend", "session"')"
-check "auto is passed rather than omitted"    "1" "$(cad_has "$(cad_argv auto)" '"--digest-backend", "auto"')"
-# The builder is the last gate before argv: a bad value must be dropped here even if the reader
-# above is bypassed, because that is what turns a bad setting into a window with no agent.
-check "and a bad value never reaches argv"    "0" "$(cad_has "$(cad_argv nonsense)" 'digest-backend')"
+check "no --digest-backend reaches the agent" "0" "$(cad_has "$(cad_argv)" 'digest-backend')"
+check "  and the transport is still built"    "1" "$(cad_has "$(cad_argv)" '"--model", "/models/m.gguf"')"
+
+# THE SHELL MUST PASS AN EMPTY SLOT, NOT DROP IT. The `${N:+"$N"}` idiom that used to thread these
+# optionals drops an empty argument and shifts every argument after it, so a caller with no
+# keep-recent but a summarizer would hand the summarizer to the keep-recent slot: the store exits
+# 2, prints nothing, and the window displays no conversation at all. Asserted through the SHELL,
+# because calling the store directly with an explicit empty argument tests the store's guard and
+# not the one that would break.
+omc_window_switch argvthread
+ui_declare_ids "$PICKER_ID"
+cad_journal_reset
+cad_hist_call history_inject_content "$OMC_ACTIONUI_WINDOW_UUID" "$CHAT_ID" long defer "" session
+check "an empty keep-recent still displays the conversation" "1" \
+    "$(cad_has "$(cad_injected)" '"version": 1')"
+check "  and asks for no summary"                            "0" \
+    "$(cad_has "$(cad_injected)" 'condense')"
+
+section "a choice this window cannot honor demotes to auto, and never reaches a foreign agent"
+# WHAT DEMOTION IS FOR: only the WHO became impossible. Dropping the summary along with the
+# summarizer would throw away the half of the answer that is still honorable, on a conversation
+# long enough that the user asked for one.
+cad_mk_session demote 20
+omc_window_switch demotion
+ui_declare_ids "$PICKER_ID"
+win="$OMC_ACTIONUI_WINDOW_UUID"
+
+cad_hist_call history_set_resume_mode demote foundation
+check "Apple Intelligence demotes to auto when this Mac has none" "auto" \
+    "$(CAD_FM_OK=0 cad_resolved_mode "$win" demote lazy)"
+check "  and stands when it has it"                               "foundation" \
+    "$(CAD_FM_OK=1 cad_resolved_mode "$win" demote lazy)"
+
+cad_pb_set "aichatv2_agent_$win" "opencode"
+cad_hist_call history_set_resume_mode demote session
+check "the chat's own model demotes for someone else's agent"     "auto" \
+    "$(CAD_FM_OK=1 cad_resolved_mode "$win" demote lazy)"
+cad_hist_call history_set_resume_mode demote foundation
+check "  and so does Apple Intelligence"                          "auto" \
+    "$(CAD_FM_OK=1 cad_resolved_mode "$win" demote lazy)"
+
+# AND NOTHING IS NAMED AT A FOREIGN AGENT. auto/session/foundation are mlx-agent's words; an
+# external agent is the user's own command line and need not know them. Asking it to summarize
+# without naming a summarizer is the honest request - naming one would either be ignored, which
+# is the original bug in a new place, or refused, which loses the summary.
+cad_journal_reset
+cad_pb_set "aichatv2_session_$win" ""
+export OMC_ACTIONUI_TABLE_510_COLUMN_2_VALUE=demote
+omc_run aichat.history.selection.changed
+check "an external agent is still asked to summarize" "1" "$(cad_has "$(cad_injected)" 'condense')"
+check "  but is named no summarizer"                  "0" "$(cad_has "$(cad_injected)" 'backend')"
+check "  and the menu offers it none either"          "0" \
+    "$(cad_has "$(cad_menu_options)" '"tag":"foundation"')"
+unset OMC_ACTIONUI_TABLE_510_COLUMN_2_VALUE
+cad_pb_set "aichatv2_agent_$win" ""
 
 section "the menu handler records the choice, through the real dispatch"
-# DISPATCHED, not called. The read side above passes just as happily when the WRITE is broken,
-# and it was: plister is `set <type> <value> <file> <path>`, and the first version of the handler
-# had the file first. That parses, exits successfully, and stores nothing - so every window would
-# have launched on auto no matter what the menu said, with the read side still green.
+# DISPATCHED, not called. The read side passes just as happily when the write is broken, and it
+# has been: an early version of this handler stored the choice with plister's arguments in the
+# wrong order, which parses, exits successfully, and stores nothing - green tests, and every
+# window summarizing with something the user had not picked.
 cad_mk_session pick 20
 omc_window_switch modechoice
 ui_declare_ids "$PICKER_ID"
 cad_pb_set "aichatv2_session_$OMC_ACTIONUI_WINDOW_UUID" pick
-"$cad_plister" delete "$cad_settings" /digest-backend >/dev/null 2>&1
+# No external agent stamped on this window, so "the model in this chat" is a choice it can offer.
+# Asserted on `session` rather than `foundation` on purpose: Apple Intelligence is a property of
+# the MACHINE, and the resolver falls back without it, so a foundation assertion here would pass
+# on this Mac and fail on the next one.
+cad_pb_set "aichatv2_agent_$OMC_ACTIONUI_WINDOW_UUID" ""
 cad_journal_reset
-omc_control "$PICKER_ID" "foundation"
+omc_control "$PICKER_ID" "session"
 omc_run aichat.chat.summarize.mode
-check "the conversation remembers the choice" "foundation" "$(cad_hist_call history_resume_mode pick)"
-check "and the summarizer setting is stored"  "foundation" "$(cad_call_lib aichat.library.sh cad_digest_backend)"
+check "the conversation remembers the choice" "session" "$(cad_hist_call history_resume_mode pick)"
 # The request has to reach the wire too: recording the choice and injecting without it would be
 # the same silent no-op one layer up.
 check "the re-injection asks the agent to summarize" "1" "$(cad_has "$(cad_injected)" 'condense')"
+# AND IT NAMES THE MODEL THE USER PICKED. This is the check that would have caught the reported
+# bug: everything above it was already green while the summary was written by a model chosen by a
+# flag the menu could not reach.
+check "  naming the summarizer that was chosen"      "1" \
+    "$(cad_has "$(cad_injected)" '"backend": "session"')"
+
+# THE HANDLER RESOLVES, IT DOES NOT TRUST THE TAG IT WAS SENT. Injecting $mode directly passes
+# every check above and is wrong in exactly the case the resolver exists for: a window driven by
+# someone else's agent, where "the model in this chat" is not this app's to promise.
+cad_pb_set "aichatv2_agent_$OMC_ACTIONUI_WINDOW_UUID" "opencode"
+cad_journal_reset
+omc_control "$PICKER_ID" "session"
+omc_run aichat.chat.summarize.mode
+# Asserted as "no summarizer at all", not as "not this one": demoting `session` to `auto` and then
+# sending `auto` to a foreign agent would satisfy the narrower check while still speaking a
+# vocabulary this app cannot promise the agent knows.
+check "a choice the window cannot honor is not sent as one" "0" \
+    "$(cad_has "$(cad_injected)" 'backend')"
+check "  and the summary is still asked for"               "1" \
+    "$(cad_has "$(cad_injected)" 'condense')"
+# AND THE MENU IS CORRECTED TO WHAT WILL HAPPEN. Storing the pick, sending something else, and
+# leaving the picker showing the pick is the divergence this whole change exists to close - now
+# between three places instead of two. This is also the only assertion that fails when the
+# handler injects the tag it was sent instead of resolving it.
+check "  and the menu is corrected to match"               "auto" "$(cad_menu_selected)"
+check "  while the conversation still remembers the pick"  "session" \
+    "$(cad_hist_call history_resume_mode pick)"
+cad_pb_set "aichatv2_agent_$OMC_ACTIONUI_WINDOW_UUID" ""
 
 cad_journal_reset
 omc_control "$PICKER_ID" "full"
 omc_run aichat.chat.summarize.mode
 check "choosing full is remembered"                "full" "$(cad_hist_call history_resume_mode pick)"
 check "  and asks for no summary at all"           "0"    "$(cad_has "$(cad_injected)" 'condense')"
-# Choosing full must not silently re-pin the summarizer: it is not a summarizer choice.
-check "  and leaves the stored summarizer alone"   "foundation" \
-    "$(cad_call_lib aichat.library.sh cad_digest_backend)"
+check "  so no summarizer travels either"          "0"    "$(cad_has "$(cad_injected)" 'backend')"
 
 cad_journal_reset
 omc_control "$PICKER_ID" "nonsense"
 omc_run aichat.chat.summarize.mode
 check "an unrecognized choice falls back to full"  "full" "$(cad_hist_call history_resume_mode pick)"
 check "  and asks for no summary"                  "0"    "$(cad_has "$(cad_injected)" 'condense')"
-"$cad_plister" delete "$cad_settings" /digest-backend >/dev/null 2>&1
 
 section "resuming asks only when this conversation has an older half"
 # The resume handler gates on TWO things - the stored mode, and whether there is anything to
@@ -212,14 +309,17 @@ omc_window_switch resumeask
 ui_declare_ids "$PICKER_ID"
 cad_mk_session asklong 20
 cad_mk_session askshort 3
-cad_hist_call history_set_resume_mode asklong foundation
-cad_hist_call history_set_resume_mode askshort foundation
+cad_hist_call history_set_resume_mode asklong session
+cad_hist_call history_set_resume_mode askshort session
+# "The model in this chat" is only a choice this app can offer when the agent is its own.
+cad_pb_set "aichatv2_agent_$OMC_ACTIONUI_WINDOW_UUID" ""
 
 cad_pb_set "aichatv2_session_$OMC_ACTIONUI_WINDOW_UUID" ""
 cad_journal_reset
 export OMC_ACTIONUI_TABLE_510_COLUMN_2_VALUE=asklong
 omc_run aichat.history.selection.changed
 check "a long conversation set to summarize asks" "1" "$(cad_has "$(cad_injected)" 'condense')"
+check "  with the summarizer it was set to"       "1" "$(cad_has "$(cad_injected)" '"backend": "session"')"
 
 cad_pb_set "aichatv2_session_$OMC_ACTIONUI_WINDOW_UUID" ""
 cad_journal_reset
@@ -228,6 +328,18 @@ omc_run aichat.history.selection.changed
 # The stored mode says summarize, but there is no older half - asking anyway would spend a round
 # trip for an answer the agent is bound to decline.
 check "a short one does not, whatever it stored"  "0" "$(cad_has "$(cad_injected)" 'condense')"
+
+# THE MENU AND THE RESTORE ANSWER TOGETHER, and they used to answer separately: the menu replayed
+# in full below CAD_DIGEST_ASK_ABOVE while the restore summarized whenever an older half existed
+# at all. A twelve-message conversation therefore displayed "Replay the full conversation" and was
+# summarized behind it.
+cad_mk_session askmiddling 6      # 12 messages: an older half, but under the ask-above threshold
+cad_pb_set "aichatv2_session_$OMC_ACTIONUI_WINDOW_UUID" ""
+cad_journal_reset
+export OMC_ACTIONUI_TABLE_510_COLUMN_2_VALUE=askmiddling
+omc_run aichat.history.selection.changed
+check "an unanswered middling conversation is replayed" "0" "$(cad_has "$(cad_injected)" 'condense')"
+check "  and the menu shows what was asked for"         "full" "$(cad_menu_selected)"
 unset OMC_ACTIONUI_TABLE_510_COLUMN_2_VALUE
 
 section "a resume is the first message sent, not the click that displayed the conversation"

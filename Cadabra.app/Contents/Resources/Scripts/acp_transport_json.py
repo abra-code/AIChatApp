@@ -149,12 +149,12 @@ def main():
     # editing the line that has the bug. "false" lands here too and costs nothing: that path
     # deleted the config, so there are no servers to filter.
     tools = sys.argv[6] if len(sys.argv) > 6 else "true"
-    # Which model summarizes a condensed restore. A LAUNCH flag, not a per-restore one: the agent
-    # picks its summarizer when it starts, so this is the window's setting and the per-conversation
-    # choice (whether to summarize at all) rides on session/prime's condense object instead.
-    # "auto" is mlx-agent's own default and measures rather than preferring - it computes the slice
-    # count under the on-device budget and picks - so it is what an unset setting resolves to.
-    digest_backend = sys.argv[7] if len(sys.argv) > 7 else "auto"
+    # NO --digest-backend IS PASSED, and that is a decision rather than an omission. It is a launch
+    # flag: the agent fixes its summarizer when it starts, so a value here would answer for every
+    # conversation the window ever opens. Which model summarizes a condensed restore is a per
+    # conversation choice, and it rides on session/prime's condense object (`backend`) with the
+    # restore that asked for it. Absent, mlx-agent's own default applies to anything that arrives
+    # without one, which is what an unanswered conversation should get.
 
     # An agent that is not ours: the command line arrives as one user-typed string and is split
     # HERE rather than by a shell, so a path with spaces survives if it is quoted and nothing is
@@ -209,12 +209,6 @@ def main():
     # chat rather than wedging the window.
     if read_servers(cfg):
         argv += ["--mcp-config", cfg]
-
-    # Validated against the agent's own vocabulary rather than passed through. An unrecognized
-    # value makes mlx-agent exit(2) on a usage error, which would present as a chat window whose
-    # agent never starts - a long way from the setting that caused it.
-    if digest_backend in ("auto", "foundation", "session", "none"):
-        argv += ["--digest-backend", digest_backend]
 
     json.dump({"protocol": "acp", "transport": {"command": argv, "cwd": cwd}}, sys.stdout)
     sys.stdout.write("\n")

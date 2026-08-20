@@ -282,7 +282,7 @@ def cmd_index(history_root):
     return 0
 
 
-def cmd_transcript(session_dir, prime=None, condense_keep=None):
+def cmd_transcript(session_dir, prime=None, condense_keep=None, condense_backend=None):
     transcript, _stats = _build_transcript(session_dir)
     # Transient restore directive for the Chat element (NOT part of the persisted
     # transcript; the element's codec drops the key): "defer" displays the conversation
@@ -296,10 +296,18 @@ def cmd_transcript(session_dir, prime=None, condense_keep=None):
     #
     # PRESENCE OF THE KEY IS THE REQUEST. An empty object means "summarize, your defaults", so
     # this is emitted whenever condensation was asked for, with keepRecentTurns only when the
-    # caller pinned it. The SUMMARIZER is not here - that is the agent's --digest-backend, chosen
-    # when it launched - because the wire has no field for it.
+    # caller pinned it.
+    #
+    # THE SUMMARIZER RIDES HERE TOO, and that is what makes the menu under the chat mean what it
+    # says. It used to be the agent's --digest-backend alone - fixed when the agent launched, one
+    # value for the whole app - so a user who chose a summarizer for THIS conversation was answered
+    # by whichever one the running agent had been started with, and the only trace was the name in
+    # the marker afterwards. `backend` is per restore, so the choice belongs to the conversation it
+    # was made in. Absent means "however the agent is configured".
     if condense_keep is not None:
         transcript["condense"] = {"keepRecentTurns": condense_keep} if condense_keep > 0 else {}
+        if condense_backend:
+            transcript["condense"]["backend"] = condense_backend
     json.dump(transcript, sys.stdout, ensure_ascii=False)
     sys.stdout.write("\n")
     return 0
@@ -568,7 +576,11 @@ def main(argv):
             except ValueError:
                 sys.stderr.write("transcript: condense keep must be a number\n")
                 return 2
-        return cmd_transcript(path, prime, condense_keep)
+        # Optional fifth positional: which model summarizes THIS restore (the agent's
+        # vocabulary - auto/foundation/session/none for mlx-agent). Only meaningful alongside a
+        # condense request, and empty means "the agent's own default".
+        condense_backend = argv[5] if len(argv) > 5 and argv[5] != "" else None
+        return cmd_transcript(path, prime, condense_keep, condense_backend)
     if cmd == "preview":
         return cmd_preview(path)
     if cmd == "info":

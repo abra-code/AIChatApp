@@ -302,11 +302,6 @@ aichat_acp_transport_json() {
     local target="$3"
     local window_uuid="$4"
     local use_tools="${5:-true}"
-    # The window's summarizer for condensed restores. Read from the settings file rather than
-    # passed by each caller: it is one app-wide preference, and every engine branch would
-    # otherwise have to remember to forward it.
-    local digest_backend
-    digest_backend=$(cad_digest_backend)
 
     local python3="$OMC_APP_BUNDLE_PATH/Contents/Library/Python/bin/python3"
     local cfg="$(aichat_session_config_dir "$window_uuid")/mcp-config.json"
@@ -347,7 +342,7 @@ aichat_acp_transport_json() {
     local builder="$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/acp_transport_json.py"
     if [ -x "$python3" ] && [ -f "$builder" ]; then
         "$python3" "$builder" "$agent_bin" "$engine" "$target" "$cfg" "$cwd" "$use_tools" \
-            "$digest_backend" && return 0
+            && return 0
     fi
 
     # Bundled Python missing (or the builder above failed): emit a plain chat-only transport by

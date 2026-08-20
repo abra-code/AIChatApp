@@ -43,14 +43,23 @@ history_populate_table() {
     [ -n "$rows" ] && printf "%s" "$rows" | "$dialog" "$win" "$table_id" omc_table_set_rows_from_stdin
 }
 
-# history_transcript_json <session_dir> [prime] — ChatTranscript JSON for states["content"].
+# history_transcript_json <session_dir> [prime] [keep-recent] [summarizer] - ChatTranscript JSON
+# for states["content"].
 # Optional prime ("true"/"false"/"defer") rides on the JSON as the transient restore
 # directive: "defer" = display only, the element replays the conversation into the agent
 # lazily on the next send (the seamless sidebar switch); false = display with a FRESH agent
-# context (Read Only); true/absent = replay immediately. See docs/session-prime.md in the
+# context (Read Only); true/absent = replay immediately. keep-recent asks the agent to
+# summarize, and summarizer names which model does it. See docs/session-prime.md in the
 # mlx-agent repo.
+# ARGUMENTS ARE FORWARDED, NOT REBUILT. The "${2:+\"$2\"}" idiom this used to thread optionals
+# with DROPS an empty argument rather than passing it, so a caller that had no keep-recent but did
+# name a summarizer would hand the summarizer to the keep-recent slot - "transcript <dir> defer
+# session", which exits 2 with "condense keep must be a number" and prints nothing. Forwarding
+# "$@" preserves every slot, empty or not, and the store already reads an empty slot as absent.
 history_transcript_json() {
-    "$history_py" "$history_store" transcript "$1" ${2:+"$2"} ${3:+"$3"}
+    local dir="$1"
+    shift
+    "$history_py" "$history_store" transcript "$dir" "$@"
 }
 
 # history_info_line <sid> — one compact "Model · Started · Messages" line for the info strip.
@@ -98,13 +107,17 @@ except Exception:
 # {"version":1,"items":[]} (see aichat.chat.new.sh) clears it. Optional prime
 # ("true"/"false"/"defer") is the context directive (see history_transcript_json); an optional
 # fifth argument is keepRecentTurns, which asks the AGENT to summarize the older part of the
-# restore rather than replay it.
+# restore rather than replay it, and an optional sixth names which model summarizes it.
 history_inject_content() {
-    local dir transcript
+    local dir transcript win="$1" view="$2"
     dir=$(history_session_dir "$3") || return 1
-    transcript=$(history_transcript_json "$dir" ${4:+"$4"} ${5:+"$5"})
+    shift 3
+    transcript=$(history_transcript_json "$dir" "$@")
+    # RETURNS NON-ZERO WHEN NOTHING WAS DISPLAYED, and callers have to act on it: a caller that
+    # binds the window to this conversation regardless would leave the window showing one
+    # conversation and typing into another.
     [ -n "$transcript" ] || return 1
-    "$dialog" "$1" "$2" omc_set_state content "$transcript"
+    "$dialog" "$win" "$view" omc_set_state content "$transcript"
 }
 
 # history_append_journal <session-dir> <line> - append one finalized entry, atomically.
@@ -211,12 +224,21 @@ history_mark_and_show() { # <win> <chat-view-id> <sid> <kind> [model]
 # Nothing is lost either way. journal.jsonl is append-only and no path here writes to it, so
 # switching a conversation back to replaying in full restores every original turn.
 #
-# WHO SUMMARIZES IS A DIFFERENT QUESTION FROM WHETHER TO, and they have different lifetimes. The
-# summarizer is the agent's --digest-backend, fixed when the agent launched (cad_digest_backend in
-# the base library); whether a given conversation is summarized rides on session/prime per restore.
-# The menu below sets both, which means changing the summarizer takes effect for the next chat
-# window rather than the one in front of you - and the marker the element appends after a
-# condensed prime reports which model actually did it, so the answer is never guesswork.
+# WHO SUMMARIZES AND WHETHER TO ARE ONE ANSWER, HELD BY THE CONVERSATION. Both ride on the same
+# condense object: keepRecentTurns asks for a summary, backend names the model that writes it. So
+# the menu below decides one thing, it decides it for the conversation it was opened in, and it
+# takes effect on the next message sent there.
+#
+# It was not always so, and the difference is worth stating because the old shape is a trap. The
+# summarizer used to be the agent's --digest-backend, fixed when the agent launched and shared by
+# every window; picking one in a conversation could not reach the agent already serving it. The
+# menu showed the choice, the marker afterwards named the model that had actually summarized, and
+# the two disagreed with nothing on screen to explain why. ChatView 0.5.3 and mlx-agent carry
+# `condense.backend` for exactly this, and the app no longer keeps an app-wide summarizer setting
+# at all - there is one control and it is per conversation.
+#
+# The marker the element appends after a condensed prime still reports which model did it, which
+# is now a confirmation rather than the only way to find out.
 
 # How many trailing messages to ask the agent to keep verbatim. mlx-agent's own default is 6, and
 # it may keep MORE - it snaps the boundary back to a user turn so the tail starts cleanly.
@@ -263,13 +285,14 @@ summarize_can_condense() { # <sid>
 # probed for a running llama-server on the window's stashed port, because under the old design a
 # summary was produced by a SEPARATE mlx-agent process: borrowing a gguf model was free (the
 # server already had it) while an MLX model would have been loaded a second time, gigabytes and
-# all. That reasoning died with the batch verb. --digest-backend session summarizes with the
-# agent's OWN already-loaded model, so it costs nothing whichever engine the window runs, and the
-# port probe was excluding MLX windows from a choice that works perfectly well for them.
+# all. That reasoning died with the batch verb. The `session` summarizer uses the agent's OWN
+# already-loaded model, so it costs nothing whichever engine the window runs, and the port probe
+# was excluding MLX windows from a choice that works perfectly well for them.
 #
 # The one case it does not cover is an EXTERNAL ACP agent: its command line is the user's own, so
-# this app passes it no --digest-backend and has no idea what would summarize. That is what the
-# stamp below distinguishes - it is set only for a window driven by someone else's agent.
+# it need not be mlx-agent, need not understand `condense.backend`, and this app has no idea what
+# would summarize there. That is what the stamp below distinguishes - it is set only for a window
+# driven by someone else's agent.
 summarize_session_own_model() { # <win>
     [ -z "$(pb_get "aichatv2_agent_$1")" ]
 }
@@ -306,6 +329,83 @@ history_set_resume_mode() {
     "$history_py" "$history_store" meta-set "$dir" resumeMode "$2"
 }
 
+# summarize_resolve <win> <sid> - what a resume of this conversation will DO, and what it could do.
+#
+# Prints four space-separated fields: the effective mode (full|auto|session|foundation) and the
+# three availability flags the menu is built from - can-condense, the session's own model, Apple
+# Intelligence.
+#
+# ONE ANSWER, TWO READERS, and they used to decide separately. The menu fell back to replaying in
+# full below CAD_DIGEST_ASK_ABOVE, while the restore asked for a summary whenever there was an
+# older half at all - so a twelve-message conversation displayed "Replay the full conversation"
+# and was summarized anyway. A rule stated in two places is a rule that can disagree with itself,
+# and that is what the disagreement looked like from the outside.
+summarize_resolve() { # <win> <sid> [lazy]
+    local win="$1" sid="$2" lazy="${3:-}" mode can own_model fm
+    if summarize_can_condense "$sid"; then can=1; else can=0; fi
+    if summarize_session_own_model "$win"; then own_model=1; else own_model=0; fi
+    # "-" until probed. The probe sources a 700-line library and spawns the agent binary with a
+    # 5 s ceiling, and the only caller that always needs the answer is the MENU, which lists the
+    # option. A caller that just needs the mode pays for it only when the stored choice is the
+    # one it decides. Reported as "-" rather than 0 when it was not asked, so a reader of the
+    # flags cannot mistake "not probed" for "not available".
+    fm=-
+
+    # This conversation's stored answer, DEMOTED TO auto rather than to "replay in full" when this
+    # window cannot honor it. Only the WHO became impossible - Apple Intelligence is absent on an
+    # older OS, and "the model in this chat" is not this app's to promise when someone else's
+    # agent is driving the window. Dropping the summary along with the summarizer would throw away
+    # the half of the answer that is still honorable.
+    mode=$(history_resume_mode "$sid")
+    case "$mode" in
+        auto|full)  ;;
+        session)    [ "$own_model" = "1" ] || mode=auto ;;
+        foundation)
+            if [ "$own_model" != "1" ]; then
+                mode=auto
+            elif summarize_foundation_ok; then
+                fm=1
+            else
+                fm=0
+                mode=auto
+            fi
+            ;;
+        *)          mode="" ;;
+    esac
+    if [ -z "$lazy" ] && [ "$fm" = "-" ]; then
+        if summarize_foundation_ok; then fm=1; else fm=0; fi
+    fi
+    if [ "$can" = "0" ]; then
+        mode=full
+    elif [ -z "$mode" ]; then
+        # Never answered for: summarize a long conversation, replay a short one. A recommendation
+        # rather than a preference - and now the recommendation the RESTORE follows too, not just
+        # the one the menu opens on.
+        if [ "$(history_wire_count "$sid")" -gt "$CAD_DIGEST_ASK_ABOVE" ]; then
+            mode=auto
+        else
+            mode=full
+        fi
+    fi
+    printf '%s %s %s %s\n' "$mode" "$can" "$own_model" "$fm"
+}
+
+# summarize_request_backend <resolved-line> - the summarizer to put on the restore, or nothing.
+#
+# NOTHING WHEN THE AGENT IS NOT OURS. `auto`, `session` and `foundation` are mlx-agent's words;
+# an external ACP agent is the user's own command line and need not know them, or `condense` at
+# all. Naming a summarizer at it would either be ignored - the original bug, in a new place - or,
+# if it applies mlx-agent's documented rule for an unrecognized value, decline the summary
+# altogether. Asking to summarize without naming a summarizer is the honest request there: every
+# agent that understands `condense` can answer it its own way.
+summarize_request_backend() { # <resolved-line>
+    local resolved="$1" mode own
+    set -- $resolved
+    mode="${1:-full}" own="${3:-0}"
+    { [ "$own" = "1" ] && [ "$mode" != "full" ]; } || return 0
+    printf '%s\n' "$mode"
+}
+
 # The "On resume" menu, in the slot under the chat (aichat.chat.json id 560).
 #
 # Only while a SAVED conversation is loaded: a new chat has no older half, so the control is
@@ -320,17 +420,22 @@ summarize_hide() {
     return 0
 }
 
-# summarize_show <win> <sid> - build the menu for a resumed conversation.
+# summarize_show <win> <sid> [resolved] - build the menu for a resumed conversation.
+#
+# `resolved` is a summarize_resolve line the caller already has. Passed rather than recomputed
+# because resolving probes - a python read of the conversation and a Foundation Models
+# availability check - and the caller that injects the restore has just done it to decide what to
+# ask for. Absent, this resolves for itself.
 summarize_show() {
-    local win="$1" sid="$2" mode chosen help opts can own_model fm
+    local win="$1" sid="$2" resolved="${3:-}" chosen help opts can own_model fm
 
     # WHAT IS ACTUALLY POSSIBLE COMES FIRST, and builds the menu from it. A choice that cannot be
     # honored is worse than no choice: an earlier version offered one on every resume, so on a
     # conversation with nothing to summarize the user could pick it, watch the agent decline, and
     # see the control snap back with no explanation.
-    if summarize_can_condense "$sid"; then can=1; else can=0; fi
-    if summarize_session_own_model "$win"; then own_model=1; else own_model=0; fi
-    if summarize_foundation_ok; then fm=1; else fm=0; fi
+    [ -n "$resolved" ] || resolved=$(summarize_resolve "$win" "$sid")
+    set -- $resolved
+    chosen="$1" can="$2" own_model="$3" fm="$4"
 
     # Always first, always present: the conversation as it was. The only option needing nothing to
     # be available, which is also why every failure lands back on it.
@@ -343,35 +448,17 @@ summarize_show() {
         [ "$own_model" = "1" ] && \
             opts="$opts,"'{"title":"Summarize with the model in this chat","tag":"session"}'
         # APPLE INTELLIGENCE IS macOS 26+. On anything older the entry is absent rather than
-        # present-and-failing.
-        [ "$fm" = "1" ] && \
+        # present-and-failing - and it is absent for someone else's agent too, for the same
+        # reason the option above is: naming a summarizer only means something to an agent whose
+        # vocabulary this app knows.
+        { [ "$fm" = "1" ] && [ "$own_model" = "1" ]; } && \
             opts="$opts,"'{"title":"Summarize with Apple Intelligence","tag":"foundation"}'
-    fi
-
-    # What is selected: this conversation's stored answer if it is still on offer, otherwise the
-    # recommendation, otherwise the full conversation.
-    mode=$(history_resume_mode "$sid")
-    case "$mode" in
-        auto)       [ "$can" = "1" ] || mode="" ;;
-        session)    { [ "$can" = "1" ] && [ "$own_model" = "1" ]; } || mode="" ;;
-        foundation) { [ "$can" = "1" ] && [ "$fm" = "1" ]; }       || mode="" ;;
-        full)       ;;
-        *)          mode="" ;;
-    esac
-    if [ "$can" = "0" ]; then
-        chosen=full
-    elif [ -n "$mode" ]; then
-        chosen="$mode"
-    elif [ "$(history_wire_count "$sid")" -gt "$CAD_DIGEST_ASK_ABOVE" ]; then
-        chosen=auto
-    else
-        chosen=full
     fi
 
     if [ "$can" = "0" ]; then
         help="This conversation is short enough to replay in full - there is no older part to summarize."
     else
-        help="Summarizing replaces the older messages IN THE MODEL with a summary and keeps the last $CAD_DIGEST_KEEP_RECENT exactly. The conversation shown here does not change, and the summary appears in it so you can read what the model was given. Choosing a summarizer applies to the next chat window."
+        help="Summarizing replaces the older messages IN THE MODEL with a summary and keeps the last $CAD_DIGEST_KEEP_RECENT exactly. The conversation shown here does not change, and the summary appears in it so you can read what the model was given. The choice belongs to this conversation and takes effect on the next message you send into it."
     fi
 
     # SIZED AS A PAIR. A footnote label beside a default-size menu reads as two unrelated things
