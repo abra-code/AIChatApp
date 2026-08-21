@@ -31,9 +31,10 @@ pb_get() { "$pasteboard" "$1" get; }
 # ──────────────────────────────────────────────────────────────
 # The toolbar "Model" button (aichat.model.switch), running in the chat window's context,
 # arms this with the chat window UUID before opening the model selector; the selector's OK
-# handler consumes it to restart the pinned-port server for THAT window in place (no new
-# window, no config re-inject - the Chat transport is frozen to the pinned baseURL and
-# llama-server serves whichever model is loaded). Epoch-stamped + TTL-bounded so a
+# handler consumes it to change THAT window's model in place, with no new window: a restart of
+# the pinned-port server when both models are GGUF (llama-server serves whichever model is loaded,
+# so the agent never notices), and otherwise a new agent built from the new argv and primed from
+# the transcript on screen. Epoch-stamped + TTL-bounded so a
 # Model-button-then-Cancel can't make a later first-launch model pick look like a switch.
 MODEL_SWITCH_KEY="aichatv2_model_switch"
 MODEL_SWITCH_TTL=120
@@ -323,9 +324,10 @@ prefs="$HOME/Library/Preferences/com.abracode.Cadabra-servers.plist"
 # Multi-model: each gguf chat window runs its OWN llama-server on its OWN port, so several
 # models can be loaded at once (RAM permitting - see warn_ram_pressure_for_new_model). A free
 # port is claimed from this range at window init (find_free_port_in) and stashed per-window
-# (aichatv2_port_<win>); the window's ACP transport baseURL is frozen to that port for the
-# window's life, so an in-place gguf->gguf switch relaunches on the SAME port and needs no
-# re-inject. Range chosen clear of v1's 8088-8097 (llama) and 8101-8140 (mcp) so v1 and the
+# (aichatv2_port_<win>); a window keeps that port for as long as it has a server, so an
+# in-place gguf->gguf switch relaunches on the SAME port and needs no re-inject. A switch
+# to a model that runs no server stops that server and gives the port back.
+# Range chosen clear of v1's 8088-8097 (llama) and 8101-8140 (mcp) so v1 and the
 # merged app coexist. (Was a single pinned 8099 in S1 - one active model at a time.)
 LLAMA_PORT_RANGE_START="8150"
 LLAMA_PORT_RANGE_END="8189"

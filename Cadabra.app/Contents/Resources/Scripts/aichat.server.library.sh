@@ -562,6 +562,58 @@ stop_orphaned_servers() {
     done <<< "$host_pids"
 }
 
+# stop_window_server <win_uuid> [log_tag] - TERM the registered llama-server that belongs to ONE
+# window and forget it. 0 when one was stopped, 1 when that window had none registered.
+#
+# One window, one server: register_started_server stores the window uuid as the server's
+# `dialog`, and this walks the hosts looking for that value. It stops at the FIRST match, which
+# is the same assumption the rest of the app makes - a window claims one port and relaunches on
+# that port for as long as it lives.
+#
+# A function rather than the loop it was, because ending a window's server is not only what
+# closing that window does. It was written inline in aichat.chat.cancel.sh; a load that fails
+# after its server came up has to undo the launch, and switching a window's conversation to an
+# engine that runs no server - MLX or the on-device model - will have to do the same while the
+# window stays open, which is the one case a close handler can never reach. All of them need the
+# registry entries gone as well as the process, or the next reader believes this window still has
+# a server.
+#
+# <log_tag> names the caller in the server log and nothing else, so a switch can be told from a
+# close when the log is read back weeks later.
+stop_window_server() {
+    local win="$1" log_tag="${2:-STOP-WINDOW-SERVER}"
+    local found=0 host_pids server_pids host_pid server_pid stored_dialog
+    [ -f "$prefs" ] || return 1
+    # Find the server whose stored dialog guid matches this window, then kill only it.
+    host_pids=$("$plister" get keys "$prefs" "/server-hosts" 2>/dev/null)
+    while IFS= read -r host_pid; do
+        [ -z "$host_pid" ] && continue
+        server_pids=$("$plister" get keys "$prefs" "/server-hosts/$host_pid" 2>/dev/null)
+        while IFS= read -r server_pid; do
+            [ -z "$server_pid" ] && continue
+            stored_dialog=$("$plister" get string "$prefs" "/server-info/$server_pid/dialog" 2>/dev/null)
+            if [ "$stored_dialog" = "$win" ]; then
+                echo "Stopping server pid=$server_pid for window $win"
+                srvlog "$log_tag killing server=$server_pid host=$host_pid win=$win"
+                if kill -0 "$server_pid" 2>/dev/null; then
+                    kill -TERM "$server_pid"
+                fi
+                "$plister" delete "$prefs" "/server-hosts/$host_pid/$server_pid" 2>/dev/null
+                "$plister" delete "$prefs" "/server-info/$server_pid" 2>/dev/null
+                found=1
+                break
+            fi
+        done <<< "$server_pids"
+        [ "$found" = 1 ] && break
+    done <<< "$host_pids"
+    if [ "$found" = 0 ]; then
+        echo "No server found for window $win"
+        srvlog "$log_tag no server matched win=$win"
+        return 1
+    fi
+    return 0
+}
+
 # prune_server_registry <front_pid> - the terminate-time teardown of the registry.
 #
 # Two halves that look alike and are not the same operation. OUR host's servers are stopped
@@ -642,8 +694,9 @@ report_server_launch_failure() {
 # aichatv2_port_<win>). On a NEW window it is a freshly-allocated idle port, so the free step
 # is a no-op and the launch coexists with every other window's server. On an in-place
 # gguf->gguf switch it is the SAME port the window already owns, so freeing it TERMs this
-# window's outgoing server and the incoming model takes the port back - the frozen baseURL
-# never moves, so no config re-inject is needed. Other ports are never touched here.
+# window's outgoing server and the incoming model takes the port back - the agent's argv names the
+# port and not the model, so nothing has to be re-injected and the agent's own conversation
+# carries over. Other ports are never touched here.
 LAUNCHED_MODEL_LABEL=""
 launch_model_on_port() {
     local model_path="$1"

@@ -1,12 +1,13 @@
 #!/bin/sh
 # aichat.chat.switch.model.sh
-# In-place model switch: restart llama-server for the chosen model on the window's OWN port,
-# targeting the ORIGINAL chat window (its UUID + the chosen model were stashed by the
-# selector's OK handler in switch mode). The Chat element's transport is frozen to that
-# window's baseURL and llama-server serves whichever model is loaded, so NO config re-inject
-# is needed - the same window and conversation continue with the new model. No new window.
-# The window's port was claimed and stashed at init (aichatv2_port_<win>); reusing it is what
-# lets the frozen baseURL stay valid while other windows' servers keep running untouched.
+# In-place model switch: change the model of an OPEN conversation, targeting the ORIGINAL chat
+# window (its UUID and the chosen model were stashed by the selector's OK handler in switch mode).
+# The window keeps its transcript, its session binding and its title; what changes is what answers
+# the next message.
+#
+# The work is chat_engine_switch, in the engine library, because it is the same four engine
+# preparations a first load does and they must not exist twice. What lives here is the handoff:
+# reading it, validating it, and clearing it so nothing can fire twice.
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.chat.engine.library.sh"
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.server.library.sh"
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.model.library.sh"
@@ -18,91 +19,19 @@ target_win=$(pb_get "aichatv2_switch_target")
 pb_set "aichatv2_switch_target" ""
 model_path=$("$pasteboard" "AICHATV2_MODEL_PATH" get)
 "$pasteboard" "AICHATV2_MODEL_PATH" set ""
+# The tools decision travels with the pick, because every cell except gguf-to-gguf replaces the
+# agent process and can therefore honor a changed one. Read and cleared here with the rest of the
+# handoff so a stale value cannot ride the next switch.
+use_tools=$(pb_get "aichatv2_switch_tools")
+pb_set "aichatv2_switch_tools" ""
 
 [ -n "$target_win" ] || { echo "no target window for switch"; exit 0; }
 # And it has to still be there. The selector is modeless and now owns its arm for its whole
 # life, so the window that asked for the switch can be closed while the user is still choosing.
-# The stashed port key outlives the window, so without this the switch would relaunch a
-# llama-server on it for nobody - registered to a host that is alive, therefore protected from
-# the orphan reaper, and freed only when the app quits.
+# The stashed keys outlive the window, so without this the switch would prepare an engine for
+# nobody - and on a gguf target that means a llama-server registered to a host that is alive,
+# therefore protected from the orphan reaper, and freed only when the app quits.
 chat_window_is_open "$target_win" || { echo "window $target_win is gone; not switching"; exit 0; }
 [ -n "$model_path" ] || { echo "no model for switch"; exit 0; }
 
-# The window's frozen baseURL points at this port; the switch MUST reuse it or the window
-# would keep talking to the old (now dead) port. A window launched under this code always has
-# it stashed; bail loudly rather than silently relaunch on a different port.
-target_port=$(pb_get "aichatv2_port_${target_win}")
-[ -n "$target_port" ] || { echo "no stashed port for window $target_win; cannot switch in place"; exit 0; }
-
-echo "switching window $target_win to model $model_path on port $target_port"
-# The TITLE is the conversation's, when there is one. chat_engine_title is what keeps that
-# true here: this handler used to overwrite it with the model at every step, so switching
-# models inside a named conversation left the model's name where the user's title had been,
-# until they clicked the row again to get it back. The model has a place of its own now, and
-# it is updated below; a switch in progress shows in the loading overlay.
-chat_engine_title "$target_win" "loading model…"
-# Stamped BEFORE the launch because a launch can run for minutes (up to a 300 s wait for a large
-# --no-mmap model) and other handlers in this window read the stamp while it is in flight. Nothing
-# between here and the launch reads it - the overlay and the button are passed their labels - so the
-# early stamp is about concurrency, not about this script.
-#
-# Rolled back below when the launch fails and frees the port. Leaving a failed model stamped used to
-# be invisible; it is not any more, because the resume marker reads this label at send time and
-# would name a model that never loaded.
-prev_model_path=$(pb_get "aichatv2_modelpath_${target_win}")
-pb_set "aichatv2_modelpath_${target_win}" "$model_path"
-chat_loading_overlay_show "$target_win" "$(model_display_label "$model_path")"
-
-launch_model_on_port "$model_path" "$target_win" "$target_port"
-if [ $? -eq 0 ]; then
-    chat_model_bar_set "$target_win" "$LAUNCHED_MODEL_LABEL"
-    chat_engine_title "$target_win" "$LAUNCHED_MODEL_LABEL"
-    # The handover, recorded in the conversation it happened in. This is the case the info pane
-    # cannot describe at all: it names the model the session STARTED with, and an in-place switch
-    # keeps the same session, so without a marker the transcript has two stretches of assistant
-    # turns written by different models and nothing saying where one ends.
-    #
-    # It reaches the display NOW, through the element's append state: an in-place switch
-    # deliberately does not re-inject the transcript (the same agent process continues), and
-    # re-injecting purely to show a marker would cost a re-prime of the whole conversation.
-    #
-    # Unless this window is still holding the marker that OPENS its next stretch of conversation -
-    # minted when the window became able to answer, and still waiting because nothing has been said
-    # into it since. Then the switch queues behind that marker instead of being recorded on its
-    # own: both lead the first message, and the pair is recorded together by the turn that finally
-    # arrives (aichat.chat.entry.sh). Recording it here could not work anyway - a brand-new window
-    # has no session directory to record into yet - and this is what keeps the transcript agreeing
-    # with what the user watched happen in the window.
-    if [ -n "$(history_marker_pending "$target_win")" ]; then
-        history_marker_lead "$target_win" 1 modelChanged "$LAUNCHED_MODEL_LABEL"
-    else
-        # The ordinary case: a conversation that has been spoken to, being handed to another model
-        # between turns. The end of the transcript is exactly where this belongs, so it is recorded
-        # and shown in one step.
-        #
-        # The armed-resume check stays as a floor under the queue. A conversation opened in a
-        # window that had no engine to name shows no marker and queues nothing, so the queue alone
-        # would read that state as "spoken to" and record a switch into a transcript nothing has
-        # happened in - which is what this check has always been here to refuse.
-        switch_sid=$(pb_get "aichatv2_session_${target_win}")
-        if [ -n "$switch_sid" ] && \
-           [ "$(pb_get "aichatv2_resume_pending_${target_win}")" != "$switch_sid" ]; then
-            history_mark_and_show "$target_win" 1 "$switch_sid" modelChanged "$LAUNCHED_MODEL_LABEL"
-        fi
-    fi
-    echo "switched to $LAUNCHED_MODEL_LABEL"
-else
-    # The previous server is ALREADY GONE: launch_model_on_port frees the port first, terminating
-    # the outgoing llama-server before it spawns anything. So the stamp goes back to the model that
-    # the model bar is still showing, the only model this window can honestly claim.
-    #
-    # THE TIMEOUT IS NOT AN EXCEPTION, though it looks like one. wait_for_server's 13 is a /health
-    # poll that never checks the pid, so a model that died during tensor load reports exactly like
-    # one still loading. And a server that timed out never reaches register_started_server, so it is
-    # unprotected: the next chat window to open reaps it. Keeping it stamped would name a model that
-    # is unregistered, unreachable and about to be killed - and would leave prev_model_path pointing
-    # at it, so the NEXT failed switch would roll back to a model that never loaded either.
-    pb_set "aichatv2_modelpath_${target_win}" "$prev_model_path"
-    chat_engine_title "$target_win" "failed to load model"
-fi
-chat_loading_overlay_hide "$target_win"
+chat_engine_switch "$target_win" "$model_path" "${use_tools:-false}"

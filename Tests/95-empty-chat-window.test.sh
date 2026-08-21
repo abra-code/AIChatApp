@@ -4,9 +4,9 @@
 #
 # The routing is what is worth asserting here, and it is worth asserting because ONE gesture
 # now has two destinations. The model bar's button arms the same handoff it always did, and
-# the picker's OK decides from the target window's stamps whether that means "switch this
-# conversation's model" (restart a pinned-port server under a frozen transport) or "this
-# window has no engine at all - give it one". Those two do genuinely different things to a
+# the picker's OK decides from the target window's stamps whether that means "change what this
+# conversation is talking to" (the matrix, in Tests/93) or "this window has no engine at all -
+# give it one". Those two do genuinely different things to a
 # live window, and nothing in the JSON or the menu says which one will happen.
 #
 # The engine load itself is deliberately NOT dispatched: it launches llama-server. What is
@@ -165,8 +165,9 @@ check "the model rides the launch queue" "1" \
 
 # ---------------------------------------------------------------------------
 section "with tools on it goes by way of the servers dialog, and comes back aimed the same way"
-# The tools decision has to be made BEFORE the transport freezes, and this is the one load
-# where it can still be made - so the empty window gets the same detour a new window gets.
+# A fresh session's servers and working directory are chosen in that dialog, and this is a fresh
+# session - so the empty window gets the same detour a new window gets. (Changing the decision
+# later is the switch's business, and it rebuilds the agent rather than detouring: Tests/93.)
 chains_reset
 empty_window
 arm_pick true
@@ -253,7 +254,7 @@ section "loading an engine stamps the window it was loaded INTO"
 # only in the init script - so from the new handler every stamp landed on a suffixless key and
 # the window it had just loaded still looked empty. Nothing visible broke: the model answered.
 # Then the next pick from that window's model bar was read as a FIRST load again, and started a
-# second llama-server for a window whose transport was already frozen on the first.
+# second llama-server beside the one that window was already talking to.
 #
 # Run on the mlx branch, the one engine that launches no server: mlx-agent maps the weights
 # itself, so the transport is complete as soon as the directory can be named.
@@ -326,8 +327,8 @@ check "  naming the model it was just given"   "1" \
 section "and a window that has one is not handed another"
 # Neither the picker nor the MCP servers dialog is modal, so a launch can be decided for a
 # window that acquires an engine while the choosing is still going on. Delivering it anyway
-# claims a second port and starts a second llama-server that nothing owns: the element froze
-# its transport on the first config and ignores the second.
+# claims a second port and starts a second llama-server that nothing owns - changing the model of
+# a window that HAS one belongs to the switch, which reuses that window's port and stamps.
 chains_reset
 ui_reset
 cad_pb_set "aichatv2_open_$ENGWIN" "1"

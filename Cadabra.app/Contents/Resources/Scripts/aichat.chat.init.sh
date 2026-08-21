@@ -2,9 +2,10 @@
 
 # Merged chat + history window init (V2). Prepares the selected model's ENGINE, then INJECTS
 # the Chat element's ACP transport into states["config"] via omc_set_state once that engine
-# is ready. The Chat element defers building its transport until the config lands, then
-# FREEZES it, and the composer auto-enables on isConfigured - so injecting only at the end
-# gates the composer on real readiness (no manual enable). aichat.chat.json carries only
+# is ready. The Chat element defers building its transport until the config lands, and the
+# composer auto-enables on isConfigured - so injecting only at the end gates the composer on real
+# readiness (no manual enable). A later config does not wait: it re-configures the element in
+# place, which is what an in-place model switch is. aichat.chat.json carries only
 # "properties" (no static config).
 #
 # TWO ENGINES, one transport. The window always speaks ACP to the bundled mlx-agent
@@ -83,9 +84,13 @@ echo "chat_window_uuid: ${chat_window_uuid}"
 echo "OMC_FRONT_PROCESS_ID: ${OMC_FRONT_PROCESS_ID}"
 echo "AICHAT_MODEL_PATH: $AICHAT_MODEL_PATH"
 
-# use_tools is this session's agentic decision, fixed for the life of the window: the ACP
-# transport freezes once injected, so the agent argv (--mcp-config or not) cannot be
-# re-decided later. Default OFF: only an explicit opt-in turns tools on. An entry point with
+# use_tools is this session's agentic decision. It rides in the agent's argv (--mcp-config
+# or not), so re-deciding it means replacing the agent - and the one place that happens is
+# an in-place model switch, which reads the window's decision back from the
+# aichatv2_tools_<win> stamp. chat_engine_load writes it at every load; chat_engine_switch
+# rewrites it after any switch that changed it.
+#
+# Default OFF: only an explicit opt-in turns tools on. An entry point with
 # no checkbox to offer (a gguf dropped on the app icon) is a "just chat with this model"
 # gesture, and matches the selector's own unchecked default - spawning the MCP servers
 # behind it would be a surprise the user cannot undo without reopening the window.

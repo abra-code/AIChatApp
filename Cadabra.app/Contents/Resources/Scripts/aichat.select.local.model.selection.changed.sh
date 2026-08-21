@@ -17,6 +17,31 @@ BENCH_BTN_ID=51
 dialog_tool="$OMC_OMC_SUPPORT_PATH/omc_dialog_control"
 window_uuid="$OMC_ACTIONUI_WINDOW_UUID"
 
+# switch_window_tools <default> - the tools decision the box should show for this pick.
+#
+# The chat window's own, when this selector is holding an arm from that window's model bar and
+# that window recorded one; otherwise the default the caller passes. Nothing else remembers the
+# decision - after a launch it lives only in the agent's argv - which is why the window stamps it.
+#
+# model_switch_valid reads the arm WITHOUT consuming it (the OK handler does that), so this is
+# safe on every selection change. The value is clamped to a real checkbox value: an external
+# agent's window can stamp "readonly", and its model bar arms this selector like any other, even
+# though the switch itself is refused later.
+switch_window_tools() {
+    local armed_win armed_tools
+    armed_win=$(model_switch_valid "$(pb_get "${MODEL_SWITCH_ARM_PREFIX}${window_uuid}")")
+    [ -n "$armed_win" ] || { printf '%s\n' "$1"; return 0; }
+    # And it has to still be open. The selector outlives the window that armed it, the stamps
+    # outlive the window too, and a pick for a window that has closed falls through to opening a
+    # NEW one - which should be offered the ordinary default, not a dead conversation's decision.
+    chat_window_is_open "$armed_win" || { printf '%s\n' "$1"; return 0; }
+    armed_tools=$(pb_get "aichatv2_tools_${armed_win}")
+    case "$armed_tools" in
+        true|false) printf '%s\n' "$armed_tools" ;;
+        *)          printf '%s\n' "$1" ;;
+    esac
+}
+
 # Column 3 (hidden) holds the full model path
 selected_path="$OMC_ACTIONUI_TABLE_10_COLUMN_3_VALUE"
 
@@ -167,7 +192,17 @@ ${warn}Best for short, bounded work - quick questions, summaries, rewriting. For
 
     if model_supports_tools "$selected_path" "$engine"; then
         tools_label="Supported"
-        "$dialog_tool" "$window_uuid" $USE_TOOLS_TOGGLE_ID true
+        # ON by default for a model that can drive the tool loop - but NOT when this selector is
+        # about to change a running conversation's model. Then the box is that conversation's
+        # decision, because it is what the switch hands to the new agent: a window that has been
+        # answering without tools must not silently acquire them (and one that has been using
+        # them must not silently lose them) because of what the NEXT model happens to support.
+        # Only a model that can drive them can have them, so the else-branch below stays absolute.
+        #
+        # Decided here rather than at init, where it would be written before the rows exist and
+        # overwritten by the first click - and every pick goes through a click, because Continue
+        # ships disabled and this handler is what enables it.
+        "$dialog_tool" "$window_uuid" $USE_TOOLS_TOGGLE_ID "$(switch_window_tools true)"
     else
         tools_label="Not detected"
         "$dialog_tool" "$window_uuid" $USE_TOOLS_TOGGLE_ID false

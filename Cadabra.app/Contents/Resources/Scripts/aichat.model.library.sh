@@ -46,6 +46,23 @@ model_engine() {
 	return 1
 }
 
+# model_alert_not_loadable <path> - the refusal for a path that is not a model Cadabra can load.
+#
+# Beside model_engine because it is what an empty answer from it MEANS to a user, and because
+# three flows reach it: a first load, an in-place switch, and the picker itself, whose list can
+# name a model that was deleted between the scan and the click. One sentence, naming the two
+# shapes that are loadable, so the user can see which one they picked.
+model_alert_not_loadable() {
+    local alert_message
+    alert_message="This is not a model Cadabra can load:
+
+$1
+
+Expected either a .gguf file, or a folder containing config.json and .safetensors shards."
+    echo "$alert_message"
+    "$alert" --level "stop" --title "$APPLET_NAME" --ok "OK" "$alert_message"
+}
+
 # model_engine_label <engine> -> the engine's name as a PERSON should read it.
 # `gguf`/`mlx`/`foundation` are internal identifiers; putting them in an alert produces
 # "This conversation runs on foundation", which is not English.

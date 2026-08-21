@@ -4,9 +4,9 @@
 # into the window that is already open, rather than opening a second one.
 #
 # NOT A SWITCH, which is the whole reason this is a separate handler from
-# aichat.chat.switch.model.sh. A switch has to keep a transport that is already FROZEN
-# pointing at something valid, which is why it is gguf-to-gguf only and why it reuses the
-# window's pinned port. This window has no transport yet - the Chat element builds one the
+# aichat.chat.switch.model.sh. A switch changes what an EXISTING conversation is talking to, and
+# has that window's stamps, port and held markers to carry over. This window has none of that and
+# no transport yet - the Chat element builds one the
 # first time states["config"] arrives - so any of the four engines is fair game and there is
 # nothing to preserve. It is the same code path a brand-new window runs, aimed at a window
 # that happens to already exist.
@@ -52,9 +52,11 @@ fi
 # neither the picker nor the MCP servers dialog is modal, so the window is live and usable the
 # whole time a launch is being decided for it. Pick a model with tools ON, leave that dialog
 # open, pick a second model with tools off in the same window - and the first launch arrives
-# afterwards, at a window that now has a frozen transport. Injecting a second config would be
-# ignored (the element freezes on the first), but chat_engine_load would still claim a port and
-# start a second llama-server that nothing owns and nothing tears down.
+# afterwards, at a window that has since acquired an engine. The element would take that second
+# config and re-configure itself onto it - but this handler is for a window with NOTHING, so it
+# would also claim a second port and start a second llama-server beside the one that window
+# already has, owned by nobody and torn down by nothing. Changing a loaded window's model is the
+# switch's job, with the stamps and the port that go with it.
 #
 # The window's own stamps are the authority, read HERE rather than trusted from when the pick
 # was made. Exactly the pair aichat.select.local.model.ok.sh reads to decide this is a first

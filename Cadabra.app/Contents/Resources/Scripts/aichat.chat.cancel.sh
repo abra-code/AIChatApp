@@ -20,33 +20,11 @@ load_target_disarm_for "$OMC_ACTIONUI_WINDOW_UUID"
 chat_window_open_clear "$OMC_ACTIONUI_WINDOW_UUID"
 srvlog "WINDOW-CANCEL enter front=${OMC_FRONT_PROCESS_ID} win=$OMC_ACTIONUI_WINDOW_UUID app_pids=[$(srvlog_apppids)] hosts=[$(srvlog_hosts)] v2_servers=[$(srvlog_servers)]"
 
-if [ -f "$prefs" ]; then
-    # Find the server whose stored dialog guid matches this window, then kill only it.
-    found=0
-    host_pids=$("$plister" get keys "$prefs" "/server-hosts" 2>/dev/null)
-    while IFS= read -r host_pid; do
-        [ -z "$host_pid" ] && continue
-        server_pids=$("$plister" get keys "$prefs" "/server-hosts/$host_pid" 2>/dev/null)
-        while IFS= read -r server_pid; do
-            [ -z "$server_pid" ] && continue
-            stored_dialog=$("$plister" get string "$prefs" "/server-info/$server_pid/dialog" 2>/dev/null)
-            if [ "$stored_dialog" = "$OMC_ACTIONUI_WINDOW_UUID" ]; then
-                echo "Stopping server pid=$server_pid for window $OMC_ACTIONUI_WINDOW_UUID"
-                srvlog "WINDOW-CANCEL killing server=$server_pid host=$host_pid win=$OMC_ACTIONUI_WINDOW_UUID"
-                if kill -0 "$server_pid" 2>/dev/null; then
-                    kill -TERM "$server_pid"
-                fi
-                "$plister" delete "$prefs" "/server-hosts/$host_pid/$server_pid" 2>/dev/null
-                "$plister" delete "$prefs" "/server-info/$server_pid" 2>/dev/null
-                found=1
-                break
-            fi
-        done <<< "$server_pids"
-        [ "$found" = 1 ] && break
-    done <<< "$host_pids"
-
-    [ "$found" = 0 ] && { echo "No server found for window $OMC_ACTIONUI_WINDOW_UUID"; srvlog "WINDOW-CANCEL no server matched win=$OMC_ACTIONUI_WINDOW_UUID"; }
-fi
+# This window's own llama-server, and only it: the registry records which window each server was
+# launched for, and every other window's server stays running under its own entry. The loop that
+# does it lives in the server library now, because it is wanted somewhere this handler cannot
+# reach - ending a window's server without closing the window.
+stop_window_server "$OMC_ACTIONUI_WINDOW_UUID" WINDOW-CANCEL
 
 # Safety net: reap any of this bundle's llama-server / MCP server (bundled python,
 # replay) / mlx-agent processes left orphaned on launchd — children stranded by an
