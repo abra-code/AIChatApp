@@ -29,6 +29,12 @@ if [ "$(pb_get "aichatv2_session_${win}")" = "$sid" ]; then
     # to stop - deleting the session and unbinding the window is the whole of it.
     summarize_hide "$win"
     chat_inject_empty "$win"
+    # Withdrawn with the transcript it belonged to, and BEFORE this window can mint anything.
+    # What was held described the conversation just deleted; between here and the end of this
+    # block there are several subprocess spawns, and a message finalizing in that gap mints a
+    # session and records whatever the queue is holding as its opening line - a resume of a chat
+    # that no longer exists, at the top of a brand-new one.
+    history_marker_clear "$win" 1
     pb_set "aichatv2_session_${win}" ""
     pb_set "aichatv2_resume_pending_${win}" ""
     for b in 521 520 524; do "$dialog" "$win" "$b" omc_disable; done
@@ -40,11 +46,8 @@ if [ "$(pb_get "aichatv2_session_${win}")" = "$sid" ]; then
     engine_label=$(chat_engine_label "$win")
     chat_window_set_status "$win" "${engine_label:-$APPLET_NAME}"
     # And the opening line of what this window is now: an empty conversation with the same engine.
-    # The markers it was holding described the transcript that was just cleared, so they go with
-    # it - recording them into whatever is typed next would open that conversation with a resume
-    # of a chat that no longer exists.
-    history_marker_clear "$win"
-    [ -n "$engine_label" ] && history_marker_show "$win" 1 started "$engine_label"
+    # What it was holding for the deleted one went with the inject above.
+    [ -n "$engine_label" ] && history_marker_lead "$win" 1 started "$engine_label"
 fi
 
 "$next_command" "$OMC_CURRENT_COMMAND_GUID" "aichat.history.refresh"

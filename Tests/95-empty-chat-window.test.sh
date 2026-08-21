@@ -291,24 +291,25 @@ check "  nor on the agent's"                   "SENTINEL" "$(cad_pb_get "aichatv
 # from, and the answer the picker reads to decide this window is no longer empty.
 check "the window can name its engine" "Mlx-Test-Model" \
     "$(cad_call_lib aichat.model.library.sh chat_engine_label "$ENGWIN")"
-# AND THE CONVERSATION'S OPENING LINE, shown here rather than by the first turn. This is the only
-# moment it can lead the conversation: the append state appends, and the message a "started"
-# marker belongs in front of is on screen from the moment the user presses Return, long before
-# its entry finalizes. Held, not recorded - there is no conversation to record it into yet.
-engappend=$(cad_journal 1 | /usr/bin/grep "omc_set_state append")
-check "a ready engine shows the line the conversation opens with" "1" \
-    "$(cad_has "$engappend" '"kind": "started"')"
-check "  naming the engine it just loaded"     "1" "$(cad_has "$engappend" 'Mlx-Test-Model')"
-check "  and holds it for the first turn"      "1" \
+# AND THE CONVERSATION'S OPENING LINE, minted here rather than by the first turn - this is where
+# the model that will answer becomes known - and handed to the element to place in front of that
+# message when it comes. Not shown now: an empty window is not a conversation, and a window whose
+# user never types has nothing to open. Not recorded now either: there is no conversation to
+# record it into yet.
+englead=$(cad_journal 1 | /usr/bin/grep "omc_set_state lead")
+check "a ready engine holds the line the conversation opens with" "1" \
+    "$(cad_has "$englead" '"kind": "started"')"
+check "  naming the engine it just loaded"     "1" "$(cad_has "$englead" 'Mlx-Test-Model')"
+check "  and the app holds the same item"      "1" \
     "$(cad_has "$(cad_pb_get "aichatv2_pending_markers_$ENGWIN")" '"kind": "started"')"
-# And left the channel empty behind it, so the next states["content"] injection cannot re-deliver
-# this marker into whatever conversation that injection loads.
-check "  leaving the append channel empty"     "omc_set_state append " \
-    "$(cad_journal 1 | /usr/bin/grep 'omc_set_state append' | /usr/bin/tail -1)"
+# Nothing reaches the transcript. The append channel is what puts a line on screen, and a line on
+# screen here is the claim this change exists to stop making.
+check "  and puts nothing on screen"           ""  \
+    "$(cad_journal 1 | /usr/bin/grep 'omc_set_state append')"
 
 # THE OTHER BRANCH OF THE SAME DECISION: this window is not starting a conversation, it is being
 # given the engine to continue one it is already showing - the empty window opened to READ a saved
-# chat. The click that loaded it could show no marker, because there was no model to name yet.
+# chat. The click that loaded it could mint no marker, because there was no model to name yet.
 RESUMEWIN="OMCTEST-engine-resume-$$"
 cad_pb_set "aichatv2_modelpath_$RESUMEWIN" ""
 cad_pb_set "aichatv2_agent_$RESUMEWIN" ""

@@ -67,14 +67,14 @@ if [ $? -eq 0 ]; then
     # re-injecting purely to show a marker would cost a re-prime of the whole conversation.
     #
     # Unless this window is still holding the marker that OPENS its next stretch of conversation -
-    # it was shown when the window became able to answer, and nothing has been said into it since.
-    # Then the switch queues behind that marker instead of being recorded on its own: it is shown
-    # now, in the same place, and the pair is recorded together by the turn that finally arrives
-    # (aichat.chat.entry.sh). Recording it here could not work anyway - a brand-new window has no
-    # session directory to record into yet - and this is what keeps the transcript agreeing with
-    # what the user watched happen in the window.
+    # minted when the window became able to answer, and still waiting because nothing has been said
+    # into it since. Then the switch queues behind that marker instead of being recorded on its
+    # own: both lead the first message, and the pair is recorded together by the turn that finally
+    # arrives (aichat.chat.entry.sh). Recording it here could not work anyway - a brand-new window
+    # has no session directory to record into yet - and this is what keeps the transcript agreeing
+    # with what the user watched happen in the window.
     if [ -n "$(history_marker_pending "$target_win")" ]; then
-        history_marker_show "$target_win" 1 modelChanged "$LAUNCHED_MODEL_LABEL"
+        history_marker_lead "$target_win" 1 modelChanged "$LAUNCHED_MODEL_LABEL"
     else
         # The ordinary case: a conversation that has been spoken to, being handed to another model
         # between turns. The end of the transcript is exactly where this belongs, so it is recorded

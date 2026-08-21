@@ -63,11 +63,12 @@ else
         "$(summarize_request_backend "$resolved")"
 fi
 
-# The transcript that came back is the same conversation, so anything this window was holding for
-# it still applies - but the re-injection above replaced the items, taking the displayed session
-# markers with them. Put them back exactly as they were, so what the window shows and what the
-# next turn records stay the same pair of lines.
-history_marker_reshow "$win" "$CHAT_VIEW_ID"
+# NOTHING TO DO ABOUT THE HELD MARKERS HERE, and that is worth stating rather than leaving to be
+# rediscovered. The transcript that came back is the same conversation, so the line waiting to open
+# it still applies - and the element holds what it is waiting to place across a restore, precisely
+# so this path does not have to re-mint it (same text, new id) or explain
+# why the marker vanished. The one path that DOES withdraw them is the one that replaces the
+# display with a different conversation.
 
 # A choice that could not be honored must not be left showing in the menu. Reachable only when the
 # window changed under the user between opening the menu and answering it - someone else's agent

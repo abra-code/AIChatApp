@@ -22,8 +22,8 @@ __AICHAT_CHAT_ENGINE_LIB=1
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.server.library.sh"
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.model.library.sh"
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.acp.agents.library.sh"
-# For history_marker_show: a window that can answer opens its conversation with a line saying
-# what is answering it. Both callers already source this; the guard inside makes that free.
+# For history_marker_lead: a window that can answer holds a line saying what is answering it,
+# ready for its first message. Both callers already source this; the guard inside makes that free.
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.history.library.sh"
 
 # The chat window's own ids, named here because this library writes to all three.
@@ -376,14 +376,15 @@ ${fm_summary}"
 		chat_model_bar_set "$win" "$model_label"
 		chat_engine_title "$win" "$model_label"
 		echo "chat ready ($engine, $model_label) - injected states[config]"
-		# THE CONVERSATION'S OPENING LINE, shown at the only moment it can LEAD the conversation
-		# instead of interrupting it: this window can answer as of the line above, and nothing has
-		# been said into it yet. It is recorded by the first turn that actually arrives - see the
-		# marker section in aichat.history.library.sh for why the two halves are split.
+		# THE CONVERSATION'S OPENING LINE, minted at the moment its model becomes known - this
+		# window can answer as of the line above - and HELD for the first message, which is the
+		# only place it can lead the conversation instead of interrupting it. Displayed and
+		# recorded by that message, and by nothing else: a window that is only read shows no line
+		# and records none. See the marker section in aichat.history.library.sh.
 		#
 		# "resumed" when a saved conversation is already loaded here. That is the empty window
 		# opened to READ one, now being handed its first model: the click that loaded the
-		# conversation could not show a marker, because there was no engine yet to name in it.
+		# conversation could not mint a marker, because there was no engine yet to name in it.
 		#
 		# DECIDED BY WHAT THE WINDOW IS SHOWING, not by what the sidebar armed, because the two can
 		# disagree. A click whose conversation fails to load clears the arm and leaves the PREVIOUS
@@ -397,9 +398,9 @@ ${fm_summary}"
 		resume_sid=$(pb_get "aichatv2_session_${win}")
 		if [ -n "$resume_sid" ]; then
 			pb_set "aichatv2_resume_pending_${win}" "$resume_sid"
-			history_marker_show "$win" "$CHAT_ELEMENT_ID" resumed "$model_label"
+			history_marker_lead "$win" "$CHAT_ELEMENT_ID" resumed "$model_label"
 		else
-			history_marker_show "$win" "$CHAT_ELEMENT_ID" started "$model_label"
+			history_marker_lead "$win" "$CHAT_ELEMENT_ID" started "$model_label"
 		fi
 	else
 		# Every path that sets engine_ready=1 has already alerted: wait_for_server /

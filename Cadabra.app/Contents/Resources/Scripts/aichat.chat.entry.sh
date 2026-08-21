@@ -26,6 +26,16 @@ fi
 envelope="$OMC_ACTIONUI_TRIGGER_CONTEXT"
 [ -z "$envelope" ] && exit 0
 
+# IS THIS A MESSAGE? Asked once, here, because two decisions below turn on it and both are on the
+# streaming path. A deliberately cheap pre-filter and not a parser: history_envelope_mints spawns
+# python and reads the whole envelope, which is what must not happen for every thought, tool call
+# and re-fired usage or plan envelope of a turn. If the envelope's spelling ever changes this
+# simply stops matching, and both callers below degrade to what they did before they existed.
+case "$envelope" in
+    *'"type":"message"'*|*'"type": "message"'*) envelope_is_message=1 ;;
+    *) envelope_is_message= ;;
+esac
+
 # One session dir per chat window, id created on the first finalized entry OF CONTENT.
 session_key="aichatv2_session_${win}"
 sid=$(pb_get "$session_key")
@@ -55,35 +65,79 @@ if [ -z "$sid" ]; then
     # the info pane only ever names the model a session STARTED with, and stops being the whole
     # truth the first time the conversation is resumed with another.
     #
-    # ALREADY ON SCREEN, since the moment this window became able to answer: what happens here is
-    # the recording of the line the user has been looking at, not its first appearance. That is the
-    # only way it can lead the conversation on screen as well as in the journal - the message this
-    # marker belongs in front of has been displayed since the user pressed Return, long before its
-    # entry finalized and got us here. The fallback covers a session minted in a window that never
-    # showed one (an error or system entry can mint one too); a conversation with no opening line
-    # is worse than one whose opening line arrives late.
-    history_marker_commit "$win" "$sid" || \
-        history_mark_and_show "$win" "$CHAT_VIEW_ID" "$sid" started "$(chat_engine_label "$win")"
+    # ALREADY ON SCREEN, put there by the element the moment this message was sent and in front of
+    # it: what happens here is the recording of the line the user is looking at, not its first
+    # appearance. That is the only way it can lead the conversation on screen as well as in the
+    # journal - by the time an entry finalizes and gets us here, the message this marker belongs
+    # in front of has been displayed since the user pressed Return. The envelope carries the line
+    # as the element placed it, stamped with that moment, and that is what is written.
+    #
+    # ONLY FOR A MESSAGE, because only a message is what the element placed the line in front of.
+    # A session minted by something else (an error or a system entry can mint one too) leaves the
+    # line waiting for the first message, which the branch below records it on; the fallback covers
+    # the window that reached one with nothing held at all, a conversation with no opening line
+    # being worse than one whose opening line arrives late.
+    if [ -n "$envelope_is_message" ]; then
+        history_marker_commit "$win" "$sid" "$CHAT_VIEW_ID" "$envelope" || \
+            history_mark_and_show "$win" "$CHAT_VIEW_ID" "$sid" started "$(chat_engine_label "$win")"
+    fi
     newly_minted=1
 else
     # The other half of the same record: this conversation already existed, and if the sidebar armed
-    # a resume for it then THIS is the moment it became one - a turn is being appended to a
-    # conversation the user opened. Clearing the flag first, not last, NARROWS the window in which
-    # two overlapping invocations could each write a marker (usage/plan entries re-fire several
-    # times per turn); it does not close it. Measured, the gap is about 5 ms, and the first entry
-    # after a resume comes from a send, which is dispatched synchronously with nothing else queued.
+    # a resume for it then a MESSAGE is the moment it became one - a turn is being appended to a
+    # conversation the user opened. The message test is what makes that true rather than nearly
+    # true: any finalized entry used to be enough, so an agent announcing its session in a
+    # conversation the user had merely clicked on wrote "Resumed with <model>" into it, and left
+    # the arm disarmed so the real first message recorded nothing.
+    #
+    # Clearing the flag first, not last, NARROWS the window in which two overlapping invocations
+    # could each write a marker (usage/plan entries re-fire several times per turn); it does not
+    # close it. Measured, the gap is about 5 ms, and the first entry after a resume comes from a
+    # send, which is dispatched synchronously with nothing else queued.
+    #
+    # READ ONLY FOR A MESSAGE. Nothing else can drain the queue, and this handler re-fires several
+    # times per turn on entries that never will - reading the flag for each of them is a
+    # $pasteboard spawn per thought, tool call and usage envelope on the streaming path.
     resume_key="aichatv2_resume_pending_${win}"
-    if [ "$(pb_get "$resume_key")" = "$sid" ]; then
+    resume_armed=
+    [ -n "$envelope_is_message" ] && resume_armed=$(pb_get "$resume_key")
+    if [ -n "$envelope_is_message" ] && [ "$resume_armed" = "$sid" ]; then
         pb_set "$resume_key" ""
-        # The marker was shown when the conversation was loaded, in front of the message that is
-        # being recorded below; this records it. A model switched between the click and this turn
-        # queued its own marker behind that one (aichat.chat.switch.model.sh), so the pair names
-        # what the user saw and what is about to answer.
+        # The marker was minted when the conversation was loaded and placed by the element in front
+        # of the message being recorded below; this records it. A model switched between the click
+        # and this turn queued its own marker behind that one (aichat.chat.switch.model.sh), so the
+        # pair names what the user saw and what is about to answer.
         #
         # The fallback re-reads the label NOW, which is what it has always done, for the window
-        # that reached a turn with nothing queued.
-        history_marker_commit "$win" "$sid" || \
+        # that reached a turn with nothing held.
+        history_marker_commit "$win" "$sid" "$CHAT_VIEW_ID" "$envelope" || \
             history_mark_and_show "$win" "$CHAT_VIEW_ID" "$sid" resumed "$(chat_engine_label "$win")"
+    elif [ -n "$envelope_is_message" ] && [ -z "$resume_armed" ]; then
+        # STILL HOLDING A LINE, WITH NO OTHER CONVERSATION CLAIMING IT. The element placed whatever
+        # this window was holding in front of the message being recorded below, so it has to be
+        # recorded here or the reload loses a line the user is looking at - and the queue that
+        # cannot be drained goes on making every later marker queue behind it.
+        #
+        # Reachable two ways, both of which used to end here with the line displayed and never
+        # written. A session minted by an entry that is NOT a message (an error or a system entry
+        # can mint one) leaves its opening marker held, and no resume is ever armed for a
+        # conversation this window started itself. And a sidebar click whose conversation fails to
+        # load disarms, while the window goes on showing - and holding the line for - the
+        # conversation it already had.
+        #
+        # THE EMPTY ARM IS THE WHOLE TEST, and it is what keeps the straggler case out: a turn
+        # finalizing while another conversation is being opened finds the arm naming that one and
+        # the binding naming this one, and lands in neither arm. No fallback either - nothing placed
+        # and nothing held means the element put no line in front of this message.
+        history_marker_commit "$win" "$sid" "$CHAT_VIEW_ID" "$envelope" || :
+    elif [ -n "$envelope_is_message" ]; then
+        # THE STRAGGLER ITSELF: the arm names another conversation - one being opened while this
+        # turn was finishing - and this window is still bound to this one. It is neither a resume
+        # of this conversation nor its first message, and the queue is not this conversation's to
+        # drain. But whatever the element placed in front of this message is on screen in THIS
+        # conversation, so it is recorded here, where the message is about to be, or the reload
+        # loses a line the user saw.
+        history_marker_record "$sid" "$envelope" || :
     fi
 fi
 
@@ -114,14 +168,9 @@ fi
 # permanently on screen now - a visibly wrong number is worse than the old hidden one. So
 # restate it per MESSAGE, which is twice a turn.
 #
-# The `case` is a deliberately cheap pre-filter and not a parser. This handler is on the
-# streaming path and its header asks it to stay cheap; history_info_line spawns python and
-# reads the whole journal, so doing it for every finalized entry (thoughts, tool calls, and
-# the usage/plan envelopes that re-fire several times a turn) is exactly what must not happen.
-# If the envelope's spelling ever changes this simply stops matching, and the line falls back
-# to refreshing when a row is clicked - the behavior it had before this existed.
-if [ -z "$info_stated" ]; then
-    case "$envelope" in
-        *'"type":"message"'*|*'"type": "message"'*) chat_info_refresh "$win" ;;
-    esac
+# The test is the cheap one made at the top of this handler: history_info_line spawns python and
+# reads the whole journal, so doing it for every finalized entry (thoughts, tool calls, and the
+# usage/plan envelopes that re-fire several times a turn) is exactly what must not happen.
+if [ -z "$info_stated" ] && [ -n "$envelope_is_message" ]; then
+    chat_info_refresh "$win"
 fi

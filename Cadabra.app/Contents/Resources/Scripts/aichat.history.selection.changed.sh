@@ -15,7 +15,7 @@
 # aichat.history.library.sh. Everything below the threshold, and everything already answered
 # for, stays exactly as seamless as it was.
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.history.library.sh"
-# For chat_engine_label: the marker shown below names what will answer the next message.
+# For chat_engine_label: the marker held below names what will answer the next message.
 source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.model.library.sh"
 
 win="$OMC_ACTIONUI_WINDOW_UUID"
@@ -51,10 +51,10 @@ fi
 # otherwise stamp a resume onto the conversation they just left. It also covers the easier case of a
 # conversation armed here and then abandoned (New Chat, another row, a delete).
 #
-# The marker still reaches the DISPLAY as soon as the conversation is loaded, further down: showing
-# one costs nothing (this display is rebuilt from the store on every click) while RECORDING one is
-# what claims a conversation was continued. Splitting the two is what lets the line appear where it
-# belongs - in front of the message it was sent into, rather than behind it.
+# The marker for this conversation is MINTED further down and handed to the element, which holds it
+# until there is a message for it to lead. Nothing is displayed by the click itself - that was tried,
+# and a run of "Resumed with <model>" at the bottom of every conversation the user had merely looked
+# at is the same false claim as recording one, made to the person instead of to the journal.
 pb_set "aichatv2_resume_pending_${win}" "$sid"
 
 # Load the transcript into the chat (replaces whatever was shown) and bind the window to the
@@ -97,24 +97,25 @@ if [ "$loaded" -ne 0 ]; then
     for b in $ROW_BUTTONS; do "$dialog" "$win" "$b" omc_enable; done
     exit 0
 fi
-# THE MARKERS SHOWN FOR THE CONVERSATION BEING LEFT GO FIRST, before this window is bound to the
-# new one. The injection above replaced the transcript, so they are already off the screen; what
-# the order buys is the gap between here and the bind below. An entry finalizing in that gap - the
-# user clicks away while the agent is still answering - would otherwise find the window bound to
-# the NEW conversation while the queue still held the old one's markers, and record them there.
-# It is the same race the sid on the arm was written to narrow, and it is narrowed the same way:
-# in the remaining gap the arm names the new conversation and the binding still names the old, so
-# aichat.chat.entry.sh's commit test fails and nothing is recorded at all.
-history_marker_clear "$win"
+# THE MARKERS HELD FOR THE CONVERSATION BEING LEFT GO FIRST, before this window is bound to the
+# new one. They were minted for a transcript this window is no longer showing, so they must neither
+# lead a message typed into this one nor be recorded into it; what the ORDER buys is the gap
+# between here and the bind below. An entry finalizing in that gap - the user clicks away while the
+# agent is still answering - would otherwise find the window bound to the NEW conversation while
+# the queue still held the old one's markers, and record them there. It is the same race the sid on
+# the arm was written to narrow, and it is narrowed the same way: in the remaining gap the arm
+# names the new conversation and the binding still names the old, so aichat.chat.entry.sh's commit
+# test fails and nothing is recorded at all.
+history_marker_clear "$win" "$CHAT_VIEW_ID"
 pb_set "aichatv2_session_${win}" "$sid"
 
-# WHAT THIS WINDOW IS ABOUT TO CONTINUE WITH, at the end of the conversation just loaded and in
-# front of whatever the user types next.
+# WHAT THIS WINDOW WOULD CONTINUE WITH: minted now, while the model that would answer is known,
+# and placed by the element in front of whatever the user types next - if anything ever is.
 #
-# Nothing is shown while this window has no engine: there would be no model to name. Such a window
-# is reading rather than resuming, and its marker is shown by chat_engine_load when a model arrives.
+# Nothing is minted while this window has no engine: there would be no model to name. Such a window
+# is reading rather than resuming, and its marker is minted by chat_engine_load when a model arrives.
 engine_label=$(chat_engine_label "$win")
-[ -n "$engine_label" ] && history_marker_show "$win" "$CHAT_VIEW_ID" resumed "$engine_label"
+[ -n "$engine_label" ] && history_marker_lead "$win" "$CHAT_VIEW_ID" resumed "$engine_label"
 
 # The Summarize checkbox belongs to a RESUME, so it is created here and nowhere else. A new
 # chat has no older half to summarize, and a checkbox offering to condense an empty

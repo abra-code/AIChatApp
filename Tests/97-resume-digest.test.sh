@@ -365,9 +365,10 @@ section "a resume is the first message sent, not the click that displayed the co
 # selection handler SHOWS the marker and ARMS it; chat.entry.sh records it when a turn arrives.
 #
 # Which half happens when is the whole of this section. RECORDING is what claims a conversation
-# was continued, and it waits for a turn. SHOWING has to happen at the click, because the append
-# state appends: wait for the turn and the marker lands BEHIND the message it was sent into, and
-# the conversation reads as though its own first question had opened it.
+# was continued, and it waits for a turn. MINTING happens at the click, because that is where the
+# model that would answer is known - but the line is HELD by the element (states["lead"]) until
+# there is a message for it to lead, so a conversation only looked at shows nothing and records
+# nothing, and one that IS spoken to opens with the line rather than answering it.
 cad_mk_session browsed 3
 cad_browsed() { "$cad_py" "$cad_store" transcript "$cad_hist/browsed"; }
 # The last <n> journal lines by TYPE, which is how the ordering of a marker against the message
@@ -382,6 +383,10 @@ cad_appended() { cad_journal "$CHAT_ID" | /usr/bin/grep "omc_set_state append"; 
 # that parks the channel, so "the last append" is always the parking one - the trailing "." is what
 # separates a value from the absence of one.
 cad_appended_items() { cad_journal "$CHAT_ID" | /usr/bin/grep "omc_set_state append ."; }
+# The lead channel: what the element is holding for the next message. Same trailing "." trick -
+# the withdrawing write carries nothing, and it is the write that says "hold nothing".
+cad_led() { cad_journal "$CHAT_ID" | /usr/bin/grep "omc_set_state lead"; }
+cad_led_items() { cad_journal "$CHAT_ID" | /usr/bin/grep "omc_set_state lead ."; }
 win="$OMC_ACTIONUI_WINDOW_UUID"
 
 # STAMPED BEFORE THE CLICK, because the marker is minted when the conversation is displayed and
@@ -394,19 +399,19 @@ export OMC_ACTIONUI_TABLE_510_COLUMN_2_VALUE=browsed
 omc_run aichat.history.selection.changed
 check "browsing a conversation records nothing" "0" "$(cad_has "$(cad_browsed)" '"kind": "resumed"')"
 check "  but arms the marker for this window"   "browsed" "$(cad_pb_get "aichatv2_resume_pending_$win")"
-# Shown now, at the end of the conversation just loaded and in front of whatever is typed next.
-check "  and shows it, ahead of the message it opens" "1" "$(cad_has "$(cad_appended)" '"kind": "resumed"')"
-check "    naming what will answer"                   "1" "$(cad_has "$(cad_appended)" 'TestAgent')"
+# THE HALF THE USER SEES, and the regression this section now guards: a click puts NOTHING on
+# screen. Showing the line here is how a conversation nobody said anything into ends up with
+# "Resumed with <model>" under its last answer, once per row the user clicks through.
+check "  and shows nothing"                     ""  "$(cad_appended)"
+# It is minted, and handed to the element to place in front of whatever is typed next - if
+# anything ever is.
+check "  handing the element the line to lead the next message" "1" \
+    "$(cad_has "$(cad_led)" '"kind": "resumed"')"
+check "    naming what will answer"                            "1" "$(cad_has "$(cad_led)" 'TestAgent')"
 # Held rather than written: the same item, waiting for a turn to record it against, so the line
-# the user is looking at is the line the next load rebuilds rather than one just like it.
+# the user will read is the line the next load rebuilds rather than one just like it.
 check "  and holds that exact item for the turn"      "1" \
     "$(cad_has "$(cad_pb_get "aichatv2_pending_markers_$win")" '"kind": "resumed"')"
-# AND THE CHANNEL IS LEFT EMPTY. The host bridge publishes one state dictionary and every
-# subscriber re-reads its own key on every change to it, so a marker left sitting in
-# states["append"] is re-delivered by the next states["content"] injection - into the conversation
-# that injection just loaded, where no journal will ever hold it.
-check "  and leaves the append channel empty"        "omc_set_state append " \
-    "$(cad_journal "$CHAT_ID" | /usr/bin/grep 'omc_set_state append' | /usr/bin/tail -1)"
 
 # THE SAME ITEM, SHOWN AND RECORDED. Everything else here would still pass if the marker were
 # re-minted at commit time, which is precisely what the design forbids: the line the user read
@@ -417,28 +422,74 @@ import json, sys
 sys.stdout.write(json.loads(sys.stdin.readline())["sessionEvent"]["id"])')
 check "  and the item shown carries an id"           "1" "$(cad_has "$shown_id" "se-")"
 
-# The turn arrives. THIS is the resume.
-cad_entry() { # <text>
-    ( export OMC_ACTIONUI_TRIGGER_CONTEXT="{\"sequence\":1,\"type\":\"message\",\"id\":\"$1\",\"data\":{\"type\":\"message\",\"message\":{\"role\":\"local\",\"text\":\"$1\"}}}"
+# The turn arrives. THIS is the resume. <placed> is what the element put in front of the message,
+# as the message's entry reports it - the held list, stamped with the moment of the send (see
+# cad_placed). An entry without it is the entry of a message the element placed nothing before.
+cad_entry() { # <text> [placed-json-array]
+    lead=
+    [ -n "${2:-}" ] && lead=",\"lead\":$2"
+    ( export OMC_ACTIONUI_TRIGGER_CONTEXT="{\"sequence\":1,\"type\":\"message\",\"id\":\"$1\",\"data\":{\"type\":\"message\",\"message\":{\"role\":\"local\",\"text\":\"$1\"}}$lead}"
       omc_run aichat.chat.entry )
 }
+# What the element places, as its entry reports it: the window's held list, each line stamped with
+# the moment of the send - the one thing the element changes. The app's copy carries no time
+# (asserted below), so a stamp in the journal can only have come through here.
+SEND_MOMENT="2026-08-21T06:55:12Z"
+cad_placed() { # [stamp] -> the held list as one JSON array, stamped as the element stamps it
+    cad_pb_get "aichatv2_pending_markers_$win" | "$cad_py" -c '
+import json, sys
+items = []
+for line in sys.stdin.read().split("\n"):
+    if line.strip():
+        item = json.loads(line)
+        item["sessionEvent"].setdefault("timestamp", sys.argv[1])
+        items.append(item)
+sys.stdout.write(json.dumps(items))' "${1:-$SEND_MOMENT}"
+}
+cad_marker_stamps() { # <sid> -> the timestamps of the transcript's session markers, one per line
+    "$cad_py" -c '
+import json, sys
+for i in json.load(sys.stdin)["items"]:
+    if i.get("type") == "sessionEvent":
+        print(i["sessionEvent"].get("timestamp", ""))' <<EOF
+$("$cad_py" "$cad_store" transcript "$cad_hist/$1")
+EOF
+}
+STAMP_SHAPE='^20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z$'
 cad_marker_count() { # <sid>
     "$cad_py" -c 'import json,sys; print(sum(1 for i in json.load(sys.stdin)["items"] if i.get("type")=="sessionEvent"))' <<EOF
 $("$cad_py" "$cad_store" transcript "$cad_hist/$1")
 EOF
 }
-# The item the click showed, checked against the contract the element decodes it under, before a
-# turn turns it into a journal line.
-appended=$(cad_appended_items | /usr/bin/tail -1)
-check "the shown marker is a decodable ChatItem" "1" "$(cad_has "$appended" '"type": "sessionEvent"')"
+# The item the click handed over, checked against the contract the element decodes it under,
+# before a turn turns it into a journal line.
+led=$(cad_led_items | /usr/bin/tail -1)
+check "the held marker is a decodable ChatItem" "1" "$(cad_has "$led" '"type": "sessionEvent"')"
 # The ITEM, not the envelope the journal stores. Both start with the same type, so a check for
 # the discriminator alone passes on either - and the envelope is not a ChatItem, so ChatView would
-# throw on it and drop the restore. The envelope's giveaway is its "data" key.
-check "  the item itself, not its envelope"     "0" "$(cad_has "$appended" '"data":')"
-check "  with the payload under sessionEvent"   "1" "$(cad_has "$appended" '"sessionEvent":')"
+# throw on it and drop it. The envelope's giveaway is its "data" key.
+check "  the item itself, not its envelope"     "0" "$(cad_has "$led" '"data":')"
+check "  with the payload under sessionEvent"   "1" "$(cad_has "$led" '"sessionEvent":')"
 
+# AN ENTRY THAT IS NOT A MESSAGE IS NOT A RESUME EITHER. The agent announces its session as a
+# finalized entry like any other, and in a conversation the user had only clicked on that
+# announcement used to be enough to record "Resumed with <model>" into it - and to disarm the
+# flag, so the real first message then recorded nothing at all.
 cad_journal_reset
-cad_entry hello
+( export OMC_ACTIONUI_TRIGGER_CONTEXT='{"sequence":1,"type":"session","id":"sess-1","data":{"type":"session","session":{"id":"acp-1"}}}'
+  omc_run aichat.chat.entry )
+check "an agent announcement is not a resume"  "0" "$(cad_marker_count browsed)"
+check "  and leaves the marker armed"          "browsed" "$(cad_pb_get "aichatv2_resume_pending_$win")"
+check "  and still held"                       "1" \
+    "$(cad_has "$(cad_pb_get "aichatv2_pending_markers_$win")" '"kind": "resumed"')"
+
+# HELD WITHOUT A TIME. The line is minted when the conversation is displayed, and the user may not
+# type for an hour; the time it should carry is the time of the message it leads, and only the
+# element is there for that. So the app's copy has none, and the element stamps it as it places it.
+check "the held line carries no time of its own" "0" \
+    "$(cad_has "$(cad_pb_get "aichatv2_pending_markers_$win")" '"timestamp"')"
+cad_journal_reset
+cad_entry hello "$(cad_placed)"
 check "sending into it records the resume"     "1" "$(cad_marker_count browsed)"
 # Counting sessionEvents is not enough: a marker of the wrong KIND, or one naming nothing, would
 # satisfy a count and tell the reader of the transcript nothing.
@@ -447,6 +498,9 @@ check "  naming what is about to answer"       "1" "$(cad_has "$(cad_browsed)" '
 check "  and disarms, so the next turn is not another resume" "" \
     "$(cad_pb_get "aichatv2_resume_pending_$win")"
 check "  and holds nothing further"            "" "$(cad_pb_get "aichatv2_pending_markers_$win")"
+# The element is told so too, or its copy would lead the NEXT message as well.
+check "  taking the line off the lead channel" "omc_set_state lead " \
+    "$(cad_journal "$CHAT_ID" | /usr/bin/grep 'omc_set_state lead' | /usr/bin/tail -1)"
 # WHAT THE USER ASKED FOR, and the reason the two halves are split at all: the marker leads the
 # message it opened. Recording had this right before the display did - the journal write has
 # always preceded the entry's - so the live window and a reload used to disagree about the order
@@ -454,6 +508,9 @@ check "  and holds nothing further"            "" "$(cad_pb_get "aichatv2_pendin
 check "  and leads the message it opened"      "sessionEvent message" "$(cad_tail_types browsed 2)"
 check "  recording the very item that was shown" "1" \
     "$([ -n "$shown_id" ] && cad_has "$(cad_browsed)" "$shown_id" || echo 0)"
+# STAMPED WITH THE SEND. The entry carries the line as the element placed it, and that is what is
+# written - not the app's copy, which has no time, and not the time of the recording.
+check "  stamped with the moment it was sent"  "$SEND_MOMENT" "$(cad_marker_stamps browsed)"
 # NOTHING REACHES THE ELEMENT DURING THE TURN, which is the other half of the fix. An append while
 # a turn is in flight moves the transcript ahead of the snapshot ChatView compares against (that
 # snapshot only advances at the turn's end), so the element decided its context was stale, showed
@@ -463,6 +520,61 @@ check "  and the turn appends nothing"         ""  "$(cad_appended)"
 cad_entry again
 check "  a second turn adds no second marker"  "1" "$(cad_marker_count browsed)"
 
+# A LINE HELD BY A WINDOW NOBODY ARMED STILL HAS TO REACH THE JOURNAL. Two ways there, and under
+# the message gate alone both ended with the element placing a line in front of the first message
+# and nothing ever recording it - the reload would lose a line the user was looking at, and the
+# queue that could not be drained would make every later marker pile up behind it.
+#
+# First way: a session minted by an entry that is NOT a message. The window holds the line it
+# started with, no resume is ever armed for a conversation it began itself, and the mint has
+# already happened by the time the first message arrives.
+cad_pb_set "aichatv2_agent_$win" "TestAgent"
+cad_pb_set "aichatv2_session_$win" ""
+cad_pb_set "aichatv2_resume_pending_$win" ""
+cad_pb_set "aichatv2_pending_markers_$win" ""
+omc_run aichat.chat.new
+( export OMC_ACTIONUI_TRIGGER_CONTEXT='{"sequence":1,"type":"error","id":"err-1","data":{"type":"error","text":"the agent went away"}}'
+  omc_run aichat.chat.entry )
+errsid=$(cad_pb_get "aichatv2_session_$win")
+check "an error entry mints a conversation"    "1" "$(cad_has "$errsid" "-")"
+check "  without recording the line yet"       "0" "$(cad_marker_count "$errsid")"
+check "  which is still held"                  "1" \
+    "$(cad_has "$(cad_pb_get "aichatv2_pending_markers_$win")" '"kind": "started"')"
+cad_entry "first question" "$(cad_placed)"
+check "the first message records it"           "1" "$(cad_marker_count "$errsid")"
+check "  as the start it was"                  "1" \
+    "$(cad_has "$("$cad_py" "$cad_store" transcript "$cad_hist/$errsid")" '"kind": "started"')"
+check "  leading the message it opened"        "sessionEvent message" "$(cad_tail_types "$errsid" 2)"
+check "  stamped with that message's moment"   "$SEND_MOMENT" "$(cad_marker_stamps "$errsid")"
+check "  and the window holds nothing after"   "" "$(cad_pb_get "aichatv2_pending_markers_$win")"
+
+# Second way: a window bound to a conversation, holding a line for it, with nothing armed. That is
+# where a sidebar click whose conversation could not be READ leaves things - the click disarms,
+# because nothing was resumed, while the window goes on showing and holding the line for the
+# conversation it already had. The failing click cannot be dispatched here (it needs a session
+# whose transcript the store refuses to produce, which is a filesystem state and not an input), so
+# the state it leaves is set up directly: bound, holding, unarmed.
+cad_mk_session kept 3
+cad_pb_set "aichatv2_session_$win" "kept"
+cad_pb_set "aichatv2_resume_pending_$win" ""
+cad_pb_set "aichatv2_pending_markers_$win" ""
+ui_declare_ids "$CHAT_ID"
+cad_hist_call history_marker_lead "$win" "$CHAT_ID" resumed "TestAgent"
+check "a bound window can hold a line unarmed" "1" \
+    "$(cad_has "$(cad_pb_get "aichatv2_pending_markers_$win")" '"kind": "resumed"')"
+# Sent WITHOUT the element reporting a placement - the entry of a message that arrived before the
+# element had the list - which is the fallback: the app's own copy is written, stamped by the
+# recording. A line with no time at all would be the one outcome worse than a line stamped late.
+cad_entry "carry on"
+check "  which the next message records"       "1" "$(cad_marker_count kept)"
+check "    stamped by the recording, the element having reported nothing" "1" \
+    "$(cad_marker_stamps kept | /usr/bin/grep -c "$STAMP_SHAPE")"
+check "    leading that message"               "sessionEvent message" "$(cad_tail_types kept 2)"
+check "    and holds nothing after"            "" "$(cad_pb_get "aichatv2_pending_markers_$win")"
+
+# AND THE STRAGGLER IS STILL REFUSED, which is what the empty-arm test buys rather than assumes.
+# A turn finalizing while another conversation is being opened finds the arm naming that one and
+# the binding naming this one, and must record nothing in either.
 # THE SID ON THE FLAG IS THE ONLY DEFENSE FOR PART OF EVERY SIDEBAR CLICK. Arming happens before
 # the window is re-bound, and three bundled-python3 calls run in between, so for a few tens of
 # milliseconds the flag names the conversation being opened while the session still names the one
@@ -472,10 +584,29 @@ check "  a second turn adds no second marker"  "1" "$(cad_marker_count browsed)"
 cad_mk_session leftbehind 3
 cad_pb_set "aichatv2_session_$win" "leftbehind"
 cad_pb_set "aichatv2_resume_pending_$win" "browsed"
+cad_hist_call history_marker_lead "$win" "$CHAT_ID" resumed "TestAgent"
 cad_entry straggler
 check "a turn into the conversation being left is not the resume" "0" "$(cad_marker_count leftbehind)"
 check "  and the arm still belongs to the one being opened" "browsed" \
     "$(cad_pb_get "aichatv2_resume_pending_$win")"
+# And the line stays held, for the conversation being opened to be led by. Recording nothing is
+# only half of what the arm buys: the queue belongs to that conversation, and draining it here
+# would leave the one the user is opening with no opening line at all.
+check "  and the line is still held for it"    "1" \
+    "$(cad_has "$(cad_pb_get "aichatv2_pending_markers_$win")" '"kind": "resumed"')"
+# BUT WHAT THE ELEMENT PUT ON SCREEN IS RECORDED WHERE THE MESSAGE GOES. A straggler the element
+# led - it placed this window's held line in front of the message before the click happened - is a
+# line the user saw in THIS conversation, and the reload would lose it if the arm's refusal
+# extended to it. It goes into this journal, ahead of the message; the arm and the queue are still
+# not this message's to touch.
+cad_entry "led straggler" "$(cad_placed)"
+check "  a straggler the element led records the line it was led by" "1" "$(cad_marker_count leftbehind)"
+check "    into the conversation the message went to" "sessionEvent message" "$(cad_tail_types leftbehind 2)"
+check "    stamped with the send"              "$SEND_MOMENT" "$(cad_marker_stamps leftbehind)"
+check "    leaving the arm alone"              "browsed" "$(cad_pb_get "aichatv2_resume_pending_$win")"
+check "    and the queue alone"                "1" \
+    "$(cad_has "$(cad_pb_get "aichatv2_pending_markers_$win")" '"kind": "resumed"')"
+cad_pb_set "aichatv2_pending_markers_$win" ""
 cad_pb_set "aichatv2_agent_$win" ""
 
 # Abandoning an armed conversation must not leave the flag set either - nor the marker shown for
@@ -507,13 +638,11 @@ check "  and opens the empty conversation it left" "1" \
 alerts_reset; alert_answers_reset
 unset OMC_ACTIONUI_TABLE_510_COLUMN_2_VALUE
 
-section "a re-injection of the same conversation puts the held markers back"
+section "a re-injection of the same conversation leaves the held marker alone"
 # The Summarize menu is the one path that REPLACES the display with the conversation already in
-# it. The items go, and the markers shown against them go with the items - so a queue left holding
-# them would describe a screen the user cannot see, and would record lines into the journal that
-# the window stopped showing. Re-showing the HELD items rather than minting new ones is what keeps
-# the display and the pending queue the same pair of lines: re-minting would move the ids and
-# stamp the timestamp from now.
+# it. Nothing was on screen to lose - the marker is waiting, not shown - and the element holds
+# what it is waiting to place across a restore, so this path neither re-mints (same line, new id,
+# a timestamp from now) nor withdraws. What must NOT happen here is the app deciding to help.
 cad_mk_session reinject 8
 cad_pb_set "aichatv2_agent_$win" "TestAgent"
 cad_pb_set "aichatv2_session_$win" ""
@@ -528,38 +657,39 @@ cad_journal_reset
 ui_declare_ids "$PICKER_ID"
 omc_control "$PICKER_ID" "session"
 omc_run aichat.chat.summarize.mode
-check "  the re-injection puts it back on screen" "1" "$(cad_has "$(cad_appended)" "$held_id")"
-check "    the same item, not a new one"          "$held_id" \
+check "  the re-injection shows nothing"          ""  "$(cad_appended)"
+check "    and does not withdraw the held line"   ""  "$(cad_led)"
+check "    which is still the same item"          "$held_id" \
     "$(cad_pb_get "aichatv2_pending_markers_$win" | "$cad_py" -c '
 import json, sys
 sys.stdout.write(json.loads(sys.stdin.readline())["sessionEvent"]["id"])')"
-check "    and the channel is left empty again"   "omc_set_state append " \
-    "$(cad_journal "$CHAT_ID" | /usr/bin/grep 'omc_set_state append' | /usr/bin/tail -1)"
 
 section "a new conversation opens with the line that started it, not behind it"
 # The same ordering, on the path that has no saved conversation to load: New Chat empties the
-# transcript and the window shows what the next message will be sent into. A brand-new chat had
-# the worse version of this bug - the marker arrived while the first answer was still streaming,
-# so the transcript read "question, then the line saying the conversation had started".
+# transcript and the window holds the line the next message will be sent into. A brand-new chat
+# had the worse version of this bug - the marker arrived while the first answer was still
+# streaming, so the transcript read "question, then the line saying the conversation had started".
 cad_pb_set "aichatv2_agent_$win" "TestAgent"
 cad_pb_set "aichatv2_session_$win" ""
 cad_pb_set "aichatv2_resume_pending_$win" ""
 cad_pb_set "aichatv2_pending_markers_$win" ""
 cad_journal_reset
 omc_run aichat.chat.new
-check "New Chat shows the opening line"        "1" "$(cad_has "$(cad_appended)" '"kind": "started"')"
-check "  naming what will answer"              "1" "$(cad_has "$(cad_appended)" 'TestAgent')"
+check "New Chat holds the opening line"        "1" "$(cad_has "$(cad_led)" '"kind": "started"')"
+check "  naming what will answer"              "1" "$(cad_has "$(cad_led)" 'TestAgent')"
 check "  held rather than recorded"            "1" \
     "$(cad_has "$(cad_pb_get "aichatv2_pending_markers_$win")" '"kind": "started"')"
+check "  and shows nothing yet"                ""  "$(cad_appended)"
 
 cad_journal_reset
-cad_entry "first question"
+cad_entry "first question" "$(cad_placed)"
 newsid=$(cad_pb_get "aichatv2_session_$win")
 check "the first turn mints a conversation"    "1" "$(cad_has "$newsid" "-")"
 check "  recording the marker it was holding"  "1" "$(cad_marker_count "$newsid")"
 check "    in front of the first message"      "sessionEvent message" "$(cad_tail_types "$newsid" 2)"
 check "    naming what answered"               "1" \
     "$(cad_has "$("$cad_py" "$cad_store" transcript "$cad_hist/$newsid")" '"model": "TestAgent"')"
+check "    stamped with the first message's moment" "$SEND_MOMENT" "$(cad_marker_stamps "$newsid")"
 check "  and appends nothing during the turn"  ""  "$(cad_appended)"
 check "  and holds nothing further"            ""  "$(cad_pb_get "aichatv2_pending_markers_$win")"
 
@@ -579,16 +709,16 @@ check "  and still leads its first message"    "sessionEvent message" "$(cad_tai
 cad_pb_set "aichatv2_agent_$win" ""
 
 section "a window can hold more than one marker, and records them in the order it showed them"
-# The switch-before-the-first-message path: a window shows the line it opens with, the user changes
+# The switch-before-the-first-message path: a window holds the line it opens with, the user changes
 # the model before saying anything, and the switch queues behind that line rather than being
 # recorded on its own (there is no conversation to record it into yet). The handler itself cannot
 # be dispatched here - it starts a real llama-server - so the queue is driven directly, which is
-# the half that has to hold: two items, one pasteboard value, recorded in the order shown.
+# the half that has to hold: two items, one pasteboard value, recorded in the order held.
 multiwin="OMCTEST-multi-$$"
 cad_pb_set "aichatv2_pending_markers_$multiwin" ""
 ui_declare_ids "$CHAT_ID"
-cad_hist_call history_marker_show "$multiwin" "$CHAT_ID" started "First Model"
-cad_hist_call history_marker_show "$multiwin" "$CHAT_ID" modelChanged "Second Model"
+cad_hist_call history_marker_lead "$multiwin" "$CHAT_ID" started "First Model"
+cad_hist_call history_marker_lead "$multiwin" "$CHAT_ID" modelChanged "Second Model"
 multiq=$(cad_pb_get "aichatv2_pending_markers_$multiwin")
 check "both markers are held"                  "2" "$(printf '%s\n' "$multiq" | /usr/bin/grep -c 'sessionEvent')"
 # One value carrying an embedded newline, through the real pasteboard: the delimiter the shell
@@ -598,30 +728,67 @@ check "  with distinct ids"                    "2" \
     "$(printf '%s\n' "$multiq" | "$cad_py" -c '
 import json, sys
 print(len({json.loads(l)["sessionEvent"]["id"] for l in sys.stdin if l.strip()}))')"
+# And handed to the element as ONE value carrying both: the first place this app passes a value
+# with an embedded newline through omc_set_state (the journal flattens it to a space, which is
+# why the count is of type markers rather than lines).
+check "  and published to the element as one value carrying both" "2" \
+    "$(cad_led_items | /usr/bin/tail -1 | /usr/bin/grep -o '"type": "sessionEvent"' | /usr/bin/wc -l | /usr/bin/tr -d ' ')"
 cad_mk_session multi 2
-cad_hist_call history_marker_commit "$multiwin" multi
+# Committed with an entry that reports no placement, which is the fallback path: both lines
+# written from the app's copy, stamped by the recording.
+cad_hist_call history_marker_commit "$multiwin" multi "$CHAT_ID" '{"type":"message","id":"m"}'
 check "committing records both"                "2" "$(cad_marker_count multi)"
-check "  in the order they were shown"         "started modelChanged" \
+check "  in the order they were held"          "started modelChanged" \
     "$(/usr/bin/tail -n 2 "$cad_hist/multi/journal.jsonl" | "$cad_py" -c '
 import json, sys
 print(" ".join(json.loads(l)["data"]["sessionEvent"]["kind"] for l in sys.stdin if l.strip()))')"
 check "  and the window holds nothing after"   "" "$(cad_pb_get "aichatv2_pending_markers_$multiwin")"
+check "  each stamped by the recording"        "2" \
+    "$(cad_marker_stamps multi | /usr/bin/grep -c "$STAMP_SHAPE")"
+
+# And committed with what the element REPORTS having placed, which wins over the copy: the entry
+# says one line was placed, stamped with the send, and that line is written - not the copy, and
+# not the held line the element never placed, which goes with the queue rather than behind a
+# message it did not lead on screen.
+cad_pb_set "aichatv2_pending_markers_$multiwin" ""
+cad_hist_call history_marker_lead "$multiwin" "$CHAT_ID" started "First Model"
+cad_hist_call history_marker_lead "$multiwin" "$CHAT_ID" modelChanged "Second Model"
+placed_one=$(cad_pb_get "aichatv2_pending_markers_$multiwin" | /usr/bin/head -1 | "$cad_py" -c '
+import json, sys
+item = json.loads(sys.stdin.readline())
+item["sessionEvent"]["timestamp"] = sys.argv[1]
+sys.stdout.write(json.dumps([item]))' "$SEND_MOMENT")
+cad_mk_session placed 2
+cad_hist_call history_marker_commit "$multiwin" placed "$CHAT_ID" \
+    "{\"type\":\"message\",\"id\":\"m\",\"lead\":$placed_one}"
+check "committing what the element placed records that" "1" "$(cad_marker_count placed)"
+check "  with the element's stamp"             "$SEND_MOMENT" "$(cad_marker_stamps placed)"
+check "  and not the held line it did not place" "0" \
+    "$(cad_has "$("$cad_py" "$cad_store" transcript "$cad_hist/placed")" '"kind": "modelChanged"')"
+check "  and the window holds nothing after"   "" "$(cad_pb_get "aichatv2_pending_markers_$multiwin")"
+# Nothing placed and nothing held is the one case the caller falls back on, and the key turning
+# up in a message's TEXT is not a placement - the pre-filter is cheap, python is the judge.
+check "  nothing placed and nothing held reports so" "1" \
+    "$(cad_hist_call history_marker_commit "$multiwin" placed "$CHAT_ID" '{"type":"message","id":"m"}' >/dev/null 2>&1; echo $?)"
+check "  as does a message whose text merely mentions the key" "1" \
+    "$(cad_hist_call history_marker_commit "$multiwin" placed "$CHAT_ID" '{"type":"message","id":"m","data":{"type":"message","message":{"id":"m","role":"local","text":"set \"lead\": here"}}}' >/dev/null 2>&1; echo $?)"
+check "    recording nothing"                  "1" "$(cad_marker_count placed)"
 
 # A label carrying U+2028. It round-trips through the pasteboard as one line, but splitlines() -
-# which this used to use - breaks on it, so the marker was shown and then silently dropped while
+# which this used to use - breaks on it, so the marker was held and then silently dropped while
 # the commit still reported success.
 sepwin="OMCTEST-sep-$$"
 cad_pb_set "aichatv2_pending_markers_$sepwin" ""
-cad_hist_call history_marker_show "$sepwin" "$CHAT_ID" started "$("$cad_py" -c 'import sys; sys.stdout.write("Odd Model")')"
+cad_hist_call history_marker_lead "$sepwin" "$CHAT_ID" started "$("$cad_py" -c 'import sys; sys.stdout.write("Odd Model")')"
 cad_mk_session separator 2
-cad_hist_call history_marker_commit "$sepwin" separator
+cad_hist_call history_marker_commit "$sepwin" separator "$CHAT_ID" '{"type":"message","id":"m"}'
 check "a label with a line separator still records" "1" "$(cad_marker_count separator)"
 
 # The rejected sid, which is the other half of the fallback contract: commit must report that it
 # wrote nothing, or aichat.chat.entry.sh opens the conversation with no line at all.
 check "committing into a refused session id fails" "1" \
     "$(cad_pb_set "aichatv2_pending_markers_$sepwin" '{"type":"sessionEvent","sessionEvent":{"id":"se-z","kind":"started","timestamp":"2026-08-20T19:00:00Z"}}'
-       cad_hist_call history_marker_commit "$sepwin" "../escape" >/dev/null 2>&1; echo $?)"
+       cad_hist_call history_marker_commit "$sepwin" "../escape" "$CHAT_ID" '{"type":"message","id":"m"}' >/dev/null 2>&1; echo $?)"
 
 section "session markers are written by the app and survive a reload"
 # The reason they exist: the info pane names the model a conversation STARTED with, so a resume
@@ -652,7 +819,8 @@ check "an unknown kind is refused" "2" \
 # the dedup dictionary _build_transcript keys by.
 cad_record() { # <item-json> -> what the journal gained, in lines
     /bin/mkdir -p "$cad_hist/guard"
-    printf '%s\n' "$1" | "$cad_py" "$cad_store" session-event-record "$cad_hist/guard" 2>/dev/null
+    # As the window's held copy, with an entry that placed nothing: the fallback source.
+    printf '' | "$cad_py" "$cad_store" session-event-record "$cad_hist/guard" "$1" 2>/dev/null
     [ -f "$cad_hist/guard/journal.jsonl" ] && /usr/bin/wc -l < "$cad_hist/guard/journal.jsonl" \
         | /usr/bin/tr -d ' '
 }
@@ -664,10 +832,32 @@ check "  nor one whose id is not a string"             "" \
 # are TYPED, and Swift's synthesized decoder throws on a number where it expects a string.
 check "  nor one whose timestamp is a number"          "" \
     "$(cad_record '{"type":"sessionEvent","sessionEvent":{"id":"se-t","kind":"started","timestamp":123}}')"
-check "  nor one with no timestamp the mint would have stamped" "" \
+# A marker with NO timestamp is what the mint produces for a held line (the element stamps it as
+# it places it), so one reaching the journal unstamped is stamped by the recording rather than
+# refused - the line is on the user's screen, and a line stamped late beats no line.
+check "  while one with no timestamp is stamped by the recording" "1" \
     "$(cad_record '{"type":"sessionEvent","sessionEvent":{"id":"se-n","kind":"started"}}')"
-check "  while a real one still records"               "1" \
+check "    with a real time"                           "1" \
+    "$(/usr/bin/tail -1 "$cad_hist/guard/journal.jsonl" | /usr/bin/grep -c '"timestamp": "20[0-9][0-9]-')"
+check "  and what the mint produces records"           "2" \
     "$(cad_record "$("$cad_py" "$cad_store" session-event-item started 'Real Model')")"
+# THE ENTRY'S "lead" IS THE FIRST SOURCE, validated the same way: the element reports what it
+# placed, and what it placed came from this app, but journal.jsonl is still append-only.
+cad_record_placed() { # <envelope-json> [held] -> what the journal holds, in lines
+    printf '%s' "$1" | "$cad_py" "$cad_store" session-event-record "$cad_hist/guard" "${2:-}" 2>/dev/null
+    /usr/bin/wc -l < "$cad_hist/guard/journal.jsonl" | /usr/bin/tr -d ' '
+}
+check "a placed marker records"                        "3" \
+    "$(cad_record_placed '{"type":"message","id":"m","lead":[{"type":"sessionEvent","sessionEvent":{"id":"se-p","kind":"resumed","timestamp":"2026-08-21T06:55:12Z","model":"Placed Model"}}]}')"
+check "  with the stamp it was placed with"            "1" \
+    "$(/usr/bin/tail -1 "$cad_hist/guard/journal.jsonl" | /usr/bin/grep -c '"timestamp": "2026-08-21T06:55:12Z"')"
+check "  over the held copy"                           "4" \
+    "$(cad_record_placed '{"type":"message","id":"m","lead":[{"type":"sessionEvent","sessionEvent":{"id":"se-q","kind":"resumed","timestamp":"2026-08-21T06:55:12Z"}}]}' '{"type":"sessionEvent","sessionEvent":{"id":"se-held","kind":"started"}}')"
+check "    which is not written"                       "0" "$(/usr/bin/grep -c 'se-held' "$cad_hist/guard/journal.jsonl")"
+check "  a placed item that is not a marker is skipped" "4" \
+    "$(cad_record_placed '{"type":"message","id":"m","lead":[{"type":"message","message":{"id":"x","role":"agent","text":"hi"}}]}')"
+check "  and the key in a message's TEXT places nothing" "3" \
+    "$(printf '%s' '{"type":"message","id":"m","data":{"type":"message","message":{"id":"m","role":"local","text":"\"lead\": []"}}}' | "$cad_py" "$cad_store" session-event-record "$cad_hist/guard" "" >/dev/null 2>&1; echo $?)"
 
 # The model is never fed a marker as if it had said it: the wire filter admits only message items
 # with role local or agent, so a marker cannot become words the model believes are its own.

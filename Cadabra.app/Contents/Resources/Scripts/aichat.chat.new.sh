@@ -15,6 +15,13 @@ ROW_BUTTONS="521 520 524"   # Rename Reveal Delete
 # Clear the chat view (distinguishing empty transcript so a repeat clear is not deduped) and
 # start a fresh session on the next turn.
 chat_inject_empty "$win"
+# WITHDRAWN BEFORE THIS WINDOW CAN MINT ANYTHING, not further down with the new conversation's own
+# line. The markers held here were minted for the transcript the inject above just emptied, and
+# between this handler's first line and its last there are several subprocess spawns - a message
+# finalizing in that gap mints a session and records whatever the queue is holding as its opening
+# line, which would be a resume of the conversation the user just left at the top of a brand-new
+# one. Nothing else in this handler needs the old queue, so there is no reason to carry it.
+history_marker_clear "$win" "$CHAT_VIEW_ID"
 pb_set "aichatv2_session_${win}" ""
 # Whatever the sidebar armed belongs to the conversation being left behind. The next turn mints a
 # new session and never looks at the flag, and the turn after that would fail its SID check - but
@@ -30,14 +37,12 @@ pb_set "aichatv2_resume_pending_${win}" ""
 label=$(chat_engine_label "$win")
 chat_window_set_status "$win" "${label:-$APPLET_NAME}"
 
-# The new conversation's opening line, in front of the message that will start it. The inject
-# above emptied the transcript, so the markers shown for the conversation being left are off the
-# screen and must not be recorded into whatever this window types next - clear before showing.
+# The new conversation's opening line, held for the message that will start it. What this window
+# was holding for the conversation being left went with the inject, at the top of this handler.
 #
-# Nothing to show for a window with no engine: there would be no model to name, and the marker is
-# shown by chat_engine_load when one arrives.
-history_marker_clear "$win"
-[ -n "$label" ] && history_marker_show "$win" "$CHAT_VIEW_ID" started "$label"
+# Nothing to hold for a window with no engine: there would be no model to name, and the marker is
+# minted by chat_engine_load when one arrives.
+[ -n "$label" ] && history_marker_lead "$win" "$CHAT_VIEW_ID" started "$label"
 
 # Drop any selection and disable the row-action buttons (omc_deselect fires no actionID).
 "$dialog" "$win" "$TABLE_ID" omc_deselect

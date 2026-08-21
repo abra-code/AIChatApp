@@ -254,116 +254,181 @@ history_append_item() { # <win> <chat-view-id> <item-json>
 }
 
 # =============================================================================
-# A marker is SHOWN when the window can answer, and RECORDED when it answers
+# A marker LEADS the message it opens, and is RECORDED by the turn that carries it
 # =============================================================================
 #
 # The two markers that OPEN a stretch of conversation - "started" and "resumed" - belong in front
-# of its first message, and history_mark_and_show cannot put them there. The append state appends:
-# by the time an entry finalizes and this app learns a turn happened, the message that triggered it
-# has been on screen since the user pressed Return, so the marker explaining what the message was
-# sent INTO landed underneath it. The conversation read as if it had been started by its own first
-# question. Recording had the ordering right all along (the journal write precedes the entry's), so
-# a reload disagreed with the live window about the order of its own first two lines.
+# of its first message, and no state this app can set at the time it learns about that message can
+# put them there. states["append"] appends: by the time an entry finalizes and this app learns a
+# turn happened, the message that triggered it has been on screen since the user pressed Return,
+# so the marker explaining what the message was sent INTO landed underneath it. The conversation
+# read as if it had been started by its own first question, and since recording had the ordering
+# right all along (the journal write precedes the entry's), a reload disagreed with the live
+# window about the order of its own first two lines.
 #
-# THE WINDOW KNOWS EARLIER THAN THE JOURNAL DOES. It becomes able to answer at a point with nothing
-# ambiguous about it - the engine is ready, or a saved conversation has just been loaded into it -
-# and that point is before any message of the coming stretch exists. So the marker is minted and
-# SHOWN there, into a transcript it can still lead, and held in a per-window queue until a turn
-# arrives to record it against. Same item both times (history_store.py mints id and timestamp once),
-# so the line the user saw is the line the next load rebuilds.
+# SHOWING ONE EARLIER IS NOT THE ANSWER, and this app shipped that answer long enough to learn it:
+# a marker put on screen when the window became able to answer - the engine finished loading, or a
+# saved conversation was displayed - announced a handover that had not happened. Clicking through
+# a handful of conversations left "Resumed with <model>" at the bottom of each, in transcripts
+# nothing had been said into. Reading a conversation is not resuming it, which is exactly why the
+# RECORDING half has always waited for a turn.
 #
-# RECORDING STAYS WHERE IT WAS, and that is the half that must not move: a conversation merely
-# LOOKED at is not resumed, and writing a marker for every row the user clicks left runs of
-# "Resumed with <model>" in conversations nothing happened in. Showing one costs nothing - the
-# display is rebuilt from the store on the next click - so the queue is dropped unrecorded when the
-# window moves on, and drained into the journal only by a turn that actually arrives.
+# So neither half moves, and the element holds the line until there is a message for it to lead.
+# ChatView 0.5.5's states["lead"] takes the markers this window is holding and places them in
+# front of the next message the user sends - the one moment at which "in front of the next
+# message" is a place that exists. Nothing is displayed before then, and if the user never says
+# anything, nothing was displayed and nothing was recorded.
+#
+# The queue below is that list: what the element was handed to place. What a turn RECORDS is what
+# the element reports having placed - the message's entry carries the lines under "lead", as
+# placed - and the two differ in exactly one field, the time. A held line is minted WITHOUT one,
+# because it is minted when the window learns it will be needed (the click, the engine loading)
+# and the user may not type for an hour; the element stamps it with the moment it places it,
+# which is the moment the message was sent, and that is the time the line is written with. The id
+# is minted once and travels through, so the line the user saw is the line the next load rebuilds
+# - not one like it. The queue copy is the fallback, for a message whose entry arrives before the
+# element received the list: stamped by the recording, which is as close to the send as this side
+# gets.
 #
 # It also stopped the element mistrusting its own context. The append channel flips ChatView's
 # context indicator to "Context on next message" when the transcript has moved ahead of what the
-# agent was primed with, and mid-TURN that test is answered by a snapshot that only advances at the
-# turn's end - so appending a marker while the first answer was streaming made a brand-new chat
-# claim its context was unsynced, and cost a needless re-prime of the whole conversation on the
-# second message. Nothing is appended mid-turn any more.
+# agent was primed with, and mid-TURN that test used to be answered by a snapshot that only
+# advances at the turn's end - so appending a marker while the first answer was streaming made a
+# brand-new chat claim its context was unsynced, and cost a needless re-prime on the second
+# message. The lead channel places items inside send(), before the deferred prime it belongs to,
+# and nothing on the normal path appends mid-turn any more.
 
-# The per-window queue of shown-but-unrecorded markers: ChatItem JSON, one per line (the JSON
-# encoder escapes newlines, so a line is always exactly one marker).
+# The per-window queue of markers waiting for a message: ChatItem JSON, one per line (the JSON
+# encoder escapes newlines, so a line is always exactly one marker). This is the app's copy of
+# what states["lead"] is holding; the two are written together and must not drift.
 CAD_PENDING_MARKERS_PREFIX="aichatv2_pending_markers_"
 
-# history_marker_show <win> <chat-view-id> <kind> [model] - put a session marker on screen now and
-# hold it for the turn that will record it.
+# history_marker_publish <win> <chat-view-id> - hand the element the whole waiting list.
+#
+# The state carries the LIST, not an addition to it, so this writes the queue entire every time -
+# and an empty queue writes an empty value, which is how the element is told to drop what it was
+# holding. omc_dialog_control packs an empty final argument as a real empty value, so that arrives
+# as one rather than as a missing argument.
+#
+# Unlike the append channel, this one is NOT parked empty after a write: what it rests on is what
+# it is still waiting to place. The element carries the dedup that makes the resting value safe -
+# a line already placed is never placed again, however often the host bridge re-delivers the
+# channel (it re-reads every key on every change to the state dictionary).
+history_marker_publish() { # <win> <chat-view-id>
+    "$dialog" "$1" "$2" omc_set_state lead "$(history_marker_pending "$1")"
+}
+
+# history_marker_lead <win> <chat-view-id> <kind> [model] - mint a session marker, hold it for the
+# message it will introduce, and hand the element the list to place in front of that message.
 #
 # Best-effort in the same way history_mark_session is: a window is not worth failing to open
 # because the line naming its model could not be minted.
-history_marker_show() { # <win> <chat-view-id> <kind> [model]
+history_marker_lead() { # <win> <chat-view-id> <kind> [model]
     local item queue
     item=$("$history_py" "$history_store" session-event-item "$3" "${4:-}" 2>/dev/null)
     [ -n "$item" ] || return 0
-    history_append_item "$1" "$2" "$item"
     queue=$(pb_get "${CAD_PENDING_MARKERS_PREFIX}${1}")
     if [ -n "$queue" ]; then
         # An in-place model switch before the first message queues a second marker behind the
-        # first, and the conversation is opened by both - which is what the window showed.
+        # first, and the conversation is opened by both - which is what the window will show.
         pb_set "${CAD_PENDING_MARKERS_PREFIX}${1}" "$queue
 $item"
     else
         pb_set "${CAD_PENDING_MARKERS_PREFIX}${1}" "$item"
     fi
+    history_marker_publish "$1" "$2"
     return 0
 }
 
-# history_marker_pending <win> - the markers this window has shown and not yet recorded.
+# history_marker_pending <win> - the markers this window is holding for its next message.
 history_marker_pending() { # <win>
     pb_get "${CAD_PENDING_MARKERS_PREFIX}${1}"
 }
 
-# history_marker_reshow <win> <chat-view-id> - put the held markers back on screen, unchanged.
+# history_marker_clear <win> <chat-view-id> - withdraw them, because the conversation they were
+# minted for is not the one this window is facing any more.
 #
-# For a re-injection that REPLACES the transcript with the same conversation (the Summarize menu
-# re-asks the agent for a restore the display cannot tell apart). The markers went off the screen
-# with the items around them, and re-minting would move them: same lines, new ids, a timestamp
-# from now. Re-appending the held items keeps the queue describing exactly what is displayed,
-# which is the property the recording later depends on. ChatView drops its append-dedup on every
-# restore, so an id it has already seen is accepted again into the new transcript.
-history_marker_reshow() { # <win> <chat-view-id>
-    local queue
-    queue=$(history_marker_pending "$1")
-    [ -n "$queue" ] || return 0
-    printf '%s\n' "$queue" | while IFS= read -r item; do
-        [ -n "$item" ] && history_append_item "$1" "$2" "$item"
-    done
-    return 0
-}
-
-# history_marker_clear <win> - forget them, because the transcript that held them is gone.
+# Called wherever the display is REPLACED (New Chat, loading another conversation): a marker that
+# named the conversation being left must not lead a message typed into the next one, and must not
+# be recorded later into a journal no window ever showed it in.
 #
-# Called wherever the display is REPLACED (New Chat, loading another conversation): those markers
-# are off the screen, so recording them later would put lines in a journal that no window ever
-# showed - and in the case of a resume, would record a resume that never happened.
-history_marker_clear() { # <win>
+# The Summarize re-injection is the one path that replaces the display with the SAME conversation,
+# and it does not call this: the element holds what it is waiting to place across a restore, so
+# the marker still leads the first message. Re-minting there would have replaced the line with
+# one like it - same text, new id.
+history_marker_clear() { # <win> <chat-view-id>
     pb_set "${CAD_PENDING_MARKERS_PREFIX}${1}" ""
+    history_marker_publish "$1" "$2"
 }
 
-# history_marker_commit <win> <sid> - record this window's shown markers into a conversation.
+# history_marker_commit <win> <sid> <chat-view-id> <entry-envelope> - record the line(s) the
+# message in <entry-envelope> was led by into <sid>, and take this window's held markers off the
+# channel now that the message they were held for has arrived.
 #
-# Returns 0 when something was recorded, 1 when the queue was empty - which is what lets the caller
-# fall back to marking the old way rather than opening a conversation with no marker at all.
+# WHAT IS WRITTEN IS WHAT THE ELEMENT PLACED. The entry of a message that held lines were placed in
+# front of carries them under "lead", as placed - stamped by the element with the moment it placed
+# them, which is the moment the message was sent. The queue copy, minted without a time for exactly
+# that reason, is the fallback for a message whose entry arrived before the element had received
+# the list: stamped by the recording. history_store.py chooses between the two.
+#
+# Returns 1 when there was nothing to record anywhere - no line placed, nothing held - which is
+# what lets the caller fall back to marking the old way rather than opening a conversation with no
+# marker at all. Returns 0 otherwise, INCLUDING after a write that failed for a line the element
+# has placed: appending another would put the marker on screen twice, and the clear-first note below
+# says why the journal's loss is the lesser one.
+#
+# CALLED ONLY FOR A MESSAGE. Any finalized entry used to be enough, and an agent announcing its
+# session in a conversation the user had merely opened was enough to write "Resumed with <model>"
+# into it - the same claim about an unspoken-to conversation that the display half was guilty of,
+# in the one place it survives a reload.
 #
 # The queue is cleared BEFORE the write, not after: the entry handler can re-enter (usage and plan
 # envelopes re-fire several times a turn), and a queue still armed while python runs is a queue two
 # invocations can both drain. Clearing first turns that into one write and one no-op. A write that
-# then fails loses a cosmetic line; a double write would put the marker in the transcript twice.
-history_marker_commit() { # <win> <sid>
-    local dir queue
+# then fails loses the line from the journal while the element has already placed it on screen, so
+# the live window shows an opening line the next load will not - which is the lesser of the two:
+# a double write puts the marker in the transcript twice, permanently, in a file nothing rewrites.
+#
+# Cleared whole. A held line the element did not place - handed over between the element reading
+# the list and the user sending - goes with it rather than being written behind a message it did
+# not lead on screen; that takes a model switch and a send in the same few milliseconds.
+history_marker_commit() { # <win> <sid> <chat-view-id> <entry-envelope>
+    local dir queue placed
     queue=$(history_marker_pending "$1")
-    [ -n "$queue" ] || return 1
-    history_marker_clear "$1"
+    # A cheap pre-filter, like the message test in aichat.chat.entry.sh (the key up to its colon,
+    # so an encoder's spacing after it makes no difference): python decides for real, and a
+    # message whose text happens to contain the key costs one spawn that finds nothing.
+    case "$4" in *'"lead":'*) placed=1 ;; *) placed= ;; esac
+    [ -n "$queue" ] || [ -n "$placed" ] || return 1
+    [ -n "$queue" ] && history_marker_clear "$1" "$3"
     # Non-zero, so the caller still falls back. The queue is already gone either way (see above),
     # but a conversation whose id will not resolve is one the fallback cannot help with EITHER -
     # it validates the same id - so this is about not reporting a write that did not happen.
     dir=$(history_session_dir "$2") || return 1
-    printf '%s\n' "$queue" \
-        | "$history_py" "$history_store" session-event-record "$dir" 2>/dev/null
+    printf '%s' "$4" \
+        | "$history_py" "$history_store" session-event-record "$dir" "$queue" 2>/dev/null
+    # 3 is "nothing to write": the key was in the message's text and nothing was held, so the
+    # caller's fallback is the right answer. Any other failure is the write-failed case above.
+    [ $? -eq 3 ] && return 1
     return 0
+}
+
+# history_marker_record <sid> <entry-envelope> - record what the element placed in front of this
+# message into <sid>, and touch nothing else: not the queue, not the channel.
+#
+# For the message that lands in neither of the commit's arms: a turn finalizing while another
+# conversation is being opened, which finds the arm naming that one and the binding naming this
+# one. The line the element placed in front of it is on screen in THIS conversation, so it goes in
+# this journal or the reload loses it - and the queue is left alone because, in that gap, it is
+# not this conversation's to drain. Non-zero when nothing was recorded: 1 when the entry names no
+# placement, and otherwise python's own status (3 when what it names is not a marker, 1 when the
+# write failed).
+history_marker_record() { # <sid> <entry-envelope>
+    local dir
+    case "$2" in *'"lead":'*) ;; *) return 1 ;; esac
+    dir=$(history_session_dir "$1") || return 1
+    printf '%s' "$2" \
+        | "$history_py" "$history_store" session-event-record "$dir" "" 2>/dev/null
 }
 
 # =============================================================================
