@@ -95,7 +95,11 @@ sw() {
       stop_orphaned_servers() { :; }
       reap_orphaned_bundle_processes() { :; }
       launch_model_on_port() {
-          printf 'launch\t%s\t%s\n' "$1" "$3" >> "$SW_LOG"
+          # $4 is the engine this window is about to stop, which only the cell that launches while
+          # its predecessor is still resident has one of, and $5 is the window that can be proven
+          # to own it. Recorded because passing them is the whole difference between a server sized
+          # for the memory it will have and one sized for the memory it has during the handover.
+          printf 'launch\t%s\t%s\t%s\t%s\n' "$1" "$3" "$4" "$5" >> "$SW_LOG"
           LAUNCHED_MODEL_LABEL=$(/usr/bin/basename "$1" .gguf)
           return "${STUB_LAUNCH_RC:-0}"
       }
@@ -129,6 +133,8 @@ sw_reset() { # a clean journal, a clean call log, and every stub back to "it wor
 sw_calls()      { /usr/bin/cut -f1 "$SW_LOG" | /usr/bin/tr '\n' ' ' | /usr/bin/sed 's/ *$//'; }
 sw_launch_port() { /usr/bin/awk -F'\t' '$1 == "launch" { print $3 }' "$SW_LOG" | /usr/bin/tail -n 1; }
 sw_launch_model() { /usr/bin/awk -F'\t' '$1 == "launch" { print $2 }' "$SW_LOG" | /usr/bin/tail -n 1; }
+sw_launch_retiring() { /usr/bin/awk -F'\t' '$1 == "launch" { print $4 }' "$SW_LOG" | /usr/bin/tail -n 1; }
+sw_launch_retiring_win() { /usr/bin/awk -F'\t' '$1 == "launch" { print $5 }' "$SW_LOG" | /usr/bin/tail -n 1; }
 sw_stop_when()  { /usr/bin/awk -F'\t' '$1 == "stop" { print $3 }' "$SW_LOG" | /usr/bin/tail -n 1; }
 # What the element was actually handed, IN THE WINDOW BEING SWITCHED. cad_journal answers for a
 # view id across every window in the file, and this file drives a switch aimed at $SWIN from a
@@ -228,9 +234,10 @@ check "the user is told"                 "1" "$(alerts_count)"
 # ---------------------------------------------------------------------------
 section "MLX to GGUF: a server has to exist before the new agent asks for it"
 # The agent health-checks llama-server during session/new and gives up in about seven seconds,
-# which is far less than a model load - so the launch comes FIRST and the injection second. The
-# cost is stated in the handler: the outgoing MLX agent is still resident while the server is
-# sized, so the server is sized conservatively for its lifetime.
+# which is far less than a model load - so the launch comes FIRST and the injection second. Which
+# means the outgoing MLX agent is still holding its weights while the server is sized, and the
+# sizing has to be told so: a server keeps its --fit decision for its whole life, so charging it
+# for memory that is freed seconds later is a context it never gets back.
 sw_reset
 sw_window "$MLXREAL" ""
 STUB_PORT=8177
@@ -239,11 +246,27 @@ check "the switch succeeds"                "0" "$?"
 check "a server is launched, none stopped" "launch" "$(sw_calls)"
 check "  for the chosen model"             "$GGUF" "$(sw_launch_model)"
 check "  on the port this window claimed"  "8177"  "$(sw_launch_port)"
+check "  told which engine is retiring"    "$MLXREAL" "$(sw_launch_retiring)"
+# Tools were OFF for this window, so its agent carries no --mcp-config and cannot be picked out of
+# the process table. Claiming otherwise would let the sizing discount another window's engine.
+check "  but not claimed to be identifiable" "" "$(sw_launch_retiring_win)"
 check "the port is stamped for the window" "8177"  "$(cad_pb_get "aichatv2_port_$SWIN")"
 check "the element is given a transport"   "1" "$(sw_configs)"
 check "  pointed at that port"             "1" "$(cad_has "$(sw_config)" '"--base-url", "http://127.0.0.1:8177/v1"')"
 check "  and carrying no --model"          "0" "$(cad_has "$(sw_config)" '"--model"')"
 check "the model bar names the new model"  "Tiny-Q4_K_M" "$(sw_bar)"
+
+section "  and a window running tools can prove which agent is its own"
+# With tools on the outgoing agent carries --mcp-config .../Sessions/<win>/, which no other
+# window's argv can contain. Passing the window is what lets the scan read "not found" as "my agent
+# is already gone" rather than falling back to whichever engine happens to run the same model.
+sw_reset
+sw_window "$MLXREAL" "" true
+STUB_PORT=8178
+sw chat_engine_switch "$SWIN" "$GGUF" true
+check "the switch succeeds"                "0" "$?"
+check "the retiring engine is named"       "$MLXREAL" "$(sw_launch_retiring)"
+check "  and so is the window that owns it" "$SWIN" "$(sw_launch_retiring_win)"
 
 section "  a launch that never comes up leaves the window on the model it had"
 sw_reset
@@ -282,6 +305,10 @@ sw chat_engine_switch "$SWIN" "$OTHER" false
 check "the switch succeeds"              "0" "$?"
 check "the server restarts, nothing else" "launch" "$(sw_calls)"
 check "  on the window's own port"       "8151" "$(sw_launch_port)"
+# Nothing of this window's is retiring here: the outgoing server on this port was TERMed and
+# waited out by the launch itself, and the agent that survives holds no weights of its own. Naming
+# a retiring engine here would discount a model that is genuinely gone and over-commit the GPU.
+check "  and nothing is retiring under it" "" "$(sw_launch_retiring)"
 check "NOTHING is injected"              "0" "$(sw_configs)"
 check "the window keeps that port"       "8151" "$(cad_pb_get "aichatv2_port_$SWIN")"
 check "and is stamped with the new model" "$OTHER" "$(cad_pb_get "aichatv2_modelpath_$SWIN")"
@@ -605,6 +632,10 @@ sw chat_engine_switch "$SWIN" "$OTHER" true
 check "a changed decision rebuilds it"        "1" "$(sw_configs)"
 check "  with the config on the argv"         "1" "$(cad_has "$(sw_config)" '"--mcp-config"')"
 check "  still on the window's own port"      "8151" "$(sw_launch_port)"
+# This cell reaches the launch through the transport builder rather than calling it directly, so
+# it is the one that could pass a retiring engine by accident. It has none: the model it is
+# leaving was a server, and that server is TERMed by the launch itself.
+check "  and still with nothing retiring"     "" "$(sw_launch_retiring)"
 # THE ONE THAT MATTERS. The stop-after-inject step releases the server this window is LEAVING -
 # and on this cell the stamped port carries the server just started for the model being switched
 # TO. Stopping it here reported success and left a live composer talking to a dead port.
@@ -762,6 +793,163 @@ check "a window with no server says so" "1" "$?"
 check "  and leaves the registry alone" "some-other-window" \
     "$(srv chat_switch_probe_dialog "$other_server")"
 kill -TERM "$other_server" 2>/dev/null
+
+# ---------------------------------------------------------------------------
+section "an engine about to stop is not charged against the one starting"
+# The scan behind --fit-target, for real. A llama-server keeps its --fit decision for its whole
+# life, so what this counts at launch is what that window lives with: charging it for an MLX model
+# the switch is about to release cost a 31B arrival its context and made the first message after
+# the switch fail outright.
+#
+# ASSERTED ON THE SCAN, NOT ON --fit-target, and deliberately. The target the policy finally emits
+# depends on this machine's cap, its RAM and whatever the developer happens to have loaded - a
+# heavily loaded host takes the CPU-fallback branch, which states no target at all - so an
+# assertion there would prove different things on different machines and nothing on some. The
+# scan is the part this change touched and the part with an answer that does not depend on the
+# host: whatever it says with the engine running, it must say the same thing without it.
+#
+# The stand-ins are scripts NAMED mlx-agent, because the scan reads argv and nothing else, and
+# they carry the two argvs acp_transport_json.py actually produces for the MLX engine:
+# `acp --model <dir>` with tools off, and `acp --model <dir> --mcp-config <sessions>/<win>/...`
+# with tools on. The difference is the whole point of the second rule below, and a fixture that
+# invented its own flag order would test neither.
+FAKEBIN="$OMCTEST_WORK/fakebin"
+/bin/mkdir -p "$FAKEBIN"
+/bin/cat > "$FAKEBIN/mlx-agent" <<'FAKE_AGENT'
+#!/bin/sh
+# Holds its argv and nothing else. The trap is what keeps `sleep` from outliving a killed parent.
+sleep 600 &
+fake_child=$!
+trap 'kill "$fake_child" 2>/dev/null; exit 0' TERM
+wait "$fake_child"
+FAKE_AGENT
+/bin/chmod +x "$FAKEBIN/mlx-agent"
+
+# Big enough that the weights term is not floored away by the integer division: du reports KB, and
+# the charge is (KB / 1024) * 1.15 + 768, so a 512 KB fixture would be indistinguishable from an
+# empty one and the discount could drop the wrong half of the sum without failing.
+RETIRING="$MODELS/Retiring-Mlx-Model"
+/bin/mkdir -p "$RETIRING"
+/usr/bin/head -c 16777216 /dev/zero > "$RETIRING/model.safetensors"
+
+# The scan reports two numbers - everything live, and the part of it that is retiring - because
+# what may be discounted is a question about RAM against the Metal cap, which it cannot see.
+srv_total()    { srv scan_engine_footprints "$1" "$2" | /usr/bin/awk '{print $1}'; }
+srv_retiring() { srv scan_engine_footprints "$1" "$2" | /usr/bin/awk '{print $2}'; }
+
+fake_agents=""
+# fake_agent_start [window-uuid] - a stand-in with the tools-off argv, or the tools-on one when a
+# window is named. Waits (bounded) for it to be visible in ps with its argv intact.
+fake_agent_start() {
+    local cfg="$HOME/Library/Application Support/Cadabra/Sessions/$1/mcp-config.json"
+    if [ -n "$1" ]; then
+        "$FAKEBIN/mlx-agent" acp --model "$RETIRING" --mcp-config "$cfg" &
+    else
+        "$FAKEBIN/mlx-agent" acp --model "$RETIRING" &
+    fi
+    local pid=$! waited=0
+    while ! /bin/ps -p "$pid" -o args= 2>/dev/null | /usr/bin/grep -q -- "--model $RETIRING"; do
+        [ "$waited" -ge 10 ] && break
+        sleep 1; waited=$((waited + 1))
+    done
+    fake_agents="$fake_agents $pid"
+}
+fake_agents_stop() {
+    local pid waited=0
+    for pid in $fake_agents; do kill -TERM "$pid" 2>/dev/null; done
+    while [ -n "$(/bin/ps -o args= -p $fake_agents 2>/dev/null | /usr/bin/grep -- "--model $RETIRING")" ] \
+          && [ "$waited" -lt 10 ]; do sleep 1; waited=$((waited + 1)); done
+    fake_agents=""
+}
+# NO `trap ... EXIT` HERE, though the temptation is obvious. omctest installs its own EXIT trap in
+# THIS shell when a file is run standalone (omctest_prepare_env), and a bare trap replaces it - one
+# full isolated $HOME and every named pasteboard leaked per run. Tests/lib.test.cadabra.sh records
+# that exact mistake having been made and fixed once already.
+#
+# Nothing is lost by leaving it out: a stand-in's --model directory lives inside the scratch tree,
+# so once omctest removes that tree the `[ -d ]` guard in the scan drops the process anyway, and
+# `sleep 600` bounds it regardless.
+
+fp_base=$(srv_total)
+check "the scan answers with a number" "1" \
+    "$([ "$fp_base" -ge 0 ] 2>/dev/null && echo 1 || echo 0)"
+check "  and nothing is retiring when nothing was named" "0" "$(srv_retiring)"
+
+fake_agent_start
+fp_one=$(srv_total)
+check "a live engine is counted"         "1" "$([ "$fp_one" -gt "$fp_base" ] && echo 1 || echo 0)"
+check "  by its weights, not a flat fee" "1" "$([ "$fp_one" -gt $(( fp_base + 768 )) ] && echo 1 || echo 0)"
+check "naming it as retiring accounts for exactly what it cost" \
+    "$(( fp_one - fp_base ))" "$(srv_retiring "$RETIRING")"
+check "  and a model nothing is running for" "0" "$(srv_retiring "$MODELS/Absent-Model")"
+
+# The ambiguity that makes the path rule a discount rather than a subtraction. Two windows on one
+# MLX model produce two identical argvs with tools off, so the process that is leaving cannot be
+# identified - and discounting anyway would free budget nothing is about to release, which is the
+# GPU over-commit this whole policy exists to prevent.
+fake_agent_start
+fp_two=$(srv_total)
+check "two engines are counted twice"    "1" "$([ "$fp_two" -gt "$fp_one" ] && echo 1 || echo 0)"
+check "  and neither can be told apart"  "0" "$(srv_retiring "$RETIRING")"
+
+# Unless one of them says which window it belongs to. An agent launched with tools carries its own
+# session directory, and no other window's argv can contain that path - so the count stops being
+# the question.
+fake_agent_start "$SWIN"
+fp_three=$(srv_total)
+check "a third engine is counted too"    "1" "$([ "$fp_three" -gt "$fp_two" ] && echo 1 || echo 0)"
+check "the window's own agent is identified among identical siblings" \
+    "$(( fp_three - fp_two ))" "$(srv_retiring "$RETIRING" "$SWIN")"
+
+fake_agents_stop
+# THE CASE THE COUNT GETS WRONG RATHER THAN GIVES UP, and it needs exactly ONE engine running to
+# show: a window whose agent has already died still carries its model stamp, so the single live
+# process on that model belongs to somebody ELSE and is not about to free anything. Naming a window
+# is a claim the caller can find its own agent, so failing to find it is an answer - not a reason to
+# fall back to the count.
+#
+# Asserted with one stand-in on purpose. An earlier version of this check ran with three still
+# alive, where the answer was 0 because the PATH rule had given up on the ambiguity - it would have
+# passed just as well without the rule it was named after.
+fake_agent_start
+fp_lonely=$(srv_total)
+check "one engine is running the retiring model" "1" \
+    "$([ "$fp_lonely" -gt "$fp_base" ] && echo 1 || echo 0)"
+check "  and the path rule alone would discount it" \
+    "$(( fp_lonely - fp_base ))" "$(srv_retiring "$RETIRING")"
+check "but a window whose agent is gone discounts nothing" \
+    "0" "$(srv_retiring "$RETIRING" "OMCTEST-no-such-window")"
+
+fake_agents_stop
+# Re-measured rather than compared against fp_base: those readings are seconds apart, and any real
+# engine on this machine starting or stopping in between would fail an equality that has nothing
+# to do with this code.
+check "a retiring model nothing is running discounts nothing" "0" "$(srv_retiring "$RETIRING")"
+
+# ---------------------------------------------------------------------------
+section "  and only as much of it as the machine can carry twice at once"
+# The discount is not a promise that the memory is free: the outgoing engine dies when the element
+# reconciles the injected config, which cannot happen until the launch RETURNS - and the launch
+# returns after wait_for_server, which allows up to 300 s for a large model. Both engines are
+# resident for that whole load, so what may be planned as free is bounded by the RAM the Metal cap
+# leaves outside itself. Without the bound, a big enough retiring model turns a switch into
+# minutes of genuine GPU over-commit, which is the failure the sizing policy exists to prevent.
+#
+# Written as its own function precisely so this is arithmetic a test can state, rather than four
+# lines buried in a path whose emitted --fit-target depends on what the developer has loaded.
+check "a discount inside the slack is granted whole" "6000" \
+    "$(srv retiring_discount_mib 6000 32768 24248)"
+check "one past it is cut to the slack"              "8520" \
+    "$(srv retiring_discount_mib 12616 32768 24248)"
+check "  which is 26 percent of RAM, not a constant" "4260" \
+    "$(srv retiring_discount_mib 12616 16384 12124)"
+check "nothing retiring is nothing discounted"       "0" \
+    "$(srv retiring_discount_mib 0 32768 24248)"
+# A cap above physical RAM cannot happen today (cap is 74% of it), but the floor is what keeps a
+# future change to that ratio from producing a NEGATIVE discount, which would silently inflate the
+# reserve instead of lowering it.
+check "and a slack that went negative floors at zero" "0" \
+    "$(srv retiring_discount_mib 6000 16384 20000)"
 
 # ---------------------------------------------------------------------------
 section "cumulative: no handler wrote to a view id the window does not declare"

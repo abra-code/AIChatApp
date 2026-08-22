@@ -248,6 +248,142 @@ params_from_gguf_filename() {
     echo "0"
 }
 
+# scan_engine_footprints [retiring_model_path] [retiring_window]
+# Echoes TWO numbers: "<total> <retiring>" - the estimated wired GPU footprint in MiB of every
+# engine already running on this machine, and how much of that total belongs to the one engine the
+# caller says it is about to stop (0 when there is none, or when it cannot be identified). Never
+# fails.
+#
+# Each engine's footprint is roughly its weights plus KV/compute overhead; 15% + 768 MiB errs on
+# the safe side. The patterns match the binary BASENAME on purpose: orphaned llama-servers from
+# OTHER bundles (v1.2, Enoch - see the orphan-cleanup notes) and MLXChat's mlx-agent hold GPU
+# memory just the same, and a basename pattern also dodges ERE metacharacters in the bundle path.
+# The argv --model validation filters out unrelated matches. The outgoing server on OUR port was
+# already killed and waited out by launch_model_on_port.
+#
+# WHY THE SECOND NUMBER IS REPORTED RATHER THAN SUBTRACTED HERE. What may be discounted is a
+# question about the machine's total RAM against the Metal cap, and those live in
+# compute_server_memory_args. This scan answers what it can see; the policy on top of it is
+# stated once, next to the numbers it depends on.
+#
+# WHICH PROCESS IS "THE ONE ABOUT TO STOP", and the answer depends entirely on whether the caller
+# can NAME it. <retiring_window> is that claim, and passing it changes the rule rather than adding
+# to it:
+#
+#   Window given: only the process whose argv carries --mcp-config .../Sessions/<window>/ counts,
+#     and NO MATCH MEANS NO DISCOUNT. That marker is in an agent's argv exactly when its window
+#     runs tools, so a caller that has one is a caller that can identify its own agent - and if it
+#     is not there, that agent is already gone. Anything else running the same model belongs to
+#     somebody else and is not about to free anything.
+#
+#   Window empty: the SINGLE live process running the retiring model path, or nothing. Two windows
+#     on one MLX model with tools off produce two identical argvs, so the one that is leaving is
+#     unidentifiable and charging both is the safe direction - which is what this did before either
+#     argument existed.
+#
+# THE NO-MATCH HALF IS THE POINT, and it was missing from the first version of this. A window whose
+# agent has already died still carries its model stamp, and a user whose composer is dead is
+# exactly the user who reaches for the model picker. Its stamp then names a model ANOTHER window is
+# running; under a plain "fall back to the path rule" that window's agent was the single match, and
+# the discount was taken for weights nothing was about to free - permanently, since that agent
+# never leaves. Refusing is right whenever the caller could have identified its own and did not.
+#
+# A window that runs tools but has NO MCP servers configured carries no --mcp-config either, so its
+# caller passes no window and it lands on the path rule. That is the safe direction, and the same
+# answer it got before any of this.
+scan_engine_footprints() {
+    local retiring="$1" retiring_win="$2"
+    local others_mib=0 pid margs mpath msize charge
+    local by_path_mib=0 by_path_seen=0 by_win_mib=0
+    # The marker that identifies ONE window's agent. Only present when that window runs tools; an
+    # agent launched without them carries no --mcp-config and falls through to the path rule.
+    # Both, deliberately: the window identifies a retirement the CALLER has declared, and a window
+    # passed without one would let a first load discount an agent that is not going anywhere.
+    local win_marker=""
+    [ -n "$retiring" ] && [ -n "$retiring_win" ] && win_marker="/Sessions/${retiring_win}/"
+    for pid in $(/usr/bin/pgrep -f "[/]llama-server" 2>/dev/null); do
+        margs=$(/bin/ps -p "$pid" -o args= 2>/dev/null)
+        mpath="${margs##*--model }"
+        case "$mpath" in *.gguf*) mpath="${mpath%%.gguf*}.gguf" ;; *) continue ;; esac
+        [ -f "$mpath" ] || continue
+        msize=$(/usr/bin/stat -f%z -L "$mpath" 2>/dev/null)
+        [ -n "$msize" ] || continue
+        charge=$(( msize / 1048576 * 115 / 100 + 768 ))
+        others_mib=$(( others_mib + charge ))
+        if [ -n "$retiring" ] && [ "$mpath" = "$retiring" ]; then
+            by_path_seen=$(( by_path_seen + 1 )); by_path_mib="$charge"
+        fi
+    done
+    # NOTE: sharded GGUFs (-00001-of-000NN.gguf) are counted by their first shard only.
+    for pid in $(/usr/bin/pgrep -f "[/]mlx-agent" 2>/dev/null); do
+        margs=$(/bin/ps -p "$pid" -o args= 2>/dev/null)
+        case "$margs" in *"--model "*) ;; *) continue ;; esac
+        mpath="${margs##*--model }"
+        mpath="${mpath%% --*}"
+        [ -d "$mpath" ] || continue
+        # -L: HF-cache snapshot dirs are symlink farms into blobs/ - without it du says 0.
+        msize=$(/usr/bin/du -skL "$mpath" 2>/dev/null | /usr/bin/awk '{print $1}')
+        [ -n "$msize" ] || continue
+        charge=$(( msize / 1024 * 115 / 100 + 768 ))
+        others_mib=$(( others_mib + charge ))
+        if [ -n "$retiring" ] && [ "$mpath" = "$retiring" ]; then
+            by_path_seen=$(( by_path_seen + 1 )); by_path_mib="$charge"
+        fi
+        # Checked INDEPENDENTLY of the model path, and deliberately: this window's agent is running
+        # whatever this window's agent is running, and the caller's stamp is only its own record of
+        # that. If the two ever disagree, the process is the fact.
+        case "$margs" in
+            *"$win_marker"*) [ -n "$win_marker" ] && by_win_mib="$charge" ;;
+        esac
+    done
+
+    # The window rule REPLACES the path rule rather than preceding it. See the header: a caller
+    # holding a marker that matches nothing has learned its own agent is gone, which is the one
+    # answer a fallback to "the single process on that path" gets exactly backwards.
+    local retiring_mib=0
+    if [ -n "$win_marker" ]; then
+        retiring_mib="$by_win_mib"
+        if [ "$retiring_mib" = 0 ]; then
+            srvlog "MEMPOLICY no live agent for window ${retiring_win}; discounting nothing"
+        else
+            srvlog "MEMPOLICY retiring engine identified by window ${retiring_win} mib=${retiring_mib}"
+        fi
+    elif [ "$by_path_seen" = 1 ]; then
+        retiring_mib="$by_path_mib"
+        srvlog "MEMPOLICY retiring engine identified by path [${retiring}] mib=${retiring_mib}"
+    elif [ "$by_path_seen" -gt 1 ]; then
+        srvlog "MEMPOLICY retiring engine [${retiring}] has ${by_path_seen} live processes; charging all"
+    fi
+    echo "$others_mib $retiring_mib"
+}
+
+# retiring_discount_mib <retiring_mib> <ram_mib> <cap_mib>
+# How much of a retiring engine's footprint a starting server may plan as free. Echoes a number.
+#
+# NOT ALL OF IT, AND THE REASON IS THE CLOCK. The engine being replaced does not stop when the
+# sizing runs. It stops when the Chat element reconciles the transport that this launch is a
+# prerequisite for - which is after launch_model_on_port returns, and that is after
+# wait_for_server, whose limit scales with the model and reaches 300 s. The two engines are
+# resident together for the whole load of the incoming one, not for a moment at the end of it.
+#
+# Metal caps ONE process's working set at cap_mib, so a discount of D lets the new server plan up
+# to cap_mib - reserve_mib - (others - D). At the peak of the overlap the machine holds
+# cap_mib - reserve_mib + D, leaving (ram_mib - cap_mib) + reserve_mib - D free. Past
+# D = ram_mib - cap_mib - the slack the Metal cap deliberately leaves outside itself - the load
+# eats into the display reserve, and far enough past it the transient demand exceeds physical RAM:
+# a 12 GiB MLX model retiring under a large GGUF on a 32 GB machine would do exactly that, for
+# minutes, which is the WindowServer starvation this whole policy exists to prevent.
+#
+# The clamp costs nothing in the case that motivated the discount - 5987 MiB against 8520 MiB of
+# slack on that machine - and turns the unbounded version's worst case back into "the display
+# reserve survives even at the peak".
+retiring_discount_mib() {
+    local want="$1" slack=$(( $2 - $3 ))
+    [ "$want" -gt "$slack" ] && want="$slack"
+    [ "$want" -lt 0 ] && want=0
+    echo "$want"
+}
+
 # ---------------------------------------------------------------------------------------
 # GPU memory policy (Apple Silicon).
 #
@@ -269,10 +405,11 @@ params_from_gguf_filename() {
 # (observed with gemma-4-31B Q4_K_M, 17.8 GiB, on the 24 GB M5: -ngl 8 still OOMs;
 # --no-mmap fixes it).
 #
-# compute_server_memory_args <model_path>
+# compute_server_memory_args <model_path> [retiring_model_path] [retiring_window]
 # Echoes the llama-server arguments implementing the policy:
 #   --fit-target <MiB>  display reserve (RAM/8, clamped to 2-6 GiB) + the estimated
-#                       footprint of every live sibling server
+#                       footprint of every live sibling server, less the one engine the
+#                       caller says it is about to stop (clamped - see the body)
 #   --fit-ctx 8192      --fit may shrink the context this far before dropping GPU layers
 #   [--no-mmap]         added when the file might not fully offload inside the budget,
 #                       so only the layers that actually run on the GPU get wired
@@ -288,6 +425,8 @@ params_from_gguf_filename() {
 # MEMPOLICY either way (touch /tmp/aichatv2_srvdbg to capture).
 compute_server_memory_args() {
     local model_path="$1"
+    local retiring="$2"
+    local retiring_win="$3"
     local ls_bin="$OMC_APP_BUNDLE_PATH/Contents/Support/Llama.cpp/llama-server"
 
     local ram_mib=$(( $(/usr/sbin/sysctl -n hw.memsize) / 1048576 ))
@@ -297,35 +436,18 @@ compute_server_memory_args() {
     [ "$reserve_mib" -lt 2048 ] && reserve_mib=2048
     [ "$reserve_mib" -gt 6144 ] && reserve_mib=6144
 
-    # Live sibling engines: each one's wired footprint is roughly its weights plus
-    # KV/compute overhead; 15% + 768 MiB errs on the safe side. The patterns match the
-    # binary BASENAME on purpose: orphaned llama-servers from OTHER bundles (v1.2, Enoch
-    # - see the orphan-cleanup notes) and MLXChat's mlx-agent hold GPU memory just the
-    # same, and a basename pattern also dodges ERE metacharacters in the bundle path.
-    # The argv --model validation below filters out unrelated matches. The outgoing
-    # server on OUR port was already killed and waited out by launch_model_on_port.
-    local others_mib=0 pid margs mpath msize
-    for pid in $(/usr/bin/pgrep -f "[/]llama-server" 2>/dev/null); do
-        margs=$(/bin/ps -p "$pid" -o args= 2>/dev/null)
-        mpath="${margs##*--model }"
-        case "$mpath" in *.gguf*) mpath="${mpath%%.gguf*}.gguf" ;; *) continue ;; esac
-        [ -f "$mpath" ] || continue
-        msize=$(/usr/bin/stat -f%z -L "$mpath" 2>/dev/null)
-        [ -n "$msize" ] || continue
-        others_mib=$(( others_mib + msize / 1048576 * 115 / 100 + 768 ))
-    done
-    # NOTE: sharded GGUFs (-00001-of-000NN.gguf) are counted by their first shard only.
-    for pid in $(/usr/bin/pgrep -f "[/]mlx-agent" 2>/dev/null); do
-        margs=$(/bin/ps -p "$pid" -o args= 2>/dev/null)
-        case "$margs" in *"--model "*) ;; *) continue ;; esac
-        mpath="${margs##*--model }"
-        mpath="${mpath%% --*}"
-        [ -d "$mpath" ] || continue
-        # -L: HF-cache snapshot dirs are symlink farms into blobs/ - without it du says 0.
-        msize=$(/usr/bin/du -skL "$mpath" 2>/dev/null | /usr/bin/awk '{print $1}')
-        [ -n "$msize" ] || continue
-        others_mib=$(( others_mib + msize / 1024 * 115 / 100 + 768 ))
-    done
+    local others_mib retiring_mib
+    read -r others_mib retiring_mib <<EOF
+$(scan_engine_footprints "$retiring" "$retiring_win")
+EOF
+
+    local granted
+    granted=$(retiring_discount_mib "$retiring_mib" "$ram_mib" "$cap_mib")
+    [ "$granted" != "$retiring_mib" ] && \
+        srvlog "MEMPOLICY retiring discount clamped ${retiring_mib} -> ${granted}"
+    retiring_mib="$granted"
+    others_mib=$(( others_mib - retiring_mib ))
+    [ "$others_mib" -lt 0 ] && others_mib=0
 
     local fit_target_mib=$(( reserve_mib + others_mib ))
 
@@ -359,7 +481,7 @@ compute_server_memory_args() {
         # -ngl 0, and it makes the launch pick up the size-scaled health-wait limit.
         args="--fit off -ngl 0 --no-op-offload --no-mmap --ctx-size ${TUNE_CTX:-16384}"
         [ -n "$TUNE_EXTRA_ARGS" ] && args="$args $TUNE_EXTRA_ARGS"
-        srvlog "MEMPOLICY CPU-FALLBACK ram=${ram_mib} cap=${cap_mib} reserve=${reserve_mib} others=${others_mib} target=${fit_target_mib} model_mib=${model_mib} budget=${budget_mib} args=[$args]"
+        srvlog "MEMPOLICY CPU-FALLBACK ram=${ram_mib} cap=${cap_mib} reserve=${reserve_mib} others=${others_mib} retiring=${retiring_mib} target=${fit_target_mib} model_mib=${model_mib} budget=${budget_mib} args=[$args]"
         echo "$args"
         return 0
     fi
@@ -373,7 +495,7 @@ compute_server_memory_args() {
     [ -n "$TUNE_CTX" ] && args="$args --ctx-size $TUNE_CTX"
     [ -n "$TUNE_EXTRA_ARGS" ] && args="$args $TUNE_EXTRA_ARGS"
 
-    srvlog "MEMPOLICY ram=${ram_mib} cap=${cap_mib} reserve=${reserve_mib} others=${others_mib} target=${fit_target_mib} model_mib=${model_mib} no_mmap=${no_mmap} budget=${budget_mib} args=[$args]"
+    srvlog "MEMPOLICY ram=${ram_mib} cap=${cap_mib} reserve=${reserve_mib} others=${others_mib} retiring=${retiring_mib} target=${fit_target_mib} model_mib=${model_mib} no_mmap=${no_mmap} budget=${budget_mib} args=[$args]"
     echo "$args"
 }
 
@@ -686,9 +808,23 @@ report_server_launch_failure() {
     return 11
 }
 
-# launch_model_on_port <model_path> <win_uuid> <port>
+# launch_model_on_port <model_path> <win_uuid> <port> [retiring_model_path] [retiring_window]
 # Free ONLY <port> (never a sibling window's server), launch llama-server for model_path on
 # it, wait for health, and register it. Sets LAUNCHED_MODEL_LABEL. 0 = ready.
+#
+# The last two are for the one caller that starts a server while the engine it is replacing is
+# still holding memory: an in-place switch arriving at gguf from mlx, which cannot free the
+# outgoing agent until the transport it is about to build has been injected. They go straight to
+# compute_server_memory_args; scan_engine_footprints is where they mean something.
+#
+# <retiring_window> is DELIBERATELY NOT <win_uuid>, though it is usually the same string. It is a
+# claim that this caller can identify its own agent in the process table, which is only true when
+# that agent was launched with an --mcp-config - so the caller passes it or leaves it empty, and
+# reusing <win_uuid> here would assert something the caller has not checked.
+#
+# Every other caller omits both, because by the time they launch there is nothing of theirs left
+# to retire - a first load's window was empty, and a gguf-to-gguf switch's outgoing server was
+# TERMed and waited out by the free step below.
 #
 # Multi-model: <port> is the window's own port (find_free_port_in at init, stashed as
 # aichatv2_port_<win>). On a NEW window it is a freshly-allocated idle port, so the free step
@@ -702,6 +838,8 @@ launch_model_on_port() {
     local model_path="$1"
     local win="$2"
     local port="$3"
+    local retiring="$4"
+    local retiring_win="$5"
     LAUNCHED_MODEL_LABEL=$(/usr/bin/basename "$model_path" .gguf)
 
     # Free only THIS port. The binary-path guard means a non-bundle process that happens to
@@ -745,7 +883,7 @@ launch_model_on_port() {
     # Lock across scan + spawn so a concurrent window's launch can't scan a world in
     # which our server doesn't exist yet (and vice versa).
     launch_lock_acquire
-    mem_args=$(compute_server_memory_args "$model_path")
+    mem_args=$(compute_server_memory_args "$model_path" "$retiring" "$retiring_win")
 
     # $mem_args is intentionally unquoted: it is a flag string built above (no paths).
     echo "launching llama-server for $LAUNCHED_MODEL_LABEL on port $port (mem policy: $mem_args)"

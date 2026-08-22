@@ -110,9 +110,15 @@ chat_engine_remember_recent() {
 }
 
 # chat_engine_transport_config <win> <engine> <model-path> <use-tools> <external-command> [port]
+#                              [retiring-model-path] [retiring-window]
 #   Everything ONE engine needs to exist before the window can talk, ending in the ACP transport
 #   JSON: the availability gate on foundation, the resolved directory on mlx, the llama-server
 #   launch on gguf, the configured command line on external.
+#
+#   The last two are only ever set by the one caller that starts a server while the engine it
+#   replaces is still resident - the switch arriving at gguf from mlx - and are passed through to
+#   launch_model_on_port, which is where they mean something. The window among them is a claim that
+#   the caller can find its own agent in the process table, not simply a repeat of <win>.
 #
 #   Split out of chat_engine_load for the in-place model switch, which prepares exactly the same
 #   four engines for a window that already has one. What stayed behind in the load is what only a
@@ -130,6 +136,7 @@ chat_engine_remember_recent() {
 CHAT_ENGINE_CONFIG=""
 chat_engine_transport_config() {
 	local win="$1" engine="$2" model_path="$3" use_tools="$4" external_command="$5" port_num="$6"
+	local retiring="$7" retiring_win="$8"
 	local agent_bin base_url engine_ready
 	local fm_probe fm_reason fm_summary
 	# All four engines end at the same place - one ACP transport in states["config"] - and differ
@@ -270,7 +277,7 @@ ${fm_summary}"
 			base_url="http://127.0.0.1:${port_num}/v1"
 
 			echo "Starting llama-server on port $port_num..."
-			launch_model_on_port "$model_path" "$win" "$port_num"
+			launch_model_on_port "$model_path" "$win" "$port_num" "$retiring" "$retiring_win"
 			engine_ready=$?
 		fi
 
@@ -576,7 +583,7 @@ chat_engine_load() {
 chat_engine_switch() {
 	local win="$1" model_path="$2" use_tools="$3"
 	local current_agent prev_model_path prev_port prev_tools target_engine model_label
-	local port_num engine_ready inject_needed
+	local port_num engine_ready inject_needed retiring_win=""
 
 	# Defense, not a policy: aichat.select.local.model.ok.sh refuses an agent window with the
 	# "Open in a New Window?" alert and never chains here. A conversation cannot be moved from an
@@ -685,14 +692,35 @@ chat_engine_switch() {
 		# one cell that already has the most.
 	elif [ "$target_engine" = "gguf" ]; then
 		# ── mlx / on-device -> gguf: a server has to exist before the agent asks ──
-		# ORDER IS FORCED, and it costs something. The new agent health-checks llama-server during
-		# session/new and gives up after about seven seconds, which is far less than a model load,
-		# so the server must be up BEFORE the injection - and that means the window's outgoing
-		# mlx-agent is still resident while the server is sized and started. compute_server_memory_args
-		# counts it as a live sibling and llama.cpp's --fit measures the memory it is holding, so
-		# this server is sized conservatively for the rest of its life. Accepted for now: injecting
-		# first would free those weights but land the new agent on a server that is not listening
-		# yet, which surfaces as an error in the conversation rather than a slightly smaller context.
+		# ORDER IS FORCED. The new agent health-checks llama-server during session/new and gives up
+		# after about seven seconds, which is far less than a model load, so the server must be up
+		# BEFORE the injection - and that means the window's outgoing mlx-agent is still holding its
+		# weights while the server is sized and started. Injecting first would free them but land
+		# the new agent on a port nothing is listening to, which surfaces as an error in the
+		# conversation.
+		#
+		# So the sizing is told what is leaving. Without it the outgoing model is charged as a live
+		# sibling against a server that keeps its decision for the rest of its life, and the bill is
+		# not small: a 4.4 GiB MLX model retiring under a 31B GGUF arrival cost 5987 MiB of a
+		# 24248 MiB cap, which is what pushed --fit past dropping layers and down to its --fit-ctx
+		# floor of 8192 tokens - too little to hold the conversation being switched, so the first
+		# message after the switch failed.
+		#
+		# NOT A PROMISE THAT THE MEMORY IS FREE, and the difference matters. The outgoing agent dies
+		# when the element reconciles the config injected BELOW, which cannot happen until this call
+		# returns - and this call returns only after wait_for_server, whose limit scales with the
+		# model and reaches 300 s. Both engines are therefore resident for the whole load of the
+		# incoming one, so what may be discounted is bounded by the RAM the Metal cap leaves outside
+		# itself. compute_server_memory_args owns that arithmetic.
+		#
+		# THE WINDOW IS PASSED ONLY WHEN THIS WINDOW'S AGENT CAN BE FOUND, which is when it was
+		# launched with tools: that is what puts --mcp-config .../Sessions/<win>/ in its argv, and
+		# an agent with no such marker is indistinguishable from any other window's. Saying so lets
+		# the scan take a no-match as proof that our agent is already gone - a window whose agent
+		# died still carries its model stamp, and without this the scan would discount whichever
+		# OTHER window happens to be running the same model. An unstamped decision counts as no,
+		# for the same reason it counts as unchanged everywhere else in this function.
+		[ "$prev_tools" = "true" ] && retiring_win="$win"
 		port_num=$(find_free_port_in "$LLAMA_PORT_RANGE_START" "$LLAMA_PORT_RANGE_END")
 		if [ -z "$port_num" ]; then
 			echo "no free llama-server port in ${LLAMA_PORT_RANGE_START}-${LLAMA_PORT_RANGE_END}"
@@ -700,7 +728,8 @@ chat_engine_switch() {
 				"Too many models are already running. Close a model window and try again."
 		else
 			pb_set "aichatv2_port_${win}" "$port_num"
-			chat_engine_transport_config "$win" gguf "$model_path" "$use_tools" "" "$port_num"
+			chat_engine_transport_config "$win" gguf "$model_path" "$use_tools" "" "$port_num" \
+				"$prev_model_path" "$retiring_win"
 			engine_ready=$?
 			if [ "$engine_ready" = 0 ]; then
 				model_label="$LAUNCHED_MODEL_LABEL"
