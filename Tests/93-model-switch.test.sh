@@ -392,7 +392,7 @@ check "a bound conversation is told at once" "1" "$(cad_has "$(sw_appended)" '"k
 check "  naming the model taking over"       "1" "$(cad_has "$(sw_appended)" "Mlx-Other-Model")"
 check "  and it is in the journal"           "1" \
     "$(cad_has "$(/bin/cat "$cad_hist/20260821T000000Z-switch/journal.jsonl")" '"kind": "modelChanged"')"
-check "  while the title stays the conversation's" "0" "$(ui_calls omc_window)"
+check "  while the window title is left alone"    "0" "$(ui_calls omc_window)"
 
 section "  a switch before the first message queues behind the line that opens it"
 # Nothing has been said into this window yet, so the opening marker is still held for the first
@@ -733,17 +733,16 @@ section "picking the model the window already runs changes nothing"
 # conversation.
 sw_reset
 sw_window "$MLXREAL" "" false
-cad_call_lib aichat.library.sh chat_window_set_status "$SWIN" "failed to load model"
 sw chat_engine_switch "$SWIN" "$MLXDIR" false
 check "it succeeds"                    "0" "$?"
 check "  and injects nothing"          "0" "$(sw_configs)"
 check "  launches nothing"             ""  "$(sw_calls)"
 check "  and leaves the stamp alone"   "$MLXREAL" "$(cad_pb_get "aichatv2_modelpath_$SWIN")"
-# It does one thing, though: a FAILED switch leaves "failed to load model" in the title bar while
-# the model bar still names the model that is running. Re-picking that model is one of the few
-# gestures that reaches here, and it should repair the window rather than leave it describing a
-# failure it has recovered from.
-check "  but repairs a failed switch's title" "Mlx-Test-Model" "$(ui_title "$SWIN")"
+# And nothing is repaired on the way out, because nothing is left broken. This branch used to
+# re-set the window title: a failed switch wrote "failed to load model" there and left it, while
+# the model bar went on naming the model that was still running. The title reports nothing now,
+# so a switch that changes nothing writes nothing.
+check "  and writes no title"          "0" "$(ui_calls omc_window)"
 
 # And a window with NO decision recorded is unchanged too, whatever the box says - the same rule
 # the picker's gate and the gguf-to-gguf rebuild test apply. Nothing knows what an unrecorded
@@ -755,6 +754,46 @@ cad_pb_set "aichatv2_tools_$SWIN" ""
 sw chat_engine_switch "$SWIN" "$MLXDIR" true
 check "an unrecorded decision is not a change" "0" "$(sw_configs)"
 check "  and nothing is launched for it"       ""  "$(sw_calls)"
+
+# ---------------------------------------------------------------------------
+section "a load that outruns ten seconds says so in the overlay, and only there"
+# THE BUG THIS SECTION EXISTS FOR. wait_for_server used to write "still loading model…" straight
+# into the window title, and it was the ONE title write in the whole load that ignored the rule
+# every other one obeyed - a window showing a saved conversation keeps its name. So on exactly
+# that window the note went in and nothing ever took it out: the switch finished, the model
+# answered, and the title still said "still loading model…" until the window was closed.
+#
+# There is no rule left to obey - the title is the app's name and nobody writes it - so the
+# assertion is the flat one: the wait reports through the overlay it was given, and touches the
+# title zero times. The stubbed launch above cannot cover this; wait_for_server is only ever
+# reached through the real launch, so this drives it directly.
+#
+# `sleep` is stubbed to nothing so the twelve-second timeout costs milliseconds. Everything else
+# is real, including the curl: the port is one no listener should hold, and a health probe that
+# unexpectedly SUCCEEDS returns 0 instead of 13 and fails the first check rather than passing
+# quietly.
+wfs() {
+    ( . "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.server.library.sh" >/dev/null 2>&1
+      prefs="${CAD_PREFS_OVERRIDE:-$OMCTEST_WORK/no-such-registry.plist}"
+      sleep() { :; }
+      wait_for_server "$@" )
+}
+sw_reset
+# The window the bug needed: one with a conversation loaded in it.
+cad_pb_set "aichatv2_session_$SWIN" "20260821T000000Z-switch"
+wfs "$SWIN" 59321 12 "Tiny-Q4_K_M"
+check "a health probe that never answers times out" "13" "$?"
+check "  with an alert"                             "1"  "$(alerts_count)"
+check "  the slow load is named in the overlay"     "Still loading Tiny-Q4_K_M…" \
+    "$(ui_prop "$BASE_CHAT_OVERLAY_ELEM_ID" title "$SWIN")"
+check "  and the window title is never written"     "0"  "$(ui_calls omc_window)"
+# Without a label there is still something to say. The caller passes LAUNCHED_MODEL_LABEL, which
+# is set from the model path, but a wait is not the place to discover it is empty.
+sw_reset
+wfs "$SWIN" 59321 12
+check "an unnamed model still reports progress" "Still loading the model…" \
+    "$(ui_prop "$BASE_CHAT_OVERLAY_ELEM_ID" title "$SWIN")"
+cad_pb_set "aichatv2_session_$SWIN" ""
 
 # ---------------------------------------------------------------------------
 section "stopping one window's server, for real"

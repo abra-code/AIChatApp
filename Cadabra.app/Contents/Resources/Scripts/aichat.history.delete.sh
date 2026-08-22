@@ -38,13 +38,11 @@ if [ "$(pb_get "aichatv2_session_${win}")" = "$sid" ]; then
     pb_set "aichatv2_session_${win}" ""
     pb_set "aichatv2_resume_pending_${win}" ""
     for b in 521 520 524; do "$dialog" "$win" "$b" omc_disable; done
-    # The title tracks the loaded CONVERSATION (stamped by the selection handler), so it has
-    # to fall back to the model here - otherwise the window keeps naming a chat that no
-    # longer exists. Same end state as New Chat: empty chat, unbound, titled by model.
-        # No engine yet means no label, and doing nothing then is exactly what this block exists
-    # to prevent.
+    # What is left driving this window once the conversation it was showing is gone. The same
+    # end state as New Chat: an empty chat, unbound, with the model bar still naming the engine.
+    # Nothing has to be un-named here any more - the window title reports nothing (see
+    # aichat.library.sh), so it cannot be left naming a chat that no longer exists.
     engine_label=$(chat_engine_label "$win")
-    chat_window_set_status "$win" "${engine_label:-$APPLET_NAME}"
     # And the opening line of what this window is now: an empty conversation with the same engine.
     # What it was holding for the deleted one went with the inject above.
     [ -n "$engine_label" ] && history_marker_lead "$win" 1 started "$engine_label"

@@ -29,7 +29,7 @@ esac
 # Repainting makes it disappear, which is both the truth and the fix.
 if acp_custom_remove "$selected_id"; then
     # The record is gone, but the LIVE SELECTION may still name it, and a stored id pointing at
-    # nothing would leave the window titled with a bare basename for no visible reason. Demote
+    # nothing would leave the agent named by a bare basename for no visible reason. Demote
     # it to the bare "custom" id, which means precisely this: a command with no record behind
     # it. The command itself is untouched, so a setup already running this way keeps working -
     # deleting a row from a list should not quietly switch the user back to the bundled agent.

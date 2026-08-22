@@ -274,11 +274,22 @@ chat_inject_empty() {
 # CANNOT know about model loading - its transport is not built until the config is injected
 # AFTER the /health probe, i.e. after the load already succeeded. (The element does know when it
 # is awaiting a REPLY; that is a separate, component-level concern.)
+#
+# THE ONLY PLACE A LOAD CAN SAY ANYTHING, and that is why the note below exists. The window title
+# used to carry this - and every other transient status - but it sits in the narrow strip above
+# the sidebar, where a model name or a conversation title is truncated to nothing useful. The
+# title is now the app's name and stays that way (declared as WINDOW_TITLE in Command.json and
+# written by nobody); the overlay is where a load has room to describe itself.
 CHAT_OVERLAY_SLOT_ID=550
 CHAT_OVERLAY_ELEM_ID=551
 chat_loading_overlay_show() {
     "$dialog" "$1" "$CHAT_OVERLAY_SLOT_ID" omc_insert_element \
         "{\"type\":\"ProgressView\",\"id\":${CHAT_OVERLAY_ELEM_ID},\"properties\":{\"title\":\"Loading $2…\"}}"
+}
+# chat_loading_overlay_note <win> <text> - relabel the spinner already on screen.
+# A no-op when no overlay is showing: the element id does not exist, and the write is dropped.
+chat_loading_overlay_note() {
+    "$dialog" "$1" "$CHAT_OVERLAY_ELEM_ID" omc_set_property "title" "$2"
 }
 chat_loading_overlay_hide() {
     "$dialog" "$1" "$CHAT_OVERLAY_ELEM_ID" omc_remove_element
@@ -386,8 +397,15 @@ process_start_stamp() { # <pid>
     /bin/ps -p "$1" -o lstart= 2>/dev/null | /usr/bin/tr -s ' ' | /usr/bin/sed 's/^ *//; s/ *$//'
 }
 
-# chat_window_set_status <window_uuid> <status> — reflect load/model/conversation state in a
-# chat window's title. Lives in the BASE library so callers that have no business pulling in
-# the server library (registry, port pinning, orphan reaping) still have it - the history
-# selection handler is the one that forced the move.
-chat_window_set_status() { "$dialog" "$1" omc_window "$2"; }
+# THE WINDOW TITLE IS THE APP'S NAME, AND NOTHING ELSE WRITES IT. There used to be a
+# chat_window_set_status here, and six handlers reached for it to report what a window was doing:
+# the model being loaded, the conversation that had just been opened, "still loading model…",
+# "failed to load model". None of it fit. A NavigationSplitView puts its title over the SIDEBAR,
+# in a strip a few hundred points wide, so every one of those strings arrived truncated - a
+# 31B model's name and a real conversation title both die in the same ellipsis.
+#
+# So the title is declared once, as WINDOW_TITLE in Command.json, and left alone. What the old
+# statuses said now lives where there is room for it: the model bar names the engine
+# (chat_model_bar_set), the facts line describes the conversation (chat_info_refresh), the
+# loading overlay describes a load in progress (above), a failure raises the alert it always
+# raised, and aichat.chat.error.sh's toast is the pattern for anything transient.

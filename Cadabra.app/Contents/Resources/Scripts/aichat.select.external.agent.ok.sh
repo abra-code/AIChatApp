@@ -41,13 +41,13 @@ if [ -z "$command_line" ]; then
 fi
 
 # An edit that no longer matches the row it came from is a custom command, whatever row is
-# highlighted. Getting this wrong would make the label lie: the window would say "opencode"
+# highlighted. Getting this wrong would make the label lie: the model bar would say "opencode"
 # over a session running something else entirely.
 #
 # A SAVED custom agent is exempt, because it OWNS its command: the record is the definition
 # and the field is how you edit it, so an edit belongs in the record. Degrading "custom:3" to
-# a bare "custom" here would throw away the name the user gave it and leave the window titled
-# with a bare basename - the row would still be in the list, and committing it would silently
+# a bare "custom" here would throw away the name the user gave it and leave the agent named by
+# a bare basename - the row would still be in the list, and committing it would silently
 # stop being the thing that was committed.
 # Cleaned on both sides of the comparison, so a difference that is only whitespace does not
 # read as "the user edited this" and demote a perfectly good catalog row to an unnamed command.
@@ -57,7 +57,7 @@ fi
 # behind for a click or two - the command that seeded the field is not the one carried by the
 # highlighted row, and comparing against it would answer a question nobody asked. Treat that as
 # edited: an unnamed command is a truthful label for "we cannot show this came from a catalog
-# row", where naming the highlighted agent would be a confident lie in the window title.
+# row", where naming the highlighted agent would be a confident lie in the model bar.
 row_id="${OMC_ACTIONUI_TABLE_10_COLUMN_4_VALUE:-}"
 row_command=$(acp_clean_one_line "${OMC_ACTIONUI_TABLE_10_COLUMN_3_VALUE:-}")
 case "$selected_id" in
@@ -73,7 +73,7 @@ esac
 # returns non-zero for an id with no record behind it, which happens when the agent was deleted
 # out from under this window - a second dialog, or the settings file edited by hand. Storing the
 # id anyway would leave /agents/external/id naming a record that does not exist, and the window
-# would open titled with a bare basename for no reason the user could see. Falling back to the
+# would open naming a bare basename for no reason the user could see. Falling back to the
 # bare "custom" id says the true thing instead: a command with no record behind it.
 # The NAME is committed here as well as the command - see agent_save_pane_edits, which every
 # button that acts on the editor shares. Clicking a button need not blur the field it was typed

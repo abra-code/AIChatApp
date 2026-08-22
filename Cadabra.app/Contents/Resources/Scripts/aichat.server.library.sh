@@ -596,10 +596,6 @@ calculate_context_optimal_size() {
     return 0
 }
 
-# (chat_window_set_status moved to aichat.library.sh - the base library this one already
-# reaches via aichat.mcp.servers.library.sh - so the history selection handler can use it
-# without sourcing the whole server library.)
-
 # register_started_server <host_pid> <server_pid> <model_path> <dialog_guid> <port> <size>
 register_started_server() {
     local host_pid="$1"
@@ -778,12 +774,18 @@ prune_server_registry() { # <front_pid>
     stop_orphaned_servers
 }
 
-# wait_for_server <win_uuid> <port> [limit_seconds] — poll /health on <port> until ready
-# (updating the window title) or time out with an alert. 0 = ready, 13 = timeout.
+# wait_for_server <win_uuid> <port> [limit_seconds] [model_label] - poll /health on <port> until
+# ready or time out with an alert. 0 = ready, 13 = timeout.
 # limit_seconds defaults to 30; launches that pass --no-mmap hand in a size-scaled limit
 # because the model file is read and copied instead of mapped.
+#
+# <model_label> is only ever read by the ten-second note below, which is why it is optional and
+# last: a wait that finishes before then never needs it. It is PASSED rather than read out of
+# LAUNCHED_MODEL_LABEL, which is set by the one caller - the label belongs to the launch, and a
+# function that reached into its caller's global for it would be a function that cannot be
+# called from anywhere else.
 wait_for_server() {
-    local win="$1" port="$2" limit="${3:-30}" result=0 seconds_count=0
+    local win="$1" port="$2" limit="${3:-30}" label="$4" result=0 seconds_count=0
     while true; do
         /usr/bin/curl --fail --silent "http://localhost:$port/health" >/dev/null 2>&1 && {
             echo "server became responsive after $seconds_count seconds"; break; }
@@ -794,7 +796,12 @@ wait_for_server() {
             result=13
             break
         elif [ "$seconds_count" -eq 10 ]; then
-            chat_window_set_status "$win" "still loading model…"
+            # Ten seconds in, said in the overlay the load is already showing rather than in the
+            # window title, which is the app's name and no longer reports anything (see the note
+            # in aichat.library.sh). A big model mapped with --no-mmap is given up to 300 s, and
+            # a spinner that has not changed in five minutes is indistinguishable from one that
+            # is stuck.
+            chat_loading_overlay_note "$win" "Still loading ${label:-the model}…"
         fi
         sleep 1
     done
@@ -912,7 +919,7 @@ launch_model_on_port() {
         [ "$wait_limit" -gt 300 ] && wait_limit=300 ;;
     esac
 
-    wait_for_server "$win" "$port" "$wait_limit"
+    wait_for_server "$win" "$port" "$wait_limit" "$LAUNCHED_MODEL_LABEL"
     local r=$?
     if [ "$r" = 0 ]; then
         register_started_server "${OMC_FRONT_PROCESS_ID}" "$server_pid" "$model_path" "$win" "$port" "$model_size"

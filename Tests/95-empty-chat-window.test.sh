@@ -354,6 +354,61 @@ check "the window keeps the engine it has" "$MLXREAL" "$(cad_pb_get "aichatv2_mo
 check "the launch is dropped"       "" "$(cad_pb_get aichatv2_launch_queue)"
 check "and no second engine is prepared" "0" "$(ui_calls omc_set_state)"
 
+section "the orphan sweep runs under the spinner, and still before any port is claimed"
+# THE SWEEP MOVED, and this is the invariant that made the move safe. It used to be the first
+# thing chat_engine_load did, ahead of the engine detection, because the window title said
+# "loading model" and the sweep is the slow step it was saying that over - two process-table
+# walks and, when it finds victims, a half-second grace before the KILL. The title says nothing
+# now, so the sweep sits under the loading overlay instead, which put it thirty lines nearer the
+# one thing it must still precede: the port claim. A sweep running after the port scan would let
+# a port held by an orphan push this window onto a different one, or run the range out entirely.
+#
+# A GGUF model, because the port claim only exists on that branch - and every part of it that
+# touches the machine is stubbed and RECORDS, because the assertion is the order of four calls.
+LOAD_ORDER="$OMCTEST_WORK/load-order.log"
+# Whether the spinner is already on screen at the moment a stub is called - the same trick 93
+# uses to assert a server is stopped only AFTER the element has its new transport. The overlay
+# itself is left REAL so this section still exercises the calls it is making claims about.
+sweep_seen_spinner() {
+    if /usr/bin/grep -q 'omc_insert_element' "$OMCTEST_UI/journal.tsv" 2>/dev/null; then
+        printf 'after-spinner\n'
+    else
+        printf 'before-spinner\n'
+    fi
+}
+engord() {
+    ( . "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.chat.engine.library.sh" >/dev/null 2>&1
+      prefs="${CAD_PREFS_OVERRIDE:-$OMCTEST_WORK/no-such-registry.plist}"
+      stop_orphaned_servers()          { printf 'sweep-registry\t%s\n'  "$(sweep_seen_spinner)" >> "$LOAD_ORDER"; }
+      reap_orphaned_bundle_processes() { printf 'sweep-processes\t%s\n' "$(sweep_seen_spinner)" >> "$LOAD_ORDER"; }
+      find_free_port_in()              { printf 'claim-port\n' >> "$LOAD_ORDER"; printf '8199\n'; }
+      launch_model_on_port() {
+          printf 'launch\n' >> "$LOAD_ORDER"
+          LAUNCHED_MODEL_LABEL=$(/usr/bin/basename "$1" .gguf)
+          return 0
+      }
+      "$@" )
+}
+: > "$LOAD_ORDER"
+ui_reset
+cad_journal_reset
+PORTWIN="OMCTEST-engine-order-$$"
+cad_pb_set "aichatv2_modelpath_$PORTWIN" ""
+cad_pb_set "aichatv2_agent_$PORTWIN" ""
+cad_pb_set "aichatv2_session_$PORTWIN" ""
+engord chat_engine_load "$PORTWIN" "$GGUF" false false
+check_status "a gguf first load succeeds" 0
+check "the sweep finishes before a port is claimed" \
+    "sweep-registry sweep-processes claim-port launch" \
+    "$(/usr/bin/cut -f1 "$LOAD_ORDER" | /usr/bin/tr '\n' ' ' | /usr/bin/sed 's/ *$//')"
+# And it ran with something on screen, which is the reason it moved at all.
+check "  with the spinner already up for both halves" "after-spinner after-spinner" \
+    "$(/usr/bin/awk -F'\t' '$2 != "" { printf "%s%s", sep, $2; sep = " " }' "$LOAD_ORDER")"
+# Raised once and taken down once. A load that raised it twice would stack two spinners on the
+# same element id; one that never took it down would leave a spinner over a live chat.
+check "  raised once"      "1" "$(cad_writes "$BASE_CHAT_OVERLAY_SLOT_ID")"
+check "  and removed once" "1" "$(cad_writes "$BASE_CHAT_OVERLAY_ELEM_ID")"
+
 # ---------------------------------------------------------------------------
 section "a load that fails leaves the window as empty as it found it"
 # STAMPED BEFORE IT CAN FAIL. chat_engine_load claims the window - model path, agent, port -
@@ -409,18 +464,22 @@ check "  and nothing is left aimed"    ""  "$(cad_pb_get aichatv2_load_target)"
 
 # ---------------------------------------------------------------------------
 section "an empty window does not keep a cleared conversation's name"
-# chat_engine_label answers nothing for a window with no engine, and both callers used to
-# retitle only when it answered something - so New Chat cleared the transcript and reset the
-# facts line while the title went on naming the conversation that had just been left.
+# The facts line is where a New Chat is announced, and on a window with NO engine it is the only
+# place that can be: chat_engine_label answers nothing there, and this handler used to write only
+# when it answered something - so the transcript was cleared while the line went on describing
+# the conversation that had just been left.
+#
+# It was also the window title, once. That channel is gone: the title is the app's name, declared
+# as WINDOW_TITLE and written by nobody, so a New Chat has nothing to correct there and must not
+# try - a handler still writing it is a handler putting a truncated string over the sidebar.
 ui_reset
 cad_pb_set "aichatv2_modelpath_$OMC_ACTIONUI_WINDOW_UUID" ""
 cad_pb_set "aichatv2_agent_$OMC_ACTIONUI_WINDOW_UUID" ""
 cad_pb_set "aichatv2_session_$OMC_ACTIONUI_WINDOW_UUID" "20260101T000000Z-1"
 omc_run aichat.chat.new
 check_status "New Chat succeeds with no engine" 0
-check "the window is retitled"  "1"        "$(ui_calls omc_window)"
-check "  to the app's own name" "Cadabra"  "$(ui_title)"
-check "and the facts line resets" "New conversation" "$(ui_value "$HL_CHAT_INFO_TEXT_ID")"
+check "the facts line resets"     "New conversation" "$(ui_value "$HL_CHAT_INFO_TEXT_ID")"
+check "and the title is left alone" "0"              "$(ui_calls omc_window)"
 
 # ---------------------------------------------------------------------------
 section "closing a chat window disarms a launch aimed at it"

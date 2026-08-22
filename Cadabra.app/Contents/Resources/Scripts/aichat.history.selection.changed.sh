@@ -93,7 +93,12 @@ fi
 # stop working the moment anything is added below either branch.
 if [ "$loaded" -ne 0 ]; then
     pb_set "aichatv2_resume_pending_${win}" ""
-    chat_window_set_status "$win" "could not open this conversation"
+    # SAID IN A TOAST, because the window still shows the conversation it showed before this
+    # click and nothing else about it changes. This was the window title until the title became
+    # the app's name and stopped reporting anything (see aichat.library.sh); a toast is what
+    # aichat.chat.error.sh already uses for exactly this - a transient failure that leaves the
+    # window usable. An alert would be a modal for a click the user can simply repeat.
+    "$dialog" "$win" omc_window omc_present_toast "Could not open this conversation." 5
     for b in $ROW_BUTTONS; do "$dialog" "$win" "$b" omc_enable; done
     exit 0
 fi
@@ -130,9 +135,11 @@ engine_label=$(chat_engine_label "$win")
 # while the agent was asked for another.
 summarize_show "$win" "$sid" "$resolved"
 
-# Title: which conversation is loaded (context state shows in the chat's status bar).
-title=$(history_title "$sid")
-chat_window_set_status "$win" "$title"
+# WHICH CONVERSATION IS LOADED is not written anywhere here, and does not need to be: the row
+# the user just clicked stays selected in the sidebar, and the facts line at the bottom of this
+# handler restates what the window is now showing. This used to retitle the window as well,
+# which put a whole conversation title into a strip a few hundred points wide over the sidebar
+# and truncated it (see aichat.library.sh).
 
 for b in $ROW_BUTTONS; do "$dialog" "$win" "$b" omc_enable; done
 

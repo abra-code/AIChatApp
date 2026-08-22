@@ -2,8 +2,8 @@
 # aichat.chat.switch.model.sh
 # In-place model switch: change the model of an OPEN conversation, targeting the ORIGINAL chat
 # window (its UUID and the chosen model were stashed by the selector's OK handler in switch mode).
-# The window keeps its transcript, its session binding and its title; what changes is what answers
-# the next message.
+# The window keeps its transcript and its session binding; what changes is what answers the next
+# message, and the model bar that names it.
 #
 # The work is chat_engine_switch, in the engine library, because it is the same four engine
 # preparations a first load does and they must not exist twice. What lives here is the handoff:

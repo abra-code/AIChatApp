@@ -109,9 +109,9 @@ acp_agent_search_dirs() {
 #
 # A QUOTED first argument is one word however many spaces it holds. Splitting
 # `"/My Tools/agent" acp` on the first space would call the executable "/My, which then fails
-# to resolve and reports a perfectly good agent as missing - and names it "My" in the window
-# title. Quote-aware here rather than shelling out to shlex, because this runs on the window
-# title path and must not depend on the bundled interpreter being present.
+# to resolve and reports a perfectly good agent as missing - and names it "My" wherever the
+# agent is displayed. Quote-aware here rather than shelling out to shlex, because this runs on
+# the display-label path and must not depend on the bundled interpreter being present.
 #
 # This is the FIRST WORD, not a basename: callers that want a display name apply ${x##*/}
 # themselves, and the ones resolving an executable need the path intact.
@@ -190,8 +190,8 @@ EOF
 #
 # An unreadable catalog emits NOTHING, and says why on stderr rather than silently: the dialog
 # then shows an empty list, which is an obvious failure, instead of a plausible partial one.
-# The window title degrades on its own - acp_agent_stored_label already falls back to the
-# command's basename when an id is not in the catalog.
+# The agent's displayed name degrades on its own - acp_agent_stored_label already falls back to
+# the command's basename when an id is not in the catalog.
 acp_agent_catalog() {
     "$acp_python" "$acp_catalog_py" rows
 }
@@ -542,12 +542,12 @@ acp_agent_stored_id() {
     acp_prefs_get_string agents/external/id
 }
 
-# acp_agent_stored_label  ->  a short name for the window title and status line
+# acp_agent_stored_label  ->  a short name for the model bar and status line
 #
 # Three sources, in order: the name the user gave a saved custom agent, the catalog's label
 # for a built-in one, and otherwise the command's own basename - which is the right answer for
 # an unsaved ad-hoc command, where the binary's name IS what the user calls it. Never empty: a
-# blank window title reads as a broken window.
+# blank model bar reads as a broken window.
 acp_agent_stored_label() {
     local id cmd first saved cat_id cat_label rest
     id=$(acp_agent_stored_id)
@@ -647,8 +647,8 @@ acp_agent_display_label() {
     version=$(acp_prefs_get_string agents/external/verifiedVersion)
     # An agent distributed on npm may answer with its full package specifier rather than a
     # friendly name: the Claude adapter reports "@agentclientprotocol/claude-agent-acp".
-    # A scope-qualified path is never what a user calls the tool and is far too long for a
-    # window title, so keep only the last segment. Bare names contain no "/" and are
+    # A scope-qualified path is never what a user calls the tool and is far too long for the
+    # model bar, so keep only the last segment. Bare names contain no "/" and are
     # untouched. Normalizing HERE rather than in acp_agent_record_verified keeps what the
     # agent actually said intact in the plist, so this stays a presentation choice.
     name=${name##*/}

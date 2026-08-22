@@ -44,14 +44,18 @@ chat_model_bar_set() {
 	"$dialog" "$1" "$CHAT_MODEL_BTN_ID" omc_set_property "title" "$2"
 }
 
-# chat_engine_title <win> <status> - retitle the window, unless a saved conversation is loaded
-# in it. A window that adopts its first model while showing a conversation keeps the
-# conversation's name - that is what the title is for, and the model now has a place of its own
-# to be shown in. A window with nothing loaded has nothing better to say than what is answering.
-chat_engine_title() {
-	[ -n "$(pb_get "aichatv2_session_${1}")" ] && return 0
-	chat_window_set_status "$1" "$2"
-}
+# THE TITLE IS NOT ONE OF THIS LIBRARY'S OUTPUTS. There was a chat_engine_title here, guarding
+# the one rule the title had left - a window showing a saved conversation keeps its name, so
+# only an unbound window was retitled with the model. The guard is what made the bug: a load
+# slow enough to reach wait_for_server's ten-second mark had its status written STRAIGHT to the
+# title, past the guard, and every call that would have put the title back was the guarded one.
+# A window with a conversation open therefore kept "still loading model…" for as long as it
+# stayed open, over a model that had finished loading and was answering.
+#
+# Deleting the guard would have fixed that and left the rest: a title strip over the sidebar,
+# too narrow for either of the things it was being asked to name. So the whole channel is gone
+# (see aichat.library.sh). What this library reports, it reports through the model bar and the
+# loading overlay, both of which are as wide as the window.
 
 # chat_engine_physical_mlx_dir <model-path> - resolve an MLX model directory to its PHYSICAL path,
 # left in CHAT_ENGINE_MODEL_PATH. 0 when it resolved, 1 after alerting when it did not.
@@ -199,9 +203,10 @@ Choose one under Tools > External ACP Agent, or pick a local model instead."
 		# all. Apple Intelligence can be switched off in any of those gaps.
 		#
 		# Without a gate here the failure lands badly. Building this transport cannot realistically
-		# fail, so the window would open looking ready - real title, enabled composer - and then
-		# mlx-agent would exit 2 at spawn with its reason on stderr, leaving a dead composer or a
-		# raw transport error where the app already knows how to show an actionable alert.
+		# fail, so the window would open looking ready - a model named in its bar, an enabled
+		# composer - and then mlx-agent would exit 2 at spawn with its reason on stderr, leaving a
+		# dead composer or a raw transport error where the app already knows how to show an
+		# actionable alert.
 		if [ "$AICHAT_FORCE_OPENAI_SSE" = "1" ]; then
 			# Same reasoning as the mlx branch: that escape hatch IS the direct-to-llama-server
 			# transport, and there is no server on this path. Say it is ignored rather than
@@ -221,7 +226,7 @@ Choose one under Tools > External ACP Agent, or pick a local model instead."
 ${fm_summary}"
 		else
 			CHAT_ENGINE_CONFIG=$(aichat_acp_transport_json "$agent_bin" foundation "" "$win" "$use_tools")
-			# Injecting "" would leave the composer disabled under a title claiming a loaded
+			# Injecting "" would leave the composer disabled under a model bar naming a loaded
 			# model, and nothing on this path would inject again.
 			if [ -n "$CHAT_ENGINE_CONFIG" ]; then
 				engine_ready=0
@@ -246,8 +251,8 @@ ${fm_summary}"
 		echo "mlx engine: mlx-agent loads $model_path in-process; no llama-server"
 		CHAT_ENGINE_CONFIG=$(aichat_acp_transport_json "$agent_bin" mlx "$model_path" "$win" "$use_tools")
 		# There is no health probe on this path, so the transport JSON is the ONLY thing that can
-		# be wrong before injection. Injecting "" would leave the composer disabled under a title
-		# claiming the model is loaded, and nothing on this path would inject again - failing
+		# be wrong before injection. Injecting "" would leave the composer disabled under a model
+		# bar naming a loaded model, and nothing on this path would inject again - failing
 		# silently in the one place with no server to blame.
 		if [ -n "$CHAT_ENGINE_CONFIG" ]; then
 			engine_ready=0
@@ -268,7 +273,7 @@ ${fm_summary}"
 			# when it cannot. This is here because the alternative to refusing is a baseURL with no
 			# port in it - built, injected and accepted - which is the one failure on this path that
 			# nothing downstream would report. It alerts like every other refusal here, rather than
-			# leaving the window titled "failed to load model" with the reason only in the log.
+			# leaving a dead composer on screen with the reason only in the handler log.
 			engine_ready=1
 			echo "gguf engine: no port to launch on; refusing to inject"
 			"$alert" --level "stop" --title "$APPLET_NAME" --ok "OK" \
@@ -296,7 +301,7 @@ ${fm_summary}"
 			fi
 			# The same refusal the other three branches make, and the only one with a RUNNING
 			# server behind it. Injecting "" would leave the composer permanently disabled under a
-			# title claiming the model is loaded, and llama-server would go on holding the weights
+			# model bar naming a loaded model, and llama-server would go on holding the weights
 			# for a window that can never reach it. So the caller undoes the launch, exactly as it
 			# does for a launch that never came up: a first load stops the server and rolls its
 			# stamps back.
@@ -325,23 +330,6 @@ chat_engine_load() {
 	local win="$1" model_path="$2" use_tools="$3" external_active="$4"
 	local engine model_label chat_config engine_ready
 	local external_command port_num
-
-	chat_engine_title "$win" "loading model…"
-
-	# ── A clean slate before anything of ours is launched ────────────────────────
-	# Both callers need this and neither should have to remember it, which is why it sits
-	# inside the load rather than in front of the two calls to it. It also has to come AFTER
-	# the title above: reaping walks every process on the machine and can spend a TERM, a
-	# sleep and a KILL on each orphan it finds, and while that runs the window would otherwise
-	# sit under its plain name saying nothing at all.
-	[ -f "$prefs" ] && "$plister" delete "$prefs" "/server-windows" 2>/dev/null
-
-	stop_orphaned_servers
-
-	# Safety net: kill any of this bundle's llama-server / MCP server / mlx-agent processes that
-	# a previous session orphaned onto launchd. Pairs with the registry-based
-	# stop_orphaned_servers above, and runs before this session launches its server.
-	reap_orphaned_bundle_processes
 
 	# ── Which engine? ─────────────────────────────────────────────────────────────
 	# The model's SHAPE decides, not a setting: a .gguf FILE runs on llama-server (this applet
@@ -376,11 +364,12 @@ chat_engine_load() {
 		# model_display_label returns for an absent model path.
 		#
 		# acp_agent_display_label, not the bare acp_agent_stored_label: this value is ALSO what
-		# the aichatv2_agent_ stamp below carries, and the title and the stamp are read by
-		# different code paths. When they disagreed the window opened titled "opencode" and
-		# silently became "opencode 1.17.13" the moment the user pressed New Chat. init cannot
-		# call chat_engine_label itself - it runs before its own stamps exist - so computing the
-		# richer label once here and reusing it is what keeps the two in step.
+		# the aichatv2_agent_ stamp below carries, and the two are read by different code paths -
+		# the model bar is written from this one, while chat_engine_label reads the stamp for the
+		# line that opens the conversation and for meta.json. When they disagreed the bar named
+		# "opencode" and the transcript named "opencode 1.17.13". init cannot call
+		# chat_engine_label itself - it runs before its own stamps exist - so computing the richer
+		# label once here and reusing it is what keeps the two in step.
 		model_label=$(acp_agent_display_label)
 	else
 		model_label=$(model_display_label "$model_path")
@@ -420,7 +409,7 @@ chat_engine_load() {
 		# Reuses the value computed above rather than calling the label function a second time.
 		# Not just to save the forks: two independent reads of a MUTABLE plist can disagree, and
 		# the Test dialog writes verifiedVersion, so a badly timed press between them would
-		# reintroduce exactly the title-versus-stamp mismatch this pairing exists to prevent. One
+		# reintroduce exactly the bar-versus-stamp mismatch this pairing exists to prevent. One
 		# read, one value, and the agreement is structural instead of coincidental.
 		pb_set "aichatv2_agent_${win}" "$model_label"
 		# And blank the model path, so the exclusivity the readers rely on is ENFORCED here rather
@@ -452,6 +441,31 @@ chat_engine_load() {
 	chat_engine_remember_recent "$model_path"
 
 	chat_loading_overlay_show "$win" "$model_label"
+
+	# ── A clean slate before anything of ours is launched ────────────────────────
+	# Both callers need this and neither should have to remember it, which is why it sits
+	# inside the load rather than in front of the two calls to it.
+	#
+	# UNDER THE SPINNER, and that is the whole reason it sits here rather than at the top of the
+	# function where it used to. Two process-table walks and, when it finds victims, a half-second
+	# grace before the KILL - a second of work in the worst case, during which the window would
+	# otherwise sit there showing an empty chat and saying nothing at all. It used to write
+	# "loading model" to the title first, for exactly this stretch; the title says nothing now, so
+	# the sweep moved under the overlay instead.
+	#
+	# ORDER STILL HOLDS, which is what makes the move safe: everything that runs between the old
+	# position and this one is pasteboard stamps and label work, and the two things this must
+	# precede - the port claim below and the llama-server launch inside the transport builder -
+	# both still come after it. A sweep that ran after the port scan would let a port held by an
+	# orphan push this window onto a different one, or run the range out entirely.
+	[ -f "$prefs" ] && "$plister" delete "$prefs" "/server-windows" 2>/dev/null
+
+	stop_orphaned_servers
+
+	# Safety net: kill any of this bundle's llama-server / MCP server / mlx-agent processes that
+	# a previous session orphaned onto launchd. Pairs with the registry-based
+	# stop_orphaned_servers above, and runs before this session launches its server.
+	reap_orphaned_bundle_processes
 
 	# The engine itself, prepared by the same function the in-place switch calls. Everything
 	# above this line is what makes a window ready to RECEIVE an engine; everything below is what
@@ -490,7 +504,6 @@ chat_engine_load() {
 	if [ "$engine_ready" = 0 ]; then
 		"$dialog" "$win" "$CHAT_ELEMENT_ID" omc_set_state config "$chat_config"
 		chat_model_bar_set "$win" "$model_label"
-		chat_engine_title "$win" "$model_label"
 		echo "chat ready ($engine, $model_label) - injected states[config]"
 		# THE CONVERSATION'S OPENING LINE, minted at the moment its model becomes known - this
 		# window can answer as of the line above - and HELD for the first message, which is the
@@ -539,7 +552,6 @@ chat_engine_load() {
 		pb_set "aichatv2_agent_${win}" "$prev_agent"
 		pb_set "aichatv2_port_${win}" "$prev_port"
 		pb_set "aichatv2_tools_${win}" "$prev_tools"
-		chat_engine_title "$win" "failed to load model"
 		echo "engine load failed (engine=$engine, engine_ready=$engine_ready)"
 	fi
 
@@ -550,8 +562,9 @@ chat_engine_load() {
 }
 
 # chat_engine_switch <win> <model-path> <use-tools>
-#   Change the model of an OPEN conversation, in place. The window keeps its transcript, its
-#   session binding and its title; what changes is what answers the next message.
+#   Change the model of an OPEN conversation, in place. The window keeps its transcript and its
+#   session binding; what changes is what answers the next message, and the model bar that names
+#   it.
 #
 #   Returns 0 when the window is talking to the new model, 1 when it is still talking to the old
 #   one - and every path that returns 1 has already alerted, or had nothing to say that the user
@@ -622,22 +635,20 @@ chat_engine_switch() {
 	# agent - or restart its server, minutes on a large model - for a pick that asked for nothing.
 	if [ "$model_path" = "$prev_model_path" ] && \
 	   { [ -z "$prev_tools" ] || [ "$use_tools" = "$prev_tools" ]; }; then
-		# The title is re-set on the way out because a FAILED switch leaves "failed to load model"
-		# there, and the model bar still naming the running model. Re-picking that model is one of
-		# the few gestures that lands here, and it should repair the window rather than leave it
-		# describing a failure it has recovered from.
-		chat_engine_title "$win" "$model_label"
+		# NOTHING IS REPAIRED ON THE WAY OUT, and there is nothing left that needs it. This
+		# branch used to re-set the title, because a failed switch left "failed to load model"
+		# in it while the model bar went on naming the model that was still running, and
+		# re-picking that model was the gesture most likely to reach here. The failure says so
+		# in an alert now and writes nothing that outlives it, so the window this returns from
+		# is already describing itself correctly.
 		echo "window $win already runs $model_label; nothing to switch"
 		return 0
 	fi
 	echo "switching window $win to $model_label ($target_engine)"
 
-	# The TITLE is the conversation's, when there is one. chat_engine_title is what keeps that
-	# true here: this handler used to overwrite it with the model at every step, so switching
-	# models inside a named conversation left the model's name where the user's title had been,
-	# until they clicked the row again to get it back. The model has a place of its own now, and
-	# it is updated below; a switch in progress shows in the loading overlay.
-	chat_engine_title "$win" "loading model…"
+	# A switch in progress shows in the loading overlay, and only there. This handler used to
+	# retitle the window at every step of it, which is how a named conversation ended up with a
+	# model's name where the user's title had been.
 	chat_loading_overlay_show "$win" "$model_label"
 	# Stamped BEFORE the engine work because that work can run for minutes (up to a 300 s wait for
 	# a large --no-mmap model) and other handlers in this window read the stamp while it is in
@@ -767,7 +778,6 @@ chat_engine_switch() {
 		# roll back to a model that never loaded either.
 		pb_set "aichatv2_modelpath_${win}" "$prev_model_path"
 		pb_set "aichatv2_port_${win}" "$prev_port"
-		chat_engine_title "$win" "failed to load model"
 		echo "switch failed (target=$target_engine); window $win stays on $prev_model_path"
 		chat_loading_overlay_hide "$win"
 		return 1
@@ -799,7 +809,6 @@ chat_engine_switch() {
 	pb_set "aichatv2_tools_${win}" "$use_tools"
 	chat_engine_remember_recent "$model_path"
 	chat_model_bar_set "$win" "$model_label"
-	chat_engine_title "$win" "$model_label"
 
 	# The handover, recorded in the conversation it happened in. This is the case the info pane
 	# cannot describe at all: it names the model the session STARTED with, and an in-place switch

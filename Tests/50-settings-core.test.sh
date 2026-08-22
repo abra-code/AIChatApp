@@ -236,10 +236,30 @@ check "a corrupt counter restarts at one" "1" "$(cad_has "$(ui_state 1 content)"
 # calling it here would just mint a third uuid for nothing.
 OMC_ACTIONUI_WINDOW_UUID="$saved_win"; export OMC_ACTIONUI_WINDOW_UUID
 
-section "the window title reflects state"
+section "a load describes itself in the overlay, and the window title stays out of it"
+# THE TITLE IS DECLARED ONCE AND WRITTEN BY NOBODY (WINDOW_TITLE in Command.json). It sits over
+# the sidebar of a NavigationSplitView, a strip a few hundred points wide, so every string this
+# applet ever put there - a 31B model's name, a conversation title, "still loading model…" -
+# arrived truncated. The base library used to export chat_window_set_status for it; the
+# assertion that matters now is that the channel is gone, so this section drives the overlay
+# that replaced it and counts the title writes.
 ui_reset
-cad_call chat_window_set_status "$OMC_ACTIONUI_WINDOW_UUID" "Loading Tiny"
-check "the status becomes the title" "Loading Tiny" "$(ui_title)"
+# Inserted into the declared slot 550 at runtime, so its own id exists only while a load is
+# running. Declared here rather than silently tripping the undeclared-id check at the end.
+ui_declare_ids "$(cad_lib_var CHAT_OVERLAY_ELEM_ID aichat.library.sh)"
+check "the overlay's spinner is a runtime element" "551" "$(cad_lib_var CHAT_OVERLAY_ELEM_ID aichat.library.sh)"
+cad_call chat_loading_overlay_show "$OMC_ACTIONUI_WINDOW_UUID" "Tiny"
+check "the spinner names what is loading" "1" \
+    "$(cad_has "$(cad_journal "$(cad_lib_var CHAT_OVERLAY_SLOT_ID aichat.library.sh)")" 'Loading Tiny…')"
+# The ten-second note wait_for_server writes when a load outruns its welcome. It relabels the
+# spinner ALREADY ON SCREEN rather than raising a second one, which is what makes it safe to
+# call from inside the health-probe loop.
+cad_call chat_loading_overlay_note "$OMC_ACTIONUI_WINDOW_UUID" "Still loading Tiny…"
+check "  and a slow load says so in the same place" "Still loading Tiny…" \
+    "$(ui_prop "$(cad_lib_var CHAT_OVERLAY_ELEM_ID aichat.library.sh)" title)"
+cad_call chat_loading_overlay_hide "$OMC_ACTIONUI_WINDOW_UUID"
+check "the overlay is removed when the load ends" "1" "$(ui_calls omc_remove_element)"
+check "and none of it touched the window title" "0" "$(ui_calls omc_window)"
 
 section "byte sizes are rendered at the boundaries, not near them"
 check "zero"                "0 KB"    "$(cad_call format_bytes 0)"

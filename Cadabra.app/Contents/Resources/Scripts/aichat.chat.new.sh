@@ -28,14 +28,15 @@ pb_set "aichatv2_session_${win}" ""
 # leaving a stale arm lying around to be refused later is not the same as clearing it.
 pb_set "aichatv2_resume_pending_${win}" ""
 
-# Retitle to whatever drives this window - the active model, or the external ACP agent, which
-# has no model path and so used to leave the previous conversation's title sitting there.
-# Falls back to the app's own name rather than doing nothing. chat_engine_label answers
-# nothing for a window that has no engine yet - an ordinary state since File > New Chat Window
-# - and "do nothing" there left the cleared conversation's title sitting above an empty
-# transcript, naming a chat this window is no longer showing.
+# WHAT DRIVES THIS WINDOW - the active model, or the external ACP agent, which has no model path.
+# Empty for a window that has no engine yet, an ordinary state since File > New Chat Window.
+#
+# This used to be the window's new title as well, because the old one named the conversation
+# being cleared. The title reports nothing now (see aichat.library.sh); what a New Chat leaves
+# behind it is an empty transcript, a facts line reading "New conversation", and the model bar
+# still naming the engine that is about to answer the next message - none of which this handler
+# has to correct.
 label=$(chat_engine_label "$win")
-chat_window_set_status "$win" "${label:-$APPLET_NAME}"
 
 # The new conversation's opening line, held for the message that will start it. What this window
 # was holding for the conversation being left went with the inject, at the top of this handler.
