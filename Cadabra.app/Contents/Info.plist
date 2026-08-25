@@ -22,9 +22,9 @@
 	<key>CFBundleExecutable</key>
 	<string>Cadabra</string>
 	<key>CFBundleIconFile</key>
-	<string>Sparkle</string>
+	<string>Cadabra</string>
 	<key>CFBundleIconName</key>
-	<string>Sparkle</string>
+	<string>Cadabra</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.abracode.Cadabra</string>
 	<key>CFBundleInfoDictionaryVersion</key>
