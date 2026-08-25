@@ -218,8 +218,9 @@ cad_pb_get() { "$OMC_OMC_SUPPORT_PATH/pasteboard" "$1" get; }
 # aichatv2_launch_queue did not survive a run of 50-settings-core, and 70-mcp-servers-dialog
 # failed about one time in six when two runs overlapped.
 #
-# omctest now prefixes every board NAME with $OMCTEST_PB_PREFIX, per file per run, and empties
-# what it wrote when the file ends. So this lib no longer snapshots and restores those two keys,
+# omctest now keeps every board as a FILE in the per-file scratch (API 6; API 4 did it by
+# prefixing the NAME instead), so a board dies with the run and never reaches the machine's
+# pasteboard server at all. So this lib no longer snapshots and restores those two keys,
 # and no longer needs an EXIT trap composed with omctest's own - which is where the old version
 # had its own bug: `trap` with no operands run as a PIPELINE element executes in a subshell where
 # caught traps are reset, so the detection printed nothing, the composed form was never chosen,
