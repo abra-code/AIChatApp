@@ -470,7 +470,7 @@ section "the picker routes every pair of local engines to the switch"
 # gguf-to-gguf only.
 sw_arm_pick() { # <target-model> <tools>
     cad_pb_set "aichatv2_switcharm_$OMC_ACTIONUI_WINDOW_UUID" "$SWIN|$(/bin/date +%s)"
-    omc_table_cell 10 3 "$1"
+    omc_table_cell 10 5 "$1"
     omc_control 30 "$2"
 }
 for pair in "$MLXREAL|$OTHERMLX|MLX to MLX" "$GGUF|$MLXDIR|GGUF to MLX" "$MLXREAL|$GGUF|MLX to GGUF" "$GGUF|$OTHER|GGUF to GGUF"; do
@@ -514,7 +514,7 @@ sw_window "$MLXREAL" "" false
 # in THIS section wrote is an assertion about the last one.
 cad_pb_set "aichatv2_switch_tools" ""
 cad_pb_set "aichatv2_switcharm_$OMC_ACTIONUI_WINDOW_UUID" "$SWIN|$(/bin/date +%s)"
-omc_table_cell 10 3 "$MLXREAL"
+omc_table_cell 10 5 "$MLXREAL"
 omc_control 30 true
 omc_run aichat.select.local.model.ok
 check "it reaches the switch"       "1" "$(chain_asked aichat.chat.switch.model)"
@@ -533,7 +533,7 @@ check "  and no window opens" "0" "$(chain_asked aichat.chat)"
 chains_reset
 cad_pb_set "aichatv2_tools_$SWIN" ""
 cad_pb_set "aichatv2_switcharm_$OMC_ACTIONUI_WINDOW_UUID" "$SWIN|$(/bin/date +%s)"
-omc_table_cell 10 3 "$MLXREAL"
+omc_table_cell 10 5 "$MLXREAL"
 omc_control 30 true
 omc_run aichat.select.local.model.ok
 check "and neither is one with no decision recorded" "0" "$(chain_asked aichat.chat.switch.model)"
@@ -671,7 +671,7 @@ check "the fixture is a tools-capable model" "0" \
     "$(cad_call_lib aichat.model.library.sh model_supports_tools "$TOOLSMLX" mlx >/dev/null 2>&1; echo $?)"
 
 pick_row() { # <model> - the click that enables Continue and writes the tools box
-    omc_table_cell 10 3 "$1"
+    omc_table_cell 10 5 "$1"
     omc_run aichat.select.local.model.selection.changed
 }
 

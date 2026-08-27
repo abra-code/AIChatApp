@@ -95,6 +95,30 @@ model_display_label() {
 	esac
 }
 
+# model_short_label <path> -> model_display_label with the publisher prefix dropped:
+# "mlx-community/Qwen3-8B-4bit" -> "Qwen3-8B-4bit". A GGUF filename has no "/" in it, so it
+# comes back unchanged.
+#
+# The FIRST segment, not everything up to the last one. model_display_label turns every "--"
+# in a cache directory name into a "/", so a repo whose own name contains one - legal, and
+# indistinguishable from the separator by the time the label is built - yields a label with
+# two slashes in it. Cutting to the last segment would then eat the head of the model name
+# and leave "Coder-30B-4bit"; cutting the first leaves the whole (already mangled) name
+# visible, which is the failure the reader can see and act on.
+#
+# For the PICKER LIST only. Nearly every MLX row carries one of the same handful of quantizer
+# orgs, so the prefix costs width on every row of a narrow column to disambiguate a case - the
+# same quant of the same model from two different orgs - that is real but rare. When it does
+# happen the two rows read alike, and the info pane is what tells them apart: it shows the full
+# label AND the path, which is the only pair that can. Everything that identifies a model
+# rather than listing it (info pane, window titles, the benchmark database key) keeps
+# model_display_label.
+model_short_label() {
+	local label
+	label="$(model_display_label "$1")"
+	printf '%s\n' "${label#*/}"
+}
+
 # chat_engine_label <window-uuid> -> what is driving this window, or nothing
 #
 # An external ACP agent or a local model, never both: chat.init.sh stamps exactly one of the

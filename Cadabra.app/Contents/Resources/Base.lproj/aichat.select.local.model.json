@@ -27,9 +27,15 @@
         "type": "Table",
         "id": 10,
         "properties": {
-          "columns": ["Model", "Size"],
-          "widths": [220, 70],
-          "minWidths": [150, 50],
+          "columns": ["", "Model", "", "Size"],
+          "columnTypes": [
+            { "viewType": "Image", "dataInterpretation": "systemName" },
+            { "viewType": "Text" },
+            { "viewType": "Image", "dataInterpretation": "systemName" },
+            { "viewType": "Text" }
+          ],
+          "widths": [22, 220, 22, 60],
+          "minWidths": [22, 100, 22, 50],
           "actionID": "aichat.select.local.model.selection.changed"
         }
       },

@@ -21,7 +21,12 @@ FOUNDATION="foundation:apple-on-device"
 MODELS="$HOME/Library/Application Support/Cadabra/Models"
 
 # row_for <path> -> the picker row whose hidden path column matches, tab separated.
-row_for() { ui_rows "$LM_TABLE_ID" | /usr/bin/awk -F'\t' -v p="$1" '$3 == p { print; exit }'; }
+#
+# Five values per row against four drawn columns: format icon, name, tools icon, size, path.
+# Picking a row BY its path is therefore also an assertion that the hidden column is still
+# where the ok / reveal / delete / benchmark / selection.changed handlers read it from.
+row_for() { ui_rows "$LM_TABLE_ID" | /usr/bin/awk -F'\t' -v p="$1" '$5 == p { print; exit }'; }
+# field <path> <column> -> 1 format icon, 2 name, 3 tools icon, 4 size, 5 path.
 field()   { row_for "$1" | /usr/bin/cut -f"$2"; }
 
 # What the user meets, rather than which verb produced it: "" (never touched) and "0"
@@ -76,15 +81,34 @@ section "the picker lists what is on this Mac"
 ui_reset
 omc_run aichat.select.local.model.init
 check_status "init ran" 0
-check "the table is titled Model and Size" "Model
+# The two icon columns are headerless on purpose - a marker column with a title reads as data.
+# Asserted as four columns rather than as two, because a header list that silently loses one
+# is how the row values and the columns drift apart.
+check "the table draws two headerless columns around Model and Size" "
+Model
+
 Size" "$(ui_columns "$LM_TABLE_ID")"
 check "the gguf is listed"     "1" "$([ -n "$(row_for "$MODELS/Tiny-Instruct-Q4_K_M.gguf")" ] && echo 1 || echo 0)"
 check "the mlx model is listed" "1" "$([ -n "$(row_for "$MODELS/mlx-tools")" ] && echo 1 || echo 0)"
-check "a gguf is badged GGUF"  "Tiny-Instruct-Q4_K_M [GGUF]" "$(field "$MODELS/Tiny-Instruct-Q4_K_M.gguf" 1)"
-check "  and sized"            "0.0 GB" "$(field "$MODELS/Tiny-Instruct-Q4_K_M.gguf" 2)"
-check "an mlx model is badged MLX and hammered" "mlx-tools [MLX] $(printf '\360\237\224\250')" \
-    "$(field "$MODELS/mlx-tools" 1)"
-check "one without tools gets no hammer" "mlx-plain [MLX]" "$(field "$MODELS/mlx-plain" 1)"
+# The format and the tool loop are marked in their own columns, and the name is only the name.
+# Both icons are SF Symbol names the table's Image columns resolve; a name that resolves to
+# nothing draws nothing, which is what the empty tools cell relies on.
+check "a gguf is marked in the format column" "g.square" \
+    "$(field "$MODELS/Tiny-Instruct-Q4_K_M.gguf" 1)"
+check "  its name carries no badge"           "Tiny-Instruct-Q4_K_M" \
+    "$(field "$MODELS/Tiny-Instruct-Q4_K_M.gguf" 2)"
+check "  and sized"                           "0.0 GB" \
+    "$(field "$MODELS/Tiny-Instruct-Q4_K_M.gguf" 4)"
+check "an mlx model is marked mlx"            "m.square" "$(field "$MODELS/mlx-tools" 1)"
+check "  with a clean name"                   "mlx-tools" "$(field "$MODELS/mlx-tools" 2)"
+check "  and a tools marker"                  "hammer"   "$(field "$MODELS/mlx-tools" 3)"
+# Anchored on the WHOLE row rather than on field 3. field() returns "" for a row it cannot
+# find, which is the value this check wants - so on its own it would go green for a picker
+# that dropped the row, or shifted its fields, which is the one thing this file exists to
+# catch. Spelling the row out pins the empty cell AND its position among the other four.
+check "one without tools gets an empty cell" \
+    "$(printf 'm.square\tmlx-plain\t\t0.0 GB\t%s' "$MODELS/mlx-plain")" \
+    "$(row_for "$MODELS/mlx-plain")"
 
 section "a directory that only looks like a model is not listed"
 # config.json with no shards is an HF snapshot of a GGUF repo. The picker scans FOR config.json,
@@ -109,11 +133,11 @@ section "the same file under two roots is two rows, because dedup is by path"
 ui_reset
 omc_run aichat.select.local.model.init
 check "the original path appears exactly once" "1" \
-    "$(ui_rows "$LM_TABLE_ID" | /usr/bin/awk -F'\t' -v p="$MODELS/Tiny-Instruct-Q4_K_M.gguf" '$3 == p' | /usr/bin/wc -l | /usr/bin/tr -d ' ')"
+    "$(ui_rows "$LM_TABLE_ID" | /usr/bin/awk -F'\t' -v p="$MODELS/Tiny-Instruct-Q4_K_M.gguf" '$5 == p' | /usr/bin/wc -l | /usr/bin/tr -d ' ')"
 check "  and the symlinked root adds its own row" "1" \
     "$([ -n "$(row_for "$HOME/.lmstudio/models/Tiny-Instruct-Q4_K_M.gguf")" ] && echo 1 || echo 0)"
 check "  which the picker sizes identically"      "0.0 GB" \
-    "$(field "$HOME/.lmstudio/models/Tiny-Instruct-Q4_K_M.gguf" 2)"
+    "$(field "$HOME/.lmstudio/models/Tiny-Instruct-Q4_K_M.gguf" 4)"
 
 section "the on-device model heads the list, and is never sized"
 # Its availability depends on the machine, so what is asserted is the SHAPE: at most one row,
@@ -122,7 +146,7 @@ section "the on-device model heads the list, and is never sized"
 # the row is absent, whose single check re-tests the very condition that selected it, cannot
 # fail. And a file whose check COUNT depends on the host makes "690 passed" unverifiable - this
 # way the same five run on every Mac, and each is a real claim on both branches.
-fnd=$(ui_rows "$LM_TABLE_ID" | /usr/bin/awk -F'\t' -v s="$FOUNDATION" '$3 == s')
+fnd=$(ui_rows "$LM_TABLE_ID" | /usr/bin/awk -F'\t' -v s="$FOUNDATION" '$5 == s')
 fnd_count=$(printf '%s' "$fnd" | /usr/bin/grep -c . | /usr/bin/tr -d ' ')
 # THE ANTECEDENT IS THE PROBE, NOT THE ROW. Every check below is of the form "if the row is
 # present, then ...", and that family shares one blind spot: deleting add_foundation_row
@@ -136,14 +160,18 @@ check "never more than one on-device row" "1" "$([ "$fnd_count" -le 1 ] && echo 
 check "if present, it heads the list" "1" \
     "$([ -z "$fnd" ] && echo 1 || { [ "$fnd" = "$(ui_rows "$LM_TABLE_ID" | /usr/bin/head -1)" ] && echo 1 || echo 0; })"
 check "if present, its size reads system" "1" \
-    "$([ -z "$fnd" ] && echo 1 || { [ "$(printf '%s' "$fnd" | /usr/bin/cut -f2)" = "system" ] && echo 1 || echo 0; })"
-check "never sized in GB"     "0" "$(cad_has "$(printf '%s' "$fnd" | /usr/bin/cut -f2)" "GB")"
-check "if present, badged Apple" "1" \
-    "$([ -z "$fnd" ] && echo 1 || cad_has "$(printf '%s' "$fnd" | /usr/bin/cut -f1)" "[Apple]")"
+    "$([ -z "$fnd" ] && echo 1 || { [ "$(printf '%s' "$fnd" | /usr/bin/cut -f4)" = "system" ] && echo 1 || echo 0; })"
+check "never sized in GB"     "0" "$(cad_has "$(printf '%s' "$fnd" | /usr/bin/cut -f4)" "GB")"
+# Its engine is named by the same column as everyone else's rather than by a suffix on the
+# name, which is what leaves the name free to say WHY the row is unusable when it is.
+check "if present, marked with the Apple mark" "1" \
+    "$([ -z "$fnd" ] && echo 1 || { [ "$(printf '%s' "$fnd" | /usr/bin/cut -f1)" = "apple.logo" ] && echo 1 || echo 0; })"
+check "  and never tool-marked"                "1" \
+    "$([ -z "$fnd" ] && echo 1 || { [ "$(printf '%s' "$fnd" | /usr/bin/cut -f3)" = "" ] && echo 1 || echo 0; })"
 
 section "with nothing selected the pane says so and everything is disabled"
 ui_reset
-omc_table_cell "$LM_TABLE_ID" 3 ""
+omc_table_cell "$LM_TABLE_ID" 5 ""
 omc_run aichat.select.local.model.selection.changed
 check_status "the handler ran" 0
 check "Load is disabled"    "0" "$(ui_enabled "$LM_LOAD_BUTTON_ID")"
@@ -156,7 +184,7 @@ check "no model is remembered" "" "$(cad_pb_get "aichatv2_selected_model_$OMC_AC
 
 section "selecting a gguf fills the pane"
 ui_reset
-omc_table_cell "$LM_TABLE_ID" 3 "$MODELS/Tiny-Instruct-Q4_K_M.gguf"
+omc_table_cell "$LM_TABLE_ID" 5 "$MODELS/Tiny-Instruct-Q4_K_M.gguf"
 omc_run aichat.select.local.model.selection.changed
 check "Load is enabled"   "1" "$(ui_enabled "$LM_LOAD_BUTTON_ID")"
 check "Reveal is enabled" "1" "$(ui_enabled "$LM_REVEAL_BUTTON_ID")"
@@ -175,19 +203,19 @@ section "the tools toggle follows the model, not the last model"
 # the previous row's answer onto a model that cannot use tools, which is how a toggle ends up
 # claiming a capability the model does not have.
 ui_reset
-omc_table_cell "$LM_TABLE_ID" 3 "$MODELS/mlx-tools"
+omc_table_cell "$LM_TABLE_ID" 5 "$MODELS/mlx-tools"
 omc_run aichat.select.local.model.selection.changed
 check "a tool-capable model ticks it" "true" "$(ui_value "$LM_USE_TOOLS_TOGGLE_ID")"
 check "  and the pane agrees"         "1" "$(cad_has "$(ui_value "$LM_INFO_TEXT_ID")" "Supported")"
 ui_reset
-omc_table_cell "$LM_TABLE_ID" 3 "$MODELS/mlx-plain"
+omc_table_cell "$LM_TABLE_ID" 5 "$MODELS/mlx-plain"
 omc_run aichat.select.local.model.selection.changed
 check "one without tools unticks it"  "false" "$(ui_value "$LM_USE_TOOLS_TOGGLE_ID")"
 check "  and the pane says so"        "1" "$(cad_has "$(ui_value "$LM_INFO_TEXT_ID")" "Not detected")"
 
 section "a listed model that has since been deleted offers nothing to delete"
 ui_reset
-omc_table_cell "$LM_TABLE_ID" 3 "$MODELS/gone-since.gguf"
+omc_table_cell "$LM_TABLE_ID" 5 "$MODELS/gone-since.gguf"
 omc_run aichat.select.local.model.selection.changed
 check "Load stays enabled"  "1" "$(ui_enabled "$LM_LOAD_BUTTON_ID")"
 check "but Delete does not" "0" "$(ui_enabled "$LM_DELETE_BUTTON_ID")"
@@ -207,7 +235,7 @@ for pair in \
     /bin/mkdir -p "$(/usr/bin/dirname "$p")"
     /usr/bin/head -c 512 /dev/zero > "$p"
     ui_reset
-    omc_table_cell "$LM_TABLE_ID" 3 "$p"
+    omc_table_cell "$LM_TABLE_ID" 5 "$p"
     omc_run aichat.select.local.model.selection.changed
     check "  $want" "1" "$(cad_has "$(ui_value "$LM_INFO_TEXT_ID")" "$want")"
     i=$((i + 1))
@@ -216,7 +244,7 @@ p="$OMCTEST_WORK/loose/m.gguf"
 /bin/mkdir -p "$OMCTEST_WORK/loose"
 /usr/bin/head -c 512 /dev/zero > "$p"
 ui_reset
-omc_table_cell "$LM_TABLE_ID" 3 "$p"
+omc_table_cell "$LM_TABLE_ID" 5 "$p"
 omc_run aichat.select.local.model.selection.changed
 check "  anything else is a local file" "1" "$(cad_has "$(ui_value "$LM_INFO_TEXT_ID")" "Local file")"
 
@@ -224,7 +252,7 @@ section "the benchmark button waits for a run in flight, but not forever"
 now=$(/bin/date +%s)
 ui_reset
 cad_pb_set "aichatv2_bench_running_$OMC_ACTIONUI_WINDOW_UUID" "$MODELS/mlx-plain|$now"
-omc_table_cell "$LM_TABLE_ID" 3 "$MODELS/mlx-plain"
+omc_table_cell "$LM_TABLE_ID" 5 "$MODELS/mlx-plain"
 omc_run aichat.select.local.model.selection.changed
 # The user-visible guarantee is that the button does not become CLICKABLE while a run is in
 # flight - not that the handler takes any particular route to that. Two earlier forms of this
@@ -248,7 +276,7 @@ cad_pb_set "aichatv2_bench_running_$OMC_ACTIONUI_WINDOW_UUID" ""
 
 section "the on-device row offers nothing to reveal, delete or measure"
 ui_reset
-omc_table_cell "$LM_TABLE_ID" 3 "$FOUNDATION"
+omc_table_cell "$LM_TABLE_ID" 5 "$FOUNDATION"
 omc_run aichat.select.local.model.selection.changed
 check_status "the handler ran" 0
 # Load stays live even when the model is unavailable: pressing it is how the user reaches the
@@ -292,7 +320,7 @@ cad_model_call model_recents_add "$MODELS/Tiny-Instruct-Q4_K_M.gguf"
 ui_reset
 omc_run aichat.select.local.model.init
 check "a recent the scan already found is listed once" "1" \
-    "$(ui_rows "$LM_TABLE_ID" | /usr/bin/awk -F'\t' -v p="$MODELS/Tiny-Instruct-Q4_K_M.gguf" '$3 == p' | /usr/bin/wc -l | /usr/bin/tr -d ' ')"
+    "$(ui_rows "$LM_TABLE_ID" | /usr/bin/awk -F'\t' -v p="$MODELS/Tiny-Instruct-Q4_K_M.gguf" '$5 == p' | /usr/bin/wc -l | /usr/bin/tr -d ' ')"
 
 section "the recents list is newest first, deduplicated and bounded"
 cad_reset

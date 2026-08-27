@@ -41,7 +41,7 @@
     {
       "COMMAND_ID" : "aichat.select.local.model.reveal",
       "ENVIRONMENT_VARIABLES" : {
-        "OMC_ACTIONUI_TABLE_10_COLUMN_3_VALUE" : ""
+        "OMC_ACTIONUI_TABLE_10_COLUMN_5_VALUE" : ""
       },
       "EXECUTION_MODE" : "exe_script_file",
       "NAME" : "Cadabra"
@@ -49,7 +49,7 @@
     {
       "COMMAND_ID" : "aichat.select.local.model.benchmark",
       "ENVIRONMENT_VARIABLES" : {
-        "OMC_ACTIONUI_TABLE_10_COLUMN_3_VALUE" : ""
+        "OMC_ACTIONUI_TABLE_10_COLUMN_5_VALUE" : ""
       },
       "EXECUTION_MODE" : "exe_script_file",
       "NAME" : "Cadabra"

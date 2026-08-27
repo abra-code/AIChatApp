@@ -97,7 +97,7 @@ arm_pick() {
     cad_pb_set "aichatv2_switcharm_$OMC_ACTIONUI_WINDOW_UUID" "$CHATWIN|$(/bin/date +%s)"
     cad_pb_set "aichatv2_load_target" ""
     lib launch_queue_clear
-    omc_table_cell 10 3 "$GGUF"
+    omc_table_cell 10 5 "$GGUF"
     omc_control 30 "$1"
 }
 
@@ -455,7 +455,7 @@ cad_pb_set "aichatv2_open_$CLOSEDWIN" ""      # closed while the selector was op
 cad_pb_set "aichatv2_switcharm_$OMC_ACTIONUI_WINDOW_UUID" "$CLOSEDWIN|$(/bin/date +%s)"
 cad_pb_set "aichatv2_load_target" ""
 lib launch_queue_clear
-omc_table_cell 10 3 "$GGUF"
+omc_table_cell 10 5 "$GGUF"
 omc_control 30 false
 omc_run aichat.select.local.model.ok
 check "the model still opens a window" "1" "$(chain_asked aichat.chat)"

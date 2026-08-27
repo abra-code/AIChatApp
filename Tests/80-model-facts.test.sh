@@ -92,6 +92,32 @@ check "the quant wins over the repo name" "Llama-3.2-3B-Instruct-Q4_K_M" \
     "$(cad_call_lib aichat.model.library.sh model_display_label \
         "/cache/models--bartowski--Llama-3.2-3B-Instruct/snapshots/deadbeef/Llama-3.2-3B-Instruct-Q4_K_M.gguf")"
 
+section "the picker list drops the publisher, the info pane keeps it"
+# Two orgs shipping the same quant of the same model then produce two rows that read alike.
+# That is the trade: the prefix is the same handful of quantizer orgs on nearly every row, so
+# it costs width on every row of a narrow column to disambiguate a case that is rare, and the
+# info pane - which shows the full label AND the path - is what tells the two apart.
+check "an HF snapshot loses its org" "Llama-3.2-3B-Instruct-4bit" \
+    "$(cad_call_lib aichat.model.library.sh model_short_label \
+        "/cache/models--mlx-community--Llama-3.2-3B-Instruct-4bit/snapshots/abc123")"
+# The one thing this must never do is cut into a name. A GGUF label is a filename with no
+# slash in it, so the suffix expansion has nothing to strip.
+check "a gguf keeps its whole name"  "Qwen3-4B-Q5_K_S" \
+    "$(cad_call_lib aichat.model.library.sh model_short_label "$M/Qwen3-4B-Q5_K_S.gguf")"
+check "  even inside a snapshot"     "Llama-3.2-3B-Instruct-Q4_K_M" \
+    "$(cad_call_lib aichat.model.library.sh model_short_label \
+        "/cache/models--bartowski--Llama-3.2-3B-Instruct/snapshots/deadbeef/Llama-3.2-3B-Instruct-Q4_K_M.gguf")"
+check "the on-device model is untouched" "Apple Foundation Models" \
+    "$(cad_call_lib aichat.model.library.sh model_short_label "$FOUNDATION")"
+# Only the FIRST segment goes. model_display_label rewrites every "--" in a cache directory
+# name as a "/", and a repo name may legally contain one - by then it is indistinguishable
+# from the separator - so the label can carry two slashes. Cutting to the LAST segment would
+# eat the head of the model name here and leave "Coder-30B-4bit", turning a visibly mangled
+# label into a plausible wrong one.
+check "a repo name with -- keeps its head" "Qwen3/Coder-30B-4bit" \
+    "$(cad_call_lib aichat.model.library.sh model_short_label \
+        "/cache/models--mlx-community--Qwen3--Coder-30B-4bit/snapshots/abc123")"
+
 section "measuring a model on disk"
 check "a gguf is its file size" "2048" \
     "$(cad_call_lib aichat.model.library.sh model_bytes "$M/Qwen3-4B-Q5_K_S.gguf")"

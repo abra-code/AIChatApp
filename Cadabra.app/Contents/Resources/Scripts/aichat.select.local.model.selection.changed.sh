@@ -42,8 +42,9 @@ switch_window_tools() {
     esac
 }
 
-# Column 3 (hidden) holds the full model path
-selected_path="$OMC_ACTIONUI_TABLE_10_COLUMN_3_VALUE"
+# Column 5 (hidden) holds the full model path - the picker draws four (format icon, Model,
+# tools icon, Size) and carries this one past them. See aichat.select.local.model.init.sh.
+selected_path="$OMC_ACTIONUI_TABLE_10_COLUMN_5_VALUE"
 
 if [ -n "$selected_path" ]; then
     "$dialog_tool" "$window_uuid" $LOAD_BUTTON_ID omc_enable

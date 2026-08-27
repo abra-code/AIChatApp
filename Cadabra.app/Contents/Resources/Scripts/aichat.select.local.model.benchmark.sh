@@ -17,8 +17,9 @@ BENCH_RUNNING_TTL=7200
 dialog_tool="$OMC_OMC_SUPPORT_PATH/omc_dialog_control"
 window_uuid="$OMC_ACTIONUI_WINDOW_UUID"
 
-# Column 3 (hidden) holds the full model path
-selected_path="$OMC_ACTIONUI_TABLE_10_COLUMN_3_VALUE"
+# Column 5 (hidden) holds the full model path - the picker draws four (format icon, Model,
+# tools icon, Size) and carries this one past them. See aichat.select.local.model.init.sh.
+selected_path="$OMC_ACTIONUI_TABLE_10_COLUMN_5_VALUE"
 [ -n "$selected_path" ] || { echo "no selection"; exit 0; }
 # The on-device model answers before the -e test below, which would otherwise call it "no longer
 # on disk" - it was never on our disk. The button is disabled for this row, so this is reachable
