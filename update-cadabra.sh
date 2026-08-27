@@ -166,7 +166,10 @@ Updates the runtime engines in $(/usr/bin/basename "$APP_BUNDLE"):
   packages  -> Contents/Library/Packages     (pip install with the bundle's own python3)
 
 Options:
-  --version=VERSION   llama.cpp build tag (e.g. b8797, default: auto-detect latest)
+  --version=VERSION   llama.cpp build tag (e.g. b8797), or:
+                        auto     the newest official release (default; upstream tags these
+                                 vX.Y.Z and points them at the build carrying the binaries)
+                        nightly  the newest build, released or not
   --arch=ARCH         arm64 or x86_64 (default: host). x86_64 requires --skip-agent.
   --identity=CERT     codesign identity (default: - for ad-hoc)
   --agent-repo=PATH   mlx-agent repo (default: ../mlx-agent sibling checkout)
@@ -188,6 +191,7 @@ Options:
 Examples:
   ./update-cadabra.sh
   ./update-cadabra.sh --version=b8797
+  ./update-cadabra.sh --version=nightly            # newest build instead of the latest release
   ./update-cadabra.sh --skip-llama                 # rebuild + redeploy the agent + MCP servers
   ./update-cadabra.sh --skip-agent                 # refresh llama.cpp + the MCP servers
   ./update-cadabra.sh --skip-llama --skip-agent    # rebuild + redeploy just pdfutil + replay
@@ -249,23 +253,94 @@ cleanup() {
     fi
 }
 
+# llama.cpp changed its release scheme in August 2026. The macOS binaries still ship on the
+# bNNNN build tags under unchanged asset names, but those tags are now all marked prerelease,
+# and /releases/latest resolves to an official semver release (v0.3.0 as of this writing)
+# whose only asset is nightly-tag.txt, naming the build the release was cut from. Reading a
+# bNNNN tag straight off /releases/latest therefore matches nothing - that is what broke
+# detection. Resolving "latest" is now two hops.
+#
+# We deliberately follow the official release rather than the head of the build list, and
+# never silently fall back from one to the other: an unresolvable release is an error the
+# caller has to answer, because quietly installing the newest untagged build is exactly the
+# behavior the official releases exist to end. VERSION=nightly opts into that head build.
+
+# Echoes the tag_name of the newest official (non-prerelease) release, or nothing.
+latest_release_tag() {
+    local _json="$(/usr/bin/curl -s --fail --max-time 10 \
+        "https://api.github.com/repos/ggml-org/llama.cpp/releases/latest" 2>/dev/null)"
+    # grep -o emits its matches in document order, so head -1 is the first tag_name in the
+    # document whether or not the JSON is pretty-printed. A greedy sed would instead collapse
+    # a minified (single-line) document down to its LAST occurrence.
+    local _tag="$(echo "$_json" \
+        | /usr/bin/grep -oE '"tag_name"[[:space:]]*:[[:space:]]*"[^"]+"' \
+        | /usr/bin/head -1 | /usr/bin/sed -E 's/.*"([^"]+)"$/\1/')"
+    if [ -n "$_tag" ]; then
+        echo "$_tag"
+        return 0
+    fi
+
+    # API unreachable or rate-limited (60 anonymous requests/hour): read the tag out of the
+    # /releases/latest redirect instead, which is not rate-limited.
+    local _redirect="$(/usr/bin/curl -s -I -o /dev/null -w '%{redirect_url}' --max-time 10 \
+        "https://github.com/ggml-org/llama.cpp/releases/latest" 2>/dev/null)"
+    echo "$_redirect" | /usr/bin/sed -n -E 's#.*/releases/tag/([^/?\#[:space:]]+)$#\1#p'
+}
+
+# Echoes the bNNNN build tag an official release points at, or nothing. $1 = release tag.
+nightly_tag_of_release() {
+    local _txt="$(/usr/bin/curl -sL --fail --max-time 10 \
+        "https://github.com/ggml-org/llama.cpp/releases/download/$1/nightly-tag.txt" 2>/dev/null)"
+    echo "$_txt" | /usr/bin/tr -d '[:space:]' | /usr/bin/grep -oE '^b[0-9]+$'
+}
+
+# Echoes the newest bNNNN tag in the releases list (build tags are prereleases now, so the
+# list is the only place they appear). The list is newest-first.
+newest_build_tag() {
+    local _json="$(/usr/bin/curl -s --fail --max-time 15 \
+        "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=30" 2>/dev/null)"
+    # Document order via grep -o, as in latest_release_tag: with a greedy sed, a minified
+    # response would silently yield the OLDEST build in the page instead of the newest.
+    echo "$_json" \
+        | /usr/bin/grep -oE '"tag_name"[[:space:]]*:[[:space:]]*"b[0-9]+"' \
+        | /usr/bin/head -1 | /usr/bin/grep -oE 'b[0-9]+'
+}
+
 detect_latest_version() {
+    local _tag
+    if [ "$VERSION" = "nightly" ]; then
+        echo "  Detecting newest llama.cpp build..."
+        _tag="$(newest_build_tag)"
+        [ -n "$_tag" ] \
+            || fail "No bNNNN tag in the llama.cpp releases list - github.com unreachable, or the API rate-limited this host. Specify --version=bNNNN explicitly."
+        VERSION="$_tag"
+        echo "    newest build: $VERSION"
+        return 0
+    fi
+
     echo "  Detecting latest llama.cpp release..."
-    # Strategy 1: follow the /releases/latest redirect and read the tag out of the URL.
-    local redirect_url tag
-    redirect_url=$(/usr/bin/curl -s --head -w '%{redirect_url}' --max-time 10 \
-        "https://github.com/ggml-org/llama.cpp/releases/latest" 2>/dev/null || echo "")
-    tag=$(echo "$redirect_url" | /usr/bin/grep -oE '/tag/(b[0-9]+)$' | /usr/bin/grep -oE 'b[0-9]+')
-    if [ -n "$tag" ]; then VERSION="$tag"; echo "    from redirect: $VERSION"; return 0; fi
+    local _release="$(latest_release_tag)"
+    [ -n "$_release" ] \
+        || fail "Could not read a tag from github.com/ggml-org/llama.cpp/releases/latest - unreachable, or the API rate-limited this host. Specify --version=bNNNN explicitly."
 
-    # Strategy 2: the releases API.
-    local api_json
-    api_json=$(/usr/bin/curl -s --fail --max-time 10 \
-        "https://api.github.com/repos/ggml-org/llama.cpp/releases/latest" 2>/dev/null || echo "")
-    tag=$(echo "$api_json" | /usr/bin/grep -oE '"tag_name":[[:space:]]*"b[0-9]+"' | /usr/bin/grep -oE 'b[0-9]+')
-    if [ -n "$tag" ]; then VERSION="$tag"; echo "    from API: $VERSION"; return 0; fi
+    case "$_release" in
+        b|b*[!0-9]*)
+            # b-prefixed but not a bare build number (say b10-rc1): a release tag, not a
+            # build tag. Fall through to the nightly-tag.txt hop rather than build a URL.
+            ;;
+        b[0-9]*)
+            # Upstream tagging official releases bNNNN directly (the pre-v0.1.2 scheme).
+            VERSION="$_release"
+            echo "    latest release: $VERSION"
+            return 0
+            ;;
+    esac
 
-    fail "Version detection failed. Specify --version=bNNNN explicitly."
+    _tag="$(nightly_tag_of_release "$_release")"
+    [ -n "$_tag" ] \
+        || fail "Release $_release has no readable nightly-tag.txt, so the build tag carrying the macOS binaries is unknown - the release scheme has changed again. Check https://github.com/ggml-org/llama.cpp/releases and pass --version=bNNNN, or --version=nightly for the newest build."
+    VERSION="$_tag"
+    echo "    latest release $_release -> build $VERSION"
 }
 
 # ── 0. Prepare ────────────────────────────────────────────────────────────────
@@ -285,10 +360,12 @@ prepare() {
     esac
 
     if [ "$DO_LLAMA" = "yes" ]; then
-        [ "$VERSION" = "auto" ] && detect_latest_version
+        case "$VERSION" in
+            auto|nightly) detect_latest_version ;;
+        esac
         case "$VERSION" in
             b[0-9]*) ;;
-            *) fail "Invalid --version: $VERSION (expected format: bNNNN)" ;;
+            *) fail "Invalid --version: $VERSION (expected auto, nightly, or a build tag bNNNN)" ;;
         esac
         if [ "$ARCH" = "arm64" ]; then
             ASSET_NAME="llama-${VERSION}-bin-macos-arm64.tar.gz"
