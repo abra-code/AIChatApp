@@ -48,6 +48,60 @@ section "the ids this file drives are the ones the dialog declares"
 check "the picker's controls resolved" "10 12 3 20 24 30 51" \
     "$LM_TABLE_ID $LM_INFO_TEXT_ID $LM_LOAD_BUTTON_ID $LM_REVEAL_BUTTON_ID $LM_DELETE_BUTTON_ID $LM_USE_TOOLS_TOGGLE_ID $LM_BENCH_BTN_ID"
 
+section "whether this Mac has any model at all - the question launch asks"
+# Launch opens the Hugging Face browser instead of this picker when the answer is no
+# (Cadabra.main.sh), so a wrong answer here is a wrong window: a false yes opens a picker with
+# nothing in it, a false no sends a user who has models to a download browser they did not ask
+# for. Asserted FIRST, while the isolated home really is empty - every later section in this
+# file puts a model in one of the scanned roots, and after that the negative case is gone.
+#
+# Each case cleans up after itself: a fixture left behind would become an extra row in the
+# picker assertions below, which count them.
+check "a Mac with nothing installed reports none" "1" \
+    "$(cad_model_call model_any_installed; echo $?)"
+
+/bin/mkdir -p "$MODELS"
+/usr/bin/head -c 1024 /dev/zero > "$MODELS/Probe-Q4_K_M.gguf"
+check "one downloaded gguf is enough"             "0" \
+    "$(cad_model_call model_any_installed; echo $?)"
+/bin/rm -f "$MODELS/Probe-Q4_K_M.gguf"
+
+mk_mlx "$MODELS/probe-mlx" 1024
+check "and so is one mlx directory"               "0" \
+    "$(cad_model_call model_any_installed; echo $?)"
+/bin/rm -rf "$MODELS/probe-mlx"
+
+# The same trap model_engine exists for: an HF snapshot dir of a GGUF repo carries a
+# config.json, so "there is a config.json under a root" is not the question being asked.
+/bin/mkdir -p "$MODELS/probe-notamodel"
+echo '{}' > "$MODELS/probe-notamodel/config.json"
+check "a config.json with no weights beside it is not a model" "1" \
+    "$(cad_model_call model_any_installed; echo $?)"
+/bin/rm -rf "$MODELS/probe-notamodel"
+
+# Recents are the only trace of a model living outside every scanned root, so the launch check
+# has to read them for the same reason the list does - otherwise a user whose only model sits on
+# their Desktop is told they have none.
+PROBE_OUTSIDE="$HOME/Desktop/Probe-Outside-Q4_K_M.gguf"
+/bin/mkdir -p "$HOME/Desktop"
+/usr/bin/head -c 1024 /dev/zero > "$PROBE_OUTSIDE"
+check "a model outside the roots is invisible until it is remembered" "1" \
+    "$(cad_model_call model_any_installed; echo $?)"
+cad_model_call model_recents_add "$PROBE_OUTSIDE"
+check "  and counts once it is"                    "0" \
+    "$(cad_model_call model_any_installed; echo $?)"
+# A remembered path that is no longer on disk is not a model either - recents outlive files.
+/bin/rm -f "$PROBE_OUTSIDE"
+check "  but not after the file is gone"           "1" \
+    "$(cad_model_call model_any_installed; echo $?)"
+
+# The on-device model is on every eligible Mac and needs no download, so counting it would mean
+# the first-run browser never opened on the machines the whole branch was written for.
+cad_model_call model_recents_add "$FOUNDATION"
+check "the on-device model does not count as installed" "1" \
+    "$(cad_model_call model_any_installed; echo $?)"
+cad_reset
+
 section "a model's chat template decides whether tools are offered"
 # Both failure modes here are documented in the applet and both are silent. A false positive
 # auto-ticks the tools toggle and spawns MCP servers the user never asked for; a false negative

@@ -187,19 +187,11 @@ add_row() {
 # keeps a stale recents entry from producing a second copy of the row.
 add_foundation_row
 
-# Roots are scanned for BOTH engines. The HF cache and LM Studio genuinely hold each kind
-# (LM Studio ships an MLX runtime), so neither can be assumed single-engine. The Ollama /
-# LocalAI / Jan / GPT4All caches are GGUF-only in practice; scanning them for safetensors
-# costs one find that returns nothing, which is cheaper than maintaining two root lists
-# that would drift.
-for root in \
-	"$HOME/Library/Application Support/Cadabra/Models" \
-	"$HOME/.cache/huggingface/hub" \
-	"$HOME/.lmstudio/models" \
-	"$HOME/.ollama/models" \
-	"$HOME/.localai/models" \
-	"$HOME/Library/Application Support/Jan/data/models" \
-	"$HOME/Library/Application Support/nomic.ai/GPT4All"; do
+# Roots are scanned for BOTH engines, and the list of them lives in the model library
+# (model_scan_roots) rather than here: launch reads the same list to decide whether this window
+# is worth opening at all, and a root only one of the two knows about is a silent disagreement
+# about what "no models installed" means.
+while IFS= read -r root; do
 	[ -d "$root" ] || continue
 
 	# GGUF: the file IS the model.
@@ -223,7 +215,7 @@ for root in \
 		add_row "$mlx_dir" ""
 	done <<< "$(/usr/bin/find -L "$root" -maxdepth 5 -name "config.json" -type f 2>/dev/null \
 		| while IFS= read -r c; do /usr/bin/dirname "$c"; done | /usr/bin/sort -u)"
-done
+done <<< "$(model_scan_roots)"
 
 # Append recently opened models not already discovered. Recents are paths the user opened
 # from outside the standard caches, so they are the only way those models are listed at all.

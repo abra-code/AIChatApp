@@ -11,6 +11,24 @@ echo "[$(/usr/bin/basename "$0")]"
 
 window_uuid="$OMC_ACTIONUI_WINDOW_UUID"
 
+# Was this the browser LAUNCH opened, because the Mac had no model installed? Then closing it
+# is what opens the model picker: a first run that ends with the download finished and no
+# window on screen has stranded the user one menu away from the thing they just downloaded.
+#
+# Asked FIRST, and the chain requested here rather than at each exit below, for two reasons.
+# The window has already ended by the time this handler runs - this is END_CANCEL_SUBCOMMAND_ID
+# - so every path through this script is a path where the browser is gone, including the one
+# that stops a download. And omc_next_command only SCHEDULES: the picker opens after this
+# script exits, so requesting it before the "download in progress" alert does not put a window
+# behind that alert.
+#
+# Consumed on read, so this survives being called twice without opening two pickers.
+hf_first_run_consume_for "$window_uuid"
+if [ $? -eq 0 ]; then
+    echo "launch browser closing - handing back to the model picker"
+    "$next_command" "$OMC_CURRENT_COMMAND_GUID" "aichat.select.local.model"
+fi
+
 PB_LAST_QUERY="hf_last_query_${window_uuid}"
 PB_DL_PID="hf_download_pid_${window_uuid}"
 PB_DL_DEST="hf_download_dest_${window_uuid}"

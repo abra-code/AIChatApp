@@ -245,6 +245,62 @@ launch_queue_consume() {
 launch_queue_model() { printf '%s' "${1%|*}"; }
 launch_queue_tools() { printf '%s' "${1##*|}"; }
 
+# ──────────────────────────────────────────────────────────────
+# First-run Hugging Face handoff (launch -> browser -> picker)
+# ──────────────────────────────────────────────────────────────
+# Launch opens the Hugging Face browser INSTEAD of the model picker when it finds no model
+# installed (see Cadabra.main.sh): an empty picker offers nothing to pick, and downloading a
+# model is the one thing that user has to do first. This marks the window launch opened so
+# its close handler can hand back to the picker - the model just downloaded is then one click
+# from a chat, rather than behind a menu the user has no reason to go looking in.
+#
+# ARMED GLOBALLY, THEN CAPTURED PER WINDOW: the same two-step model_switch_capture uses, for
+# the same reason. The arming side is the main command, which has no window uuid to scope the
+# key to because the window it is about does not exist yet. The browser's init runs
+# milliseconds later, inside that window, and moves the mark into the window's own scope -
+# after which a second browser opened from the menu cannot consume a mark that is not about it.
+#
+# No TTL, unlike the switch arm. Nothing user-driven sits between the arm and the capture -
+# it is one command hop - and a global mark left behind by a window whose init never ran is
+# claimed by the next browser to open, which opens the picker once, extra, and clears it.
+HF_FIRST_RUN_KEY="aichatv2_hf_first_run"
+HF_FIRST_RUN_PREFIX="aichatv2_hf_first_run_"
+
+# hf_first_run_arm / hf_first_run_clear - the next Hugging Face browser to open is, or is not,
+# the one launch opened.
+#
+# THE MAIN COMMAND WRITES ONE OF THESE ON EVERY LAUNCH, and is the only writer of the global
+# key. That is what bounds the one hole a persistent pasteboard leaves: an arm stranded by a
+# crash between the main command and the browser's init would otherwise still be sitting there
+# months later, and the next browser opened from the menu - on a Mac now full of models - would
+# capture it and announce that nothing is installed. Clearing on every launch means a stale arm
+# cannot outlive the launch after the one that stranded it.
+hf_first_run_arm()   { pb_set "$HF_FIRST_RUN_KEY" "1"; }
+hf_first_run_clear() { pb_set "$HF_FIRST_RUN_KEY" ""; }
+
+# hf_first_run_capture <hf_window_uuid> - take ownership of a global arm, moving it into this
+# window's scope. Returns 0 only when there WAS one, so the browser's init can use the same
+# call to decide whether to say why the window opened.
+hf_first_run_capture() {
+    [ "$(pb_get "$HF_FIRST_RUN_KEY")" = "1" ] || return 1
+    pb_set "$HF_FIRST_RUN_KEY" ""
+    pb_set "${HF_FIRST_RUN_PREFIX}${1}" "1"
+    return 0
+}
+
+# hf_first_run_armed_for <hf_window_uuid> - 0 if this window is the one launch opened. A PEEK,
+# and the reason there is one: the download handler asks so that what it says AFTER a download
+# can name what closing the window will actually do, and asking must not be what spends the mark.
+hf_first_run_armed_for() { [ "$(pb_get "${HF_FIRST_RUN_PREFIX}${1}")" = "1" ]; }
+
+# hf_first_run_consume_for <hf_window_uuid> - read+CLEAR this window's mark; 0 if this was the
+# browser launch opened. Cleared on read, so a close handler that runs twice chains once.
+hf_first_run_consume_for() {
+    hf_first_run_armed_for "$1" || return 1
+    pb_set "${HF_FIRST_RUN_PREFIX}${1}" ""
+    return 0
+}
+
 # chat_inject_empty <win> — clear the embedded Chat (id 1) to an empty conversation.
 # The Chat element's reconcileRestoredContent DEDUPES a re-injected transcript that equals
 # the last one, and live-typed turns never update its "last loaded" transcript - so a plain

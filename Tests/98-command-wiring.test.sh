@@ -135,17 +135,77 @@ check "no stale AIChat.main.sh left behind" "0" \
 check "no bare main.sh shadowing the fallback" "0" \
     "$([ -f "$cad_scripts/main.sh" ] && echo 1 || echo 0)"
 
-section "a bare launch opens the Local Models dialog"
-# The behavior the user meets: double-click the app with nothing selected. ACTIVATION_MODE is
-# absent from the main command and therefore act_always, which is what lets this run with no
-# file context at all - if someone adds act_file_or_folder, the engine shows a file picker
-# before any of this and the launch experience silently changes.
+# The pasteboard key the launch handoff travels on, stated as a LITERAL for the reason
+# 50-settings-core states its keys as literals: the assertions below arm and read it by name,
+# and a name taken from the applet would keep them green through a rename while proving nothing.
+HF_FIRST_RUN_KEY="aichatv2_hf_first_run"
+HF_FIRST_RUN_ARM="aichatv2_hf_first_run_"
+
+section "the harness and the applet agree on the first-run handoff key"
+check "the key and its per-window prefix are the ones under test" \
+    "$HF_FIRST_RUN_KEY $HF_FIRST_RUN_ARM" \
+    "$(cad_lib_var HF_FIRST_RUN_KEY aichat.library.sh) $(cad_lib_var HF_FIRST_RUN_PREFIX aichat.library.sh)"
+
+section "a bare launch with no model installed opens the Hugging Face browser"
+# The behavior the user meets on a Mac that has never had a model: double-click the app with
+# nothing selected. ACTIVATION_MODE is absent from the main command and therefore act_always,
+# which is what lets this run with no file context at all - if someone adds act_file_or_folder,
+# the engine shows a file picker before any of this and the launch experience silently changes.
+#
+# "No model installed" is a FACT here rather than a hope: every root model_scan_roots names is
+# under $HOME, the harness gives this file its own, and nothing above has written a model into
+# one. The section after this one is the positive control that the scan can find one at all.
 chains_reset
+cad_pb_set "$HF_FIRST_RUN_KEY" ""
 omc_run "Cadabra.main"
 check_status "the main command succeeds" 0
-check "it asks for the Local Models dialog" "1" "$(chain_asked aichat.select.local.model)"
-check "it does not open a chat window"      "0" "$(chain_asked aichat.chat)"
-check "it asks exactly once"                "1" "$(chain_asked aichat.select.local.model)"
+check "it asks for the Hugging Face browser"     "1" "$(chain_asked aichat.hf.browse)"
+check "it does not open the Local Models dialog" "0" "$(chain_asked aichat.select.local.model)"
+check "it does not open a chat window"           "0" "$(chain_asked aichat.chat)"
+check "it asks exactly once"                     "1" "$(chain_asked aichat.hf.browse)"
+check "and it armed the handoff back to the picker" "1" "$(cad_pb_get "$HF_FIRST_RUN_KEY")"
+
+section "closing that browser is what opens the Local Models dialog"
+# The other half of the first-run route, and the reason the arm exists at all: the browser is
+# download-only, so a user who came in through it and closed it would otherwise be left with no
+# window and a model they cannot see. The capture is the applet's own, called the way the
+# browser's init calls it - the global arm has no window to belong to until then.
+cad_call_lib aichat.library.sh hf_first_run_capture "$OMC_ACTIONUI_WINDOW_UUID"
+check "capturing reports it took an arm" "0" "$?"
+check "the global arm is spent"          ""  "$(cad_pb_get "$HF_FIRST_RUN_KEY")"
+check "and now belongs to this window"   "1" "$(cad_pb_get "$HF_FIRST_RUN_ARM$OMC_ACTIONUI_WINDOW_UUID")"
+
+chains_reset
+omc_run aichat.hf.browse.cancel
+check_status "the close handler succeeds" 0
+check "closing opens the Local Models dialog" "1" "$(chain_asked aichat.select.local.model)"
+check "  and the window's mark is spent"      ""  "$(cad_pb_get "$HF_FIRST_RUN_ARM$OMC_ACTIONUI_WINDOW_UUID")"
+
+# Consumed on read, so a second close - or a browser the user opened from the menu, which never
+# had a mark - opens nothing. Without this the app would grow a picker every time the browser
+# was closed.
+chains_reset
+omc_run aichat.hf.browse.cancel
+check "an ordinary close opens nothing" "0" "$(chain_asked aichat.select.local.model)"
+
+section "one installed model is enough to open the Local Models dialog instead"
+# The positive control for the scan above, and the branch every launch after the first takes.
+cad_installed="$HOME/Library/Application Support/Cadabra/Models"
+/bin/mkdir -p "$cad_installed"
+/usr/bin/head -c 2048 /dev/zero > "$cad_installed/Installed-Q4_K_M.gguf"
+chains_reset
+# Armed BEFORE this launch, standing in for the one hole a persistent pasteboard leaves: a
+# crash between the main command arming and the browser's init capturing strands the global
+# key, and a browser opened from the menu long afterwards would otherwise capture it and
+# announce that nothing is installed on a Mac full of models. The main command writes this key
+# on every launch, so a stranded arm cannot outlive the launch after the one that stranded it.
+cad_pb_set "$HF_FIRST_RUN_KEY" "1"
+omc_run "Cadabra.main"
+check_status "the main command succeeds" 0
+check "it asks for the Local Models dialog"      "1" "$(chain_asked aichat.select.local.model)"
+check "it does not open the Hugging Face browser" "0" "$(chain_asked aichat.hf.browse)"
+check "it does not open a chat window"           "0" "$(chain_asked aichat.chat)"
+check "and a stale arm from an earlier launch is gone" "" "$(cad_pb_get "$HF_FIRST_RUN_KEY")"
 
 section "a dropped model opens the chat window instead"
 # The other half of the branch, and the reason this command chains imperatively with
@@ -155,10 +215,15 @@ chains_reset
 cad_dropped="$OMCTEST_WORK/Dropped-Q4_K_M.gguf"
 /usr/bin/head -c 2048 /dev/zero > "$cad_dropped"
 omc_object "$cad_dropped"
+cad_pb_set "$HF_FIRST_RUN_KEY" "1"
 omc_run "Cadabra.main"
 check_status "the main command succeeds with an object" 0
 check "it opens the chat window"                 "1" "$(chain_asked aichat.chat)"
 check "it does not open the Local Models dialog" "0" "$(chain_asked aichat.select.local.model)"
+# The clear is unconditional, so the branch that never consults the key still owns it: a drop
+# launch is a launch, and leaving an arm standing here would hand the next menu-opened browser
+# a first-run message it has no business showing.
+check "and this branch clears a stale arm too"   ""  "$(cad_pb_get "$HF_FIRST_RUN_KEY")"
 
 section "the routing follows the object, and the drop leaves nothing sticky"
 # The object context has to be cleared EXPLICITLY: omc_run clears the one-shot trigger and

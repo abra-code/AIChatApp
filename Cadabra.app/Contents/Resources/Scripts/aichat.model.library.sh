@@ -542,6 +542,100 @@ model_recents_add() { # <path>
 	return 0
 }
 
+# ── Where models come from ────────────────────────────────────────────────────
+
+# model_scan_roots -> the directories scanned for installed models, one per line.
+#
+# ONE LIST, because two readers walk it: the picker's init, which lists what it finds, and
+# model_any_installed, which decides at launch whether there is anything to list at all. A
+# second copy is a copy that can drift, and it drifts silently in the direction that matters -
+# a root only the launch check knows about would send a user who has models straight into the
+# download browser.
+#
+# Every root is scanned for BOTH engines. The HF cache and LM Studio genuinely hold each kind
+# (LM Studio ships an MLX runtime), so neither can be assumed single-engine. The Ollama /
+# LocalAI / Jan / GPT4All caches are GGUF-only in practice; scanning them for safetensors costs
+# one find that returns nothing, which is cheaper than maintaining two root lists that would
+# drift.
+#
+# One per LINE rather than a quoted string, because "Application Support" has a space in it and
+# word splitting is how one root becomes two that do not exist.
+model_scan_roots() {
+	/bin/cat <<EOF
+$HOME/Library/Application Support/Cadabra/Models
+$HOME/.cache/huggingface/hub
+$HOME/.lmstudio/models
+$HOME/.ollama/models
+$HOME/.localai/models
+$HOME/Library/Application Support/Jan/data/models
+$HOME/Library/Application Support/nomic.ai/GPT4All
+EOF
+}
+
+# model_any_installed -> 0 if this Mac has at least one model Cadabra can LOAD, 1 if it has
+# none. Launch asks it to decide which window to open (see Cadabra.main.sh).
+#
+# "Installed" means a downloaded GGUF file or MLX directory, and deliberately NOT Apple's
+# on-device model: that one belongs to the OS, is not on our disk, and is present on every
+# eligible Mac - counting it would retire the first-run download flow on exactly the machines
+# it was written for.
+#
+# STOPS AT THE FIRST HIT. This runs on the launch path, ahead of a window that has not appeared
+# yet, so a user who has models pays for one find against one root rather than a walk of all
+# seven. The full walk is what "no models" costs, and that answer is reached about once per
+# machine.
+#
+# Recents last, and for the reason the picker lists them at all: a model opened from outside
+# the standard caches is installed as far as its owner is concerned, and no root here will ever
+# find it.
+model_any_installed() {
+	local _root _cfg _recent
+	while IFS= read -r _root; do
+		[ -n "$_root" ] || continue
+		[ -d "$_root" ] || continue
+
+		# GGUF: the file IS the model, so finding one is the whole test.
+		#
+		# -print -quit, NOT `| head -n 1`. head exiting only reaches find as a SIGPIPE on its
+		# NEXT write, so a root holding exactly one .gguf - the common case - is walked to the
+		# end anyway. A single model inside a large ~/.cache/huggingface/hub is precisely the
+		# shape that turns "stops at the first hit" into a full recursive walk on every launch.
+		local _gguf
+		_gguf=$(/usr/bin/find -L "$_root" -name "*.gguf" -type f -print -quit 2>/dev/null)
+		[ -n "$_gguf" ] && return 0
+
+		# MLX: config.json marks a CANDIDATE directory and model_engine decides whether it is
+		# really one - a GGUF snapshot dir carries a config.json too. Same -maxdepth 5 as the
+		# picker, for the same reason: the HF hub nests config.json four levels below the root.
+		#
+		# No -quit on this one, and the asymmetry is the point: a rejected candidate has to be
+		# walked past, so the find must keep going. It is the LOOP that stops, at the first
+		# candidate model_engine accepts.
+		local _engine
+		while IFS= read -r _cfg; do
+			[ -n "$_cfg" ] || continue
+			_engine=$(model_engine "$(/usr/bin/dirname "$_cfg")")
+			[ -n "$_engine" ] && return 0
+		done <<EOF
+$(/usr/bin/find -L "$_root" -maxdepth 5 -name "config.json" -type f 2>/dev/null)
+EOF
+	done <<EOF
+$(model_scan_roots)
+EOF
+
+	local _recent_engine
+	while IFS= read -r _recent; do
+		[ -n "$_recent" ] || continue
+		[ "$_recent" = "$FOUNDATION_MODEL_ID" ] && continue
+		_recent_engine=$(model_engine "$_recent")
+		[ -n "$_recent_engine" ] && return 0
+	done <<EOF
+$(model_recents_list)
+EOF
+
+	return 1
+}
+
 # calculate_total_server_ram()
 # Sums model sizes (from /server-info) for all currently live registered servers.
 # Prints the total in bytes.

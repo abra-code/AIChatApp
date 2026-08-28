@@ -85,9 +85,22 @@ stop_exit() {
 # download_finished <label> - download-only epilogue: browser stays open, user loads the
 # model explicitly from the model picker (Select Model), where the RAM warning and the
 # agentic/regular decision live.
+#
+# Two wordings, because the next step genuinely differs. In the ordinary case the picker is a
+# menu away and the user goes there when they feel like it. In the browser LAUNCH opened - the
+# Mac had no model at all - closing this window IS what opens the picker (see the cancel
+# handler), so telling that user to go find a menu would describe a detour around the path they
+# are already on.
 download_finished() {
     reset_ui
-    "$dialog_tool" "$window_uuid" $INFO_TEXT_ID "Downloaded. Load \"$1\" from the model picker (Select Model) when you want to chat with it."
+    hf_first_run_armed_for "$window_uuid"
+    if [ $? -eq 0 ]; then
+        "$dialog_tool" "$window_uuid" $INFO_TEXT_ID "Downloaded \"$1\".
+
+Close this window to pick it from the Local Models list and start chatting."
+    else
+        "$dialog_tool" "$window_uuid" $INFO_TEXT_ID "Downloaded. Load \"$1\" from the model picker (Select Model) when you want to chat with it."
+    fi
 }
 
 # mlx_model_complete <dir> - 0 only if <dir> holds config.json plus every weight shard. A
