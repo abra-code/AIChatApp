@@ -173,6 +173,43 @@ ui_reset
 omc_run aichat.select.local.model.init
 check "a config with no shards is skipped" "" "$(row_for "$MODELS/not-a-model")"
 
+section "a shard set with a hole in it is not listed either"
+# The other half of the same rule, and the one that used to get through. A multi-shard model
+# whose download stopped partway leaves config.json beside SOME of its shards, and "there is a
+# safetensors in here" - all model_engine used to ask - cannot tell that from a whole model. The
+# picker listed the wreckage, put a size next to it, and handed it to a loader that could only
+# fail. See mlx_shards_complete.
+INDEX_TWO='{"weight_map": {"a": "model-00001-of-00002.safetensors", "b": "model-00002-of-00002.safetensors"}}'
+/bin/mkdir -p "$MODELS/mlx-halfshard"
+echo '{}' > "$MODELS/mlx-halfshard/config.json"
+printf '%s' "$INDEX_TWO" > "$MODELS/mlx-halfshard/model.safetensors.index.json"
+/usr/bin/head -c 4096 /dev/zero > "$MODELS/mlx-halfshard/model-00001-of-00002.safetensors"
+ui_reset
+omc_run aichat.select.local.model.init
+check "a model missing a shard its index names is skipped" "" "$(row_for "$MODELS/mlx-halfshard")"
+check "  and model_engine agrees it is not one"           "" \
+    "$(cad_model_call model_engine "$MODELS/mlx-halfshard")"
+# The positive control, in the same fixture: the ONLY thing wrong with it was the missing shard.
+/usr/bin/head -c 4096 /dev/zero > "$MODELS/mlx-halfshard/model-00002-of-00002.safetensors"
+ui_reset
+omc_run aichat.select.local.model.init
+check "the last shard arriving is what makes it a model" "mlx" \
+    "$(cad_model_call model_engine "$MODELS/mlx-halfshard")"
+check "  and the picker lists it"                        "1" \
+    "$([ -n "$(row_for "$MODELS/mlx-halfshard")" ] && echo 1 || echo 0)"
+# An index that names nothing is a broken index, not a license to accept whatever is lying
+# about - which is what falling back to the no-index rule would have meant.
+/bin/mkdir -p "$MODELS/mlx-emptyindex"
+echo '{}' > "$MODELS/mlx-emptyindex/config.json"
+echo '{"weight_map": {}}' > "$MODELS/mlx-emptyindex/model.safetensors.index.json"
+/usr/bin/head -c 4096 /dev/zero > "$MODELS/mlx-emptyindex/model.safetensors"
+check "an index naming no shards is not trusted" "" \
+    "$(cad_model_call model_engine "$MODELS/mlx-emptyindex")"
+# And the case that has nothing to be incomplete AGAINST keeps the old, looser rule: a repo that
+# ships one weights file and no index is a whole model, and every mlx fixture above is one.
+check "a single-file model with no index is still a model" "mlx" \
+    "$(cad_model_call model_engine "$MODELS/mlx-bare")"
+
 section "the same file under two roots is two rows, because dedup is by path"
 # Stated as what it IS rather than as "listed once", which is what this fixture looked like it
 # was testing and is not. add_row dedupes on the path STRING, and two roots reaching one file

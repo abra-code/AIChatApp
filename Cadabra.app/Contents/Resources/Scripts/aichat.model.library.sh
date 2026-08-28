@@ -24,6 +24,56 @@ source "$OMC_APP_BUNDLE_PATH/Contents/Resources/Scripts/aichat.library.sh"
 # every scanned path is absolute, and this one has no leading slash.
 FOUNDATION_MODEL_ID="foundation:apple-on-device"
 
+# mlx_shards_complete <dir> -> 0 if <dir> is an MLX model with ALL of its weights present.
+#
+# THE COMPLETENESS QUESTION, not the shape question, and the difference is a model the picker
+# should never have offered. A multi-shard model interrupted halfway - a crash during a
+# download, a copy that stopped - leaves config.json beside SOME of its shards, which is
+# indistinguishable from a whole model to anything that just asks "is there a safetensors in
+# here". That is what model_engine used to ask, so the picker listed the wreckage, sized it,
+# and handed it to a loader that could only fail.
+#
+# model.safetensors.index.json is the authority when it exists: it names every shard, so
+# "every name it lists is on disk" is the real test. Names are taken from the whole file rather
+# than from the weight_map alone - the map is the only place they appear, and a grep for
+# "*.safetensors" cannot pick up anything else that would be wrong to require.
+#
+# WITHOUT an index there is nothing to be incomplete against: a single-file model is all or
+# nothing, and a repo that ships one shard and no index is a complete model. So that case keeps
+# exactly the old test - any *.safetensors within maxdepth 2 - and this function only ever
+# narrows what it can actually prove is missing. -maxdepth 2 because shards normally sit beside
+# config.json but some repos nest them one level down.
+#
+# Called per picker row, so both branches stay cheap: one grep over a small JSON, or one
+# bounded find that stops at the first hit.
+mlx_shards_complete() {
+	[ -d "$1" ] || return 1
+	[ -f "$1/config.json" ] || return 1
+
+	local _idx="$1/model.safetensors.index.json"
+	if [ -f "$_idx" ]; then
+		local _names
+		_names=$(/usr/bin/grep -oE '"[^"]+\.safetensors"' "$_idx" 2>/dev/null \
+			| /usr/bin/tr -d '"' | /usr/bin/sort -u)
+		# An index naming nothing is a broken index, and guessing past it would put us back to
+		# accepting whatever happens to be lying about.
+		[ -n "$_names" ] || return 1
+		local _shard
+		while IFS= read -r _shard; do
+			[ -n "$_shard" ] || continue
+			[ -f "$1/$_shard" ] || return 1
+		done <<EOF
+$_names
+EOF
+		return 0
+	fi
+
+	local _st
+	_st=$(/usr/bin/find -L "$1" -maxdepth 2 -name '*.safetensors' -type f -print -quit 2>/dev/null)
+	[ -n "$_st" ] && return 0
+	return 1
+}
+
 # model_engine <path> -> "foundation" | "gguf" | "mlx" | "" (unknown, or no longer on disk)
 model_engine() {
 	# FIRST, and not by preference: the tests below all touch the filesystem, and the
@@ -34,13 +84,9 @@ model_engine() {
 		*.gguf) [ -f "$1" ] && { echo "gguf"; return 0; } ;;
 	esac
 	if [ -d "$1" ] && [ -f "$1/config.json" ]; then
-		# config.json alone is not enough - HF snapshot dirs of GGUF repos carry one too.
-		# The shards are what make it loadable. -maxdepth 2 because shards normally sit
-		# beside config.json but some repos nest them one level down; bounded so this stays
-		# cheap enough to call per picker row.
-		local _st
-		_st=$(/usr/bin/find -L "$1" -maxdepth 2 -name '*.safetensors' -type f 2>/dev/null | /usr/bin/head -n 1)
-		[ -n "$_st" ] && { echo "mlx"; return 0; }
+		# config.json alone is not enough - HF snapshot dirs of GGUF repos carry one too - and
+		# neither is ONE shard, which is what this used to accept. See mlx_shards_complete.
+		mlx_shards_complete "$1" && { echo "mlx"; return 0; }
 	fi
 	echo ""
 	return 1

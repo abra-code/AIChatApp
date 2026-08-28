@@ -25,14 +25,14 @@ if [ -n "$OMC_FRONT_PROCESS_ID" ]; then
     while IFS= read -r curl_pid; do
         [ -z "$curl_pid" ] && continue
         is_our_descendant "$curl_pid" || continue
-        curl_args=$(/bin/ps -p "$curl_pid" -o args= 2>/dev/null)
-        dest_path=$(echo "$curl_args" | /usr/bin/grep -oE -- '-o [^ ]+' | /usr/bin/awk '{print $2}')
-        echo "Stopping Hugging Face download curl pid=$curl_pid dest=$dest_path"
+        echo "Stopping Hugging Face download curl pid=$curl_pid"
         kill -TERM "$curl_pid" 2>/dev/null
-        if [ -n "$dest_path" ] && [ -f "$dest_path" ]; then
-            echo "Removing partial download: $dest_path"
-            /bin/rm -f "$dest_path"
-        fi
+        # The partial is KEPT, and that is a change: this used to dig the destination out of
+        # curl's argv and delete it. It had to, because curl wrote straight to the model's real
+        # name and leaving the fragment there meant the picker listed a corrupt model on the next
+        # launch. Downloads are staged now (see aichat.hf.browse.download.sh): what is on disk is
+        # a "<final>.part" that no reader looks at and the next Download resumes from. Deleting it
+        # would only throw away however many gigabytes had arrived, for a quit.
     done <<< "$curl_pids"
 fi
 

@@ -68,8 +68,12 @@ if [ -n "$dl_dest" ]; then
                 *curl*huggingface.co*) kill "$cur_pid" 2>/dev/null ;;
             esac
         fi
+        # The staging file AND the sidecar that says which revision it belongs to - they are
+        # one fact in two files. An orphaned sidecar cannot mislead anything (prepare_part only
+        # reads one when a staging file is there, and the next transfer overwrites it before its
+        # first byte), but leaving it behind is litter in a directory nobody looks at.
         partial=$(pb_get "$PB_DL_PARTIAL")
-        [ -n "$partial" ] && rm -f "$partial"
+        [ -n "$partial" ] && rm -f "$partial" "${partial}.id"
         pb_set "$PB_DL_PID"  ""
         pb_set "$PB_DL_DEST" ""
         pb_set "$PB_DL_FILE" ""

@@ -19,6 +19,13 @@ filt="$OMC_OMC_SUPPORT_PATH/filt"
 pasteboard="$OMC_OMC_SUPPORT_PATH/pasteboard"
 next_command="$OMC_OMC_SUPPORT_PATH/omc_next_command"
 
+# The one tool here that is NOT an OMC tool, and therefore the one the test harness cannot
+# reach by rebuilding $OMC_OMC_SUPPORT_PATH. It is named through a variable so a test can put a
+# recorder in its place; nothing else may hardcode /usr/bin/curl on the download path, or that
+# path stops being testable. Everything the model downloader does - the size probe, the file
+# list, and the transfers themselves - goes through this.
+hf_curl="${CADABRA_CURL:-/usr/bin/curl}"
+
 # ──────────────────────────────────────────────────────────────
 # Pasteboard helpers
 # ──────────────────────────────────────────────────────────────
