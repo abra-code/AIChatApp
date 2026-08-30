@@ -232,7 +232,7 @@
             "type": "Button",
             "id": 21,
             "properties": {
-              "title": "Browse Hugging Face…",
+              "title": "Download Models",
               "actionID": "aichat.select.local.model.hf"
             }
           },

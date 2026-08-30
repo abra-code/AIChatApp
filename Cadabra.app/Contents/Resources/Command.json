@@ -182,7 +182,7 @@
         "INIT_SUBCOMMAND_ID" : "aichat.hf.browse.init",
         "IS_BLOCKING" : false,
         "JSON_NAME" : "aichat.hf.browse",
-        "WINDOW_TITLE" : "Cadabra — Browse Hugging Face Models"
+        "WINDOW_TITLE" : "Download Models – Hugging Face"
       },
       "COMMAND_ID" : "aichat.hf.browse",
       "EXECUTION_MODE" : "exe_shell_script",
@@ -245,7 +245,7 @@
         "INIT_SUBCOMMAND_ID" : "aichat.mcp.servers.init",
         "IS_BLOCKING" : false,
         "JSON_NAME" : "aichat.mcp.servers",
-        "WINDOW_TITLE" : "Cadabra — Agentic Session Tools"
+        "WINDOW_TITLE" : "Cadabra – Agentic Session Tools"
       },
       "COMMAND_ID" : "aichat.mcp.servers",
       "EXECUTION_MODE" : "exe_shell_script",
@@ -333,7 +333,7 @@
         "INIT_SUBCOMMAND_ID" : "aichat.mcp.inspect.init",
         "IS_BLOCKING" : false,
         "JSON_NAME" : "aichat.mcp.inspect",
-        "WINDOW_TITLE" : "Cadabra — MCP Servers"
+        "WINDOW_TITLE" : "Cadabra – MCP Servers"
       },
       "COMMAND_ID" : "aichat.mcp.inspect",
       "EXECUTION_MODE" : "exe_shell_script",

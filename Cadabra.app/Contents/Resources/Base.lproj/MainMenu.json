@@ -18,7 +18,7 @@
           "actionID": "aichat.select.external.agent"
       } },
       { "type": "Button", "properties": {
-          "title": "Browse Hugging Face",
+          "title": "Download Models",
           "actionID": "aichat.hf.browse"
       } }
     ]
