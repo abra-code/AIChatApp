@@ -154,8 +154,15 @@ if [ -n "$newly_minted" ]; then
     TABLE_ID=510
     ROW_BUTTONS="521 520 524"   # Rename Reveal Delete
     history_populate_table "$win" "$TABLE_ID"
-    "$dialog" "$win" "$TABLE_ID" omc_select_row 0
-    for b in $ROW_BUTTONS; do "$dialog" "$win" "$b" omc_enable; done
+    # Row 0 is this conversation only in the UNFILTERED list. While the sidebar's search field holds a
+    # term, the list is the conversations that mention it, ranked by how often - a brand-new
+    # conversation is not among them, and selecting row 0 would put some other conversation under
+    # the Rename / Reveal / Delete buttons. So with a term up, nothing is selected.
+    search_term=$(history_search_query "$win")
+    if [ -z "$search_term" ]; then
+        "$dialog" "$win" "$TABLE_ID" omc_select_row 0
+        for b in $ROW_BUTTONS; do "$dialog" "$win" "$b" omc_enable; done
+    fi
     # And the facts line, which until this moment read "New conversation". Stated here as well
     # as in the case below because a session can be minted by an entry that is not a message -
     # and marked done, because the minting entry USUALLY is one, and running the journal through

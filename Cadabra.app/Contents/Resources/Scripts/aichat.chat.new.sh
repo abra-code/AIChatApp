@@ -23,6 +23,9 @@ chat_inject_empty "$win"
 # one. Nothing else in this handler needs the old queue, so there is no reason to carry it.
 history_marker_clear "$win" "$CHAT_VIEW_ID"
 pb_set "aichatv2_session_${win}" ""
+# The find that was lit in the conversation just cleared has nothing to show over an empty one.
+# The sidebar's own filter stays as typed - it is about the list, not this window's transcript.
+history_search_state "$win" "$CHAT_VIEW_ID" ""
 # Whatever the sidebar armed belongs to the conversation being left behind. The next turn mints a
 # new session and never looks at the flag, and the turn after that would fail its SID check - but
 # leaving a stale arm lying around to be refused later is not the same as clearing it.

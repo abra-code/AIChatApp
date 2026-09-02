@@ -114,6 +114,10 @@ fi
 history_marker_clear "$win" "$CHAT_VIEW_ID"
 pb_set "aichatv2_session_${win}" "$sid"
 
+# A row clicked while the sidebar is filtered was clicked BECAUSE it matched: light the term in
+# the conversation now on screen, so the reader lands on why. Nothing happens without a term.
+history_search_reapply "$win" "$CHAT_VIEW_ID"
+
 # WHAT THIS WINDOW WOULD CONTINUE WITH: minted now, while the model that would answer is known,
 # and placed by the element in front of whatever the user types next - if anything ever is.
 #

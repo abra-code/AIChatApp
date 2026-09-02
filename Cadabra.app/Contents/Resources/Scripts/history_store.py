@@ -20,6 +20,12 @@ Subcommands (all read-only; never mutate the store):
     preview <session_dir>      -> markdown summary (legacy; the chat pane is the preview now)
     info <session_dir>         -> one compact line "Model: X  ·  Started: Y  ·  Messages: N"
                                   for the toggle-able info strip above the chat
+    search <history_root> <query> [scope] [limit]
+                               -> TSV rows "title\tsession_id" of the conversations whose text
+                                  contains the query (case-insensitive substring; scope
+                                  "messages" (default) or "all" to include thoughts and tool
+                                  calls), most matches first, ties most recent first. The same
+                                  shape as `index`, so the sidebar is filled the same way.
 
 No third-party deps; runs under the bundle's embedded python3.
 """
@@ -113,12 +119,14 @@ def _read_meta(session_dir):
 
 
 def _first_local_text(envelopes):
-    """First local (user) message text - the default session title."""
+    """First local (user) message text - the default session title. A malformed text (not a
+    string) reads as none: one bad line must not make the conversation unlistable."""
     for env in envelopes:
         if env.get("type") == "message":
             msg = (env.get("data") or {}).get("message") or {}
-            if msg.get("role") == "local":
-                return msg.get("text") or ""
+            if isinstance(msg, dict) and msg.get("role") == "local":
+                text = msg.get("text")
+                return text if isinstance(text, str) else ""
     return ""
 
 
@@ -242,6 +250,8 @@ def _build_transcript(session_dir):
     model = _model_label(model_path) if model_path else (meta.get("model") or "")
     stats = {
         "msgs": msg_count,
+        "sid": meta.get("id") or os.path.basename(session_dir.rstrip(os.sep)),
+        "titledByUser": bool((meta.get("title") or "").strip()),
         "model": model,
         # An external ACP agent has no model path - the agent brings its own model and we
         # never learn which. The conversation is identified by the AGENT instead, and the
@@ -251,6 +261,132 @@ def _build_transcript(session_dir):
         "title": title,
     }
     return transcript, stats
+
+
+# ---------------------------------------------------------------------------------------------
+# Search across conversations. The chat list asks WHICH conversations mention a term; once one is
+# opened, the Chat element's own find (states["search"]) shows WHERE - with the same term, over
+# the rendered text. This side matches the raw Markdown, because it cannot render: "un**believ**able"
+# is not found by "unbelievable" here and is on screen. Otherwise it follows the element's rules
+# (ChatSearch in ChatView) as far as a journal allows: message bodies and system / error captions
+# by default, thoughts and tool calls (title and the detail text up to the cap the card shows) only
+# with scope "all", deleted messages never. A session marker is matched by its model name, the one
+# word of its caption the journal holds; the element composes the whole sentence. The item kinds the
+# journal fold drops (ITEM_TYPES) are not here either, because they are never in a transcript.
+
+# What the element shows of a tool call's detail (ToolDetailText.cap in ChatView): text past it is
+# not on screen, so a hit there could not be highlighted and does not rank a conversation.
+TOOL_DETAIL_CAP = 4000
+
+def _text(value):
+    """A string field as a string; anything else (a malformed journal line) as nothing."""
+    return value if isinstance(value, str) else ""
+
+
+def _item_search_texts(item, scope):
+    """The displayed text fields of one ChatItem dict that `scope` covers."""
+    kind = item.get("type")
+    if kind == "message":
+        msg = item.get("message")
+        if not isinstance(msg, dict) or msg.get("deleted") is True:
+            return []
+        return [_text(msg.get("text"))]
+    if kind == "thought":
+        if scope != "all":
+            return []
+        thought = item.get("thought")
+        if not isinstance(thought, dict):
+            return []
+        return [_text(thought.get("text"))]
+    if kind == "toolCall":
+        if scope != "all":
+            return []
+        call = item.get("toolCall")
+        if not isinstance(call, dict):
+            return []
+        return [_text(call.get("title")), _text(call.get("contentText"))[:TOOL_DETAIL_CAP]]
+    if kind in ("system", "error"):
+        return [_text(item.get("text"))]
+    if kind == "sessionEvent":
+        event = item.get("sessionEvent")
+        if not isinstance(event, dict):
+            return []
+        return [_text(event.get("model"))]
+    return []
+
+
+def _count_matches(text, needle):
+    """Non-overlapping, case-insensitive occurrences of `needle` (already casefolded) in `text`."""
+    if not text:
+        return 0
+    return text.casefold().count(needle)
+
+
+def _session_matches(session_dir, name, needle, scope):
+    """(matches, epoch, title, sid) for one conversation, or None when it does not mention the term."""
+    transcript, stats = _build_transcript(session_dir)
+    sid = stats.get("sid") or name
+    title = stats.get("title") or "(untitled)"
+    # The title counts only when it is one the user gave: a derived title is the first message,
+    # which is counted below already, and counting it twice would rank a conversation by how its
+    # opening question was worded rather than by what it discussed.
+    matches = _count_matches(title, needle) if stats.get("titledByUser") else 0
+    for item in transcript.get("items", []):
+        if not isinstance(item, dict):
+            continue
+        for text in _item_search_texts(item, scope):
+            matches += _count_matches(text, needle)
+    if not matches:
+        return None
+    return (matches, _updated_epoch(session_dir), title, sid)
+
+
+def search_sessions(history_root, query, scope="messages", limit=None):
+    """[(matches, epoch, title, sid)] for every conversation with at least one match, ranked.
+
+    The term is matched literally (case-insensitively) after trimming its ends: a run of spaces
+    inside it has to be in the text too."""
+    needle = (query or "").strip().casefold()
+    if not needle:
+        return []
+    found = []
+    try:
+        entries = os.listdir(history_root)
+    except OSError:
+        return []
+    for name in entries:
+        session_dir = os.path.join(history_root, name)
+        if not os.path.isdir(session_dir):
+            continue
+        if not os.path.exists(os.path.join(session_dir, "journal.jsonl")) and \
+           not os.path.exists(os.path.join(session_dir, "meta.json")):
+            continue
+        # One conversation that cannot be read must not take the whole list with it: the caller
+        # replaces the sidebar with these rows, and an empty answer empties it.
+        try:
+            row = _session_matches(session_dir, name, needle, scope)
+        except Exception as exc:
+            sys.stderr.write("search: skipping %s: %s\n" % (name, exc))
+            continue
+        if row is not None:
+            found.append(row)
+    found.sort(key=lambda r: (r[0], r[1]), reverse=True)
+    if limit is not None:
+        found = found[:limit]
+    return found
+
+
+def cmd_search(history_root, query, scope="messages", limit=None):
+    out = []
+    for _matches, _epoch, title, sid in search_sessions(history_root, query, scope, limit):
+        # Same TSV hygiene as `index`: a tab or newline in either field would shift the hidden column.
+        title = title.replace("\t", " ").replace("\n", " ")
+        sid = sid.replace("\t", " ").replace("\n", " ")
+        out.append("%s\t%s" % (title, sid))
+    sys.stdout.write("\n".join(out))
+    if out:
+        sys.stdout.write("\n")
+    return 0
 
 
 def cmd_index(history_root):
@@ -738,7 +874,7 @@ def cmd_meta_set(session_dir, key, value):
 def main(argv):
     if len(argv) < 2:
         sys.stderr.write(
-            "usage: history_store.py {index|transcript|preview|info|title|meta-init|"
+            "usage: history_store.py {index|search|transcript|preview|info|title|meta-init|"
             "meta-set|session-event|session-event-item|session-event-record|"
             "digest-input} ...\n")
         return 2
@@ -762,6 +898,24 @@ def main(argv):
     path = argv[2]
     if cmd == "index":
         return cmd_index(path)
+    if cmd == "search":
+        if len(argv) < 4:
+            sys.stderr.write("usage: history_store.py search <history_root> <query> [messages|all] [limit]\n")
+            return 2
+        scope = argv[4] if len(argv) > 4 and argv[4] else "messages"
+        if scope not in ("messages", "all"):
+            sys.stderr.write("search: scope must be messages or all\n")
+            return 2
+        limit = None
+        if len(argv) > 5 and argv[5] != "":
+            try:
+                limit = int(argv[5])
+            except ValueError:
+                limit = -1
+            if limit < 0:
+                sys.stderr.write("search: limit must be a non-negative number\n")
+                return 2
+        return cmd_search(path, argv[3], scope, limit)
     if cmd == "transcript":
         # Optional third positional: "true"/"false"/"defer" -> the transient "prime" key
         # on the emitted JSON; anything else / absent -> key omitted (element default:

@@ -46,6 +46,7 @@
           "minWidths": [150],
           "columnHeadersVisibility": "hidden",
           "actionID": "aichat.history.selection.changed",
+          "searchable": { "prompt": "Search conversations", "actionID": "aichat.history.search" },
           "frame": { "maxWidth": "infinity", "maxHeight": "infinity" }
         }
       },

@@ -33,14 +33,104 @@ history_index() {
     "$history_py" "$history_store" index "$history_root"
 }
 
-# history_populate_table <win> <table_id> — (re)fill the sidebar list from the store, most
-# recent first. Single visible "Title" column (declared in aichat.chat.json); session_id
-# rides as the hidden trailing field. Safe to call repeatedly (chat init + refresh).
-history_populate_table() {
-    local win="$1" table_id="$2" rows
+# history_search <query> [scope] - TSV rows "title<TAB>session_id" of the conversations whose text
+# contains the query, most matches first (the same shape as history_index, so the sidebar is
+# filled the same way). Scope "messages" (default) or "all" (thoughts and tool calls too).
+history_search() {
+    "$history_py" "$history_store" search "$history_root" "$1" "${2:-messages}"
+}
+
+# history_populate_table_rows <win> <table_id> <rows> - replace the sidebar list with these rows.
+history_populate_table_rows() {
+    local win="$1" table_id="$2" rows="$3"
     "$dialog" "$win" "$table_id" omc_table_remove_all_rows
-    rows=$(history_index)
     [ -n "$rows" ] && printf "%s" "$rows" | "$dialog" "$win" "$table_id" omc_table_set_rows_from_stdin
+}
+
+# history_populate_table <win> <table_id> - (re)fill the sidebar list from the store, most
+# recent first, or - while the sidebar's search field holds a term - with the conversations that
+# mention it. Single visible "Title" column (declared in aichat.chat.json); session_id rides as
+# the hidden trailing field. Safe to call repeatedly (chat init + refresh + rename / delete).
+#
+# A FAILED READ LEAVES THE LIST AS IT IS. The rows come from a Python run over every journal, now
+# driven by whatever the user typed; if that run fails, clearing the table would make the whole
+# conversation list vanish under the reader's fingers, which reads as data loss, not as an error.
+history_populate_table() {
+    local win="$1" table_id="$2" rows query
+    query=$(history_search_query "$win")
+    if [ -n "$query" ]; then
+        rows=$(history_search "$query")
+        if [ $? -ne 0 ]; then
+            echo "history search failed for: $query" >&2
+            return 1
+        fi
+        # Keystrokes fire one handler each and they can overlap: a later, shorter run finishing first
+        # must not have its rows replaced by an earlier term's. The term is re-read after the scan
+        # and the rows are dropped if it moved on - the handler for the current term fills the list.
+        if [ "$(history_search_query "$win")" != "$query" ]; then
+            return 0
+        fi
+    else
+        rows=$(history_index)
+        if [ $? -ne 0 ]; then
+            echo "history index failed" >&2
+            return 1
+        fi
+    fi
+    history_populate_table_rows "$win" "$table_id" "$rows"
+}
+
+# --- The sidebar search and the conversation's find ---------------------------------------------
+# One term, two questions. The sidebar's search field asks WHICH conversations mention it
+# (history_search, above, over the journals); the Chat element's find asks WHERE, once one is open.
+# The term typed in the sidebar is handed to the element through its "search" state, so a
+# conversation opened from a filtered list arrives with the reason it matched already lit.
+
+CAD_SEARCH_PREFIX="aichatv2_search_"
+
+# history_search_query <win> - the term the sidebar search field currently holds ("" for none).
+history_search_query() { # <win>
+    pb_get "${CAD_SEARCH_PREFIX}${1}"
+}
+
+# history_search_json <query> - the term as a JSON string literal, which is how it has to travel.
+#
+# omc_set_state parses its value as JSON when it looks like JSON and stores the result through the
+# TYPED state setter, which refuses a value whose type differs from what the key already holds. So a
+# bare term of 123 arrives as a number and is refused, "true" as a Bool, and a term the user typed in
+# quotes loses its quotes. Quoted as a JSON string it is always a String, whatever it says. (The
+# element seeds the key as a String itself, so nothing here has to write it first - and the init
+# handler must not touch the element of a window that has no engine.)
+history_search_json() { # <query>
+    "$history_py" -c 'import json, sys; sys.stdout.write(json.dumps(sys.argv[1]))' "$1"
+}
+
+# history_search_state <win> <chat-view-id> <query> - hand the term to the element's find. A
+# non-empty term highlights every hit and presents the bar without taking the keyboard focus (the
+# reader is typing in the sidebar); "" dismisses it. The element ignores a value equal to the last
+# one it applied (the channel re-delivers on every state change), so a bar the reader closed does
+# not spring back; history_search_reapply is the way to re-light the same term.
+history_search_state() { # <win> <chat-view-id> <query>
+    local json
+    json=$(history_search_json "$3")
+    if [ $? -ne 0 ] || [ -z "$json" ]; then
+        echo "could not encode the search term" >&2
+        return 1
+    fi
+    "$dialog" "$1" "$2" omc_set_state search "$json"
+}
+
+# history_search_reapply <win> <chat-view-id> - after a conversation was loaded into the element:
+# if the sidebar holds a term, light it in the conversation now on screen - even if the reader had
+# closed the bar in the previous one, which is what the empty write in between is for. (Two writes,
+# not one: omc_set_state is a replace, and on the message-port path both are delivered in order.
+# The plist fallback path, taken only when the window's port is gone, keeps the last one alone.)
+history_search_reapply() { # <win> <chat-view-id>
+    local query
+    query=$(history_search_query "$1")
+    [ -n "$query" ] || return 0
+    history_search_state "$1" "$2" ""
+    history_search_state "$1" "$2" "$query"
 }
 
 # history_transcript_json <session_dir> [prime] [keep-recent] [summarizer] - ChatTranscript JSON

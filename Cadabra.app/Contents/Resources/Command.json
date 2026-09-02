@@ -426,6 +426,11 @@
       "NAME" : "Cadabra"
     },
     {
+      "COMMAND_ID" : "aichat.history.search",
+      "EXECUTION_MODE" : "exe_script_file",
+      "NAME" : "Cadabra"
+    },
+    {
       "COMMAND_ID" : "aichat.chat.new",
       "EXECUTION_MODE" : "exe_script_file",
       "NAME" : "Cadabra"
